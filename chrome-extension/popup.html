@@ -22,10 +22,8 @@
   }
   .header-icon {
     width: 32px; height: 32px;
-    background: rgba(255,255,255,0.2);
     border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px;
+    object-fit: contain;
   }
   .header h1 { font-size: 15px; font-weight: 900; }
   .header p { font-size: 10px; opacity: 0.8; }
@@ -85,7 +83,7 @@
 </head>
 <body>
 <div class="header">
-  <div class="header-icon">📦</div>
+  <img src="icons/icon-48.png" class="header-icon" alt="Logo">
   <div>
     <h1>フリモーラ アシスト</h1>
     <p>出品自動化ツール</p>
