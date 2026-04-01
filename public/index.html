@@ -853,6 +853,12 @@ tailwind.config = {
             <p class="text-[11px] text-on-surface-variant">③ ブックマーク編集 → URL欄を全選択して削除 → 貼り付け</p>
             <p class="text-[11px] font-bold text-error">⚠️ 「JavaScript」と大文字にならないよう注意。なった場合は手動で「j」を小文字に修正</p>
             <p class="text-[11px] text-on-surface-variant">④ メルカリ商品ページでブックマークをタップ → 自動でクローン取得</p>
+            <p class="text-[11px] font-bold text-on-surface mt-2">高情報版ブックマークレット（価格・カテゴリ・状態・配送を __NEXT_DATA__ から取得）</p>
+            <p class="text-[11px] text-on-surface-variant">上記と併せて使う場合はこちらのみ登録でOK。アプリ側でも API で不足分を補います。</p>
+            <div class="flex items-center gap-2">
+              <code id="bookmarklet-code-full" class="flex-1 text-[10px] bg-surface-container-high rounded-lg px-3 py-2 break-all text-on-surface font-mono select-all max-h-32 overflow-y-auto"></code>
+              <button type="button" onclick="copyBookmarkletFull()" class="shrink-0 text-xs font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full hover:bg-primary/20 transition-colors">コピー</button>
+            </div>
           </div>
         </div>
 
@@ -2073,6 +2079,79 @@ function showCloneError(msg) {
   el.classList.add('flex');
 }
 
+/** clone_data / ブックマークレット用: itemId 推定・欠損時は API で補完 */
+function inferItemIdFromCloneData(d) {
+  if (!d || typeof d !== 'object') return null;
+  if (d.itemId) return String(d.itemId);
+  const u = d.url;
+  if (typeof u === 'string') {
+    const m = u.match(/\/item\/(m\w+)/i);
+    if (m) return m[1];
+  }
+  const imgs = d.images;
+  if (Array.isArray(imgs)) {
+    for (const src of imgs) {
+      const s = String(src);
+      const im = s.match(/(m\d{8,})/);
+      if (im) return im[1];
+    }
+  }
+  return null;
+}
+
+function normalizeCloneIncoming(d) {
+  if (!d || typeof d !== 'object') return d;
+  const itemId = inferItemIdFromCloneData(d);
+  const url = d.url || (itemId ? `https://jp.mercari.com/item/${itemId}` : '');
+  const rawP = d.currentPrice != null ? d.currentPrice : d.price;
+  let numP = typeof rawP === 'string' ? parseInt(rawP.replace(/[^\d]/g, ''), 10) : Number(rawP);
+  if (!Number.isFinite(numP) || numP < 0) numP = null;
+  return { ...d, itemId: itemId || d.itemId, url: url || d.url, currentPrice: numP, price: numP };
+}
+
+function mergeMercariApiPartial(partial, api) {
+  if (!api || api.error) return partial;
+  const out = { ...api };
+  if (partial.title) out.title = partial.title;
+  if (partial.description) out.description = partial.description;
+  if (Array.isArray(partial.images) && partial.images.length) out.images = partial.images;
+  if (partial.thumbnailUrl) out.thumbnailUrl = partial.thumbnailUrl;
+  const pp = Number(partial.currentPrice ?? partial.price);
+  if (Number.isFinite(pp) && pp > 0) {
+    out.currentPrice = pp;
+    out.price = pp;
+  }
+  if (partial.likesCount != null) out.likesCount = partial.likesCount;
+  return out;
+}
+
+async function enrichCloneDataFromApi(data) {
+  const norm = normalizeCloneIncoming(data);
+  const url = norm.url || (norm.itemId ? `https://jp.mercari.com/item/${norm.itemId}` : '');
+  if (!url || !/\/item\/m\w+/i.test(url)) return norm;
+
+  const lacksPrice = norm.currentPrice == null || norm.currentPrice === 0;
+  const lacksMeta = !norm.category || !norm.condition ||
+    (!norm.shippingPayer && !norm.shippingMethod && !norm.shippingFrom);
+  if (!lacksPrice && !lacksMeta) return norm;
+
+  const q = encodeURIComponent(url);
+  const endpoints = [`/api/mercari?url=${q}`, `https://furimora-assist.vercel.app/api/mercari?url=${q}`];
+  let api = null;
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep);
+      const j = await res.json();
+      if (res.ok && j && !j.error) {
+        api = j;
+        break;
+      }
+    } catch (e) { /* next */ }
+  }
+  if (!api) return norm;
+  return mergeMercariApiPartial(norm, api);
+}
+
 function showCloneStep2(data) {
   clonedData = data;
   document.getElementById('clone-step-1').classList.add('hidden');
@@ -2084,7 +2163,8 @@ function showCloneStep2(data) {
   document.getElementById('clone-description').value = data.description || '';
   document.getElementById('clone-category-input').value = data.category || '';
   document.getElementById('clone-condition-input').value = data.condition || '';
-  document.getElementById('clone-price').value = data.currentPrice || 0;
+  const curPrice = Number(data.currentPrice ?? data.price);
+  document.getElementById('clone-price').value = Number.isFinite(curPrice) && curPrice > 0 ? curPrice : 0;
   updateFeeCalc();
 
   // 画像グリッド
@@ -2452,8 +2532,17 @@ function copyToClipboard(msg) {
 
 // ── PWA ──
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pwaPrompt = e; });
+
+/** メルカリ商品ページ用: __NEXT_DATA__ から価格・カテゴリ・状態・配送まで取得して clone_data で渡す */
+const MERCARI_CLONE_BOOKMARKLET_FULL = 'javascript:(function(){function F(o,d){if(!o||typeof o!==\'object\'||d>6)return null;if(o.id&&(o.name||o.title)&&o.price!==undefined)return o;for(var k in o){var x=F(o[k],d+1);if(x)return x}return null}function ex(){var idm=location.pathname.match(/\\/item\\/(m\\w+)/),itemId=idm?idm[1]:null,data={url:location.href,itemId:itemId};var N=document.getElementById(\'__NEXT_DATA__\');if(N){try{var nd=JSON.parse(N.textContent),item=(nd.props&&nd.props.pageProps&&(nd.props.pageProps.item||(nd.props.pageProps.itemResponse&&nd.props.pageProps.itemResponse.item)||(nd.props.pageProps.data&&nd.props.pageProps.data.item)))||F(nd.props,0);if(item){var imgs=[];(item.photos||[]).forEach(function(p){var u=p.imageUrl||p.image_url||p.url||(typeof p===\'string\'?p:\'\');if(u)imgs.push(String(u).split(\'?\')[0])});var cats=item.categories||item.itemCategoryGroupList||[],cat=Array.isArray(cats)?cats.map(function(c){return c.name||c.displayName||\'\'}).filter(Boolean).join(\' > \'):\'\';var condMap={1:\'新品・未使用\',2:\'未使用に近い\',3:\'目立った傷や汚れなし\',4:\'やや傷や汚れあり\',5:\'傷や汚れあり\',6:\'全体的に状態が悪い\'};var c0=item.itemCondition||item.item_condition||{},cid=item.itemConditionId||item.item_condition_id||c0.id,cond=c0.name||c0.displayName||condMap[cid]||\'\';var p0=item.shippingPayer||item.shipping_payer||{},pid=item.shippingPayerId||item.shipping_payer_id||p0.id,sp=p0.name||(pid===1?\'送料込み（出品者負担）\':pid===2?\'着払い（購入者負担）\':\'\');var m0=item.shippingMethod||item.shipping_method||item.shipping||{},sm=m0.name||m0.displayName||\'\';var f0=item.shippingFromArea||item.shipping_from_area||{},sf=f0.name||f0.displayName||\'\';var d0=item.shippingDuration||item.shipping_duration||{},sd=d0.name||d0.displayName||\'\';data.title=item.name||item.title;data.description=item.description||\'\';data.currentPrice=item.price;data.price=item.price;data.category=cat;data.condition=cond;data.shippingPayer=sp;data.shippingMethod=sm;data.shippingFrom=sf;data.shippingDays=sd;data.images=imgs}}catch(e){}}if(!data.title){data.title=(document.querySelector(\'h1[data-testid="name"]\')||{}).textContent||document.title;var pe=(document.querySelector(\'[data-testid="price"]\')||{}).textContent;if(pe)data.currentPrice=data.price=parseInt(pe.replace(/[^\\d]/g,\'\'),10)||0}var enc=btoa(encodeURIComponent(JSON.stringify(data)).replace(/%([0-9A-F]{2})/g,function(_,p){return String.fromCharCode(parseInt(p,16))}));location.href=\'https://furimora-assist.vercel.app/?clone_data=\'+encodeURIComponent(enc)}ex()})();';
+
 function copyBookmarklet() {
   const code = document.getElementById('bookmarklet-code')?.textContent || '';
+  navigator.clipboard.writeText(code).then(() => showToast('コピーしました')).catch(() => showToast('コピーに失敗しました'));
+}
+
+function copyBookmarkletFull() {
+  const code = MERCARI_CLONE_BOOKMARKLET_FULL || '';
   navigator.clipboard.writeText(code).then(() => showToast('コピーしました')).catch(() => showToast('コピーに失敗しました'));
 }
 
@@ -2468,6 +2557,8 @@ function installPWA() {
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
+  const bmf = document.getElementById('bookmarklet-code-full');
+  if (bmf && typeof MERCARI_CLONE_BOOKMARKLET_FULL !== 'undefined') bmf.textContent = MERCARI_CLONE_BOOKMARKLET_FULL;
   loadStorageData();
   loadStats();
   renderAlerts();
@@ -2504,11 +2595,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (cloneDataParam) {
-    // 全データがエンコードされて渡された場合 → Step2に直接ジャンプ
+    // 全データがエンコードされて渡された場合 → Step2（欠損は /api/mercari で補完）
     try {
-      const data = JSON.parse(decodeURIComponent(escape(atob(cloneDataParam))));
+      const raw = JSON.parse(decodeURIComponent(escape(atob(cloneDataParam))));
+      let data = normalizeCloneIncoming(raw);
       navigate('clone', data.url ? { deepLinkUrl: data.url } : {});
-      setTimeout(() => showCloneStep2(data), 100);
+      setTimeout(() => showCloneStep2(data), 80);
+      enrichCloneDataFromApi(data).then((merged) => {
+        showCloneStep2(merged);
+      }).catch(() => {});
     } catch (e) {
       navigate('clone');
     }
