@@ -1,4 +1,20 @@
-const APP_URL = 'https://furimora-assist.vercel.app';
+const APP_URL = 'https://furimora.vercel.app';
+const LEGACY_APP_URL = 'https://furimora-assist.vercel.app';
+
+function normalizeAppUrl(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return APP_URL;
+  if (value.startsWith(LEGACY_APP_URL)) return value.replace(LEGACY_APP_URL, APP_URL);
+  return value;
+}
+
+function withAppUrl(fn) {
+  chrome.storage.local.get(['furimora_app_url'], ({ furimora_app_url }) => {
+    const appUrl = normalizeAppUrl(furimora_app_url);
+    if (furimora_app_url !== appUrl) chrome.storage.local.set({ furimora_app_url: appUrl });
+    fn(appUrl);
+  });
+}
 
 chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
   const url = tab?.url || '';
@@ -29,22 +45,23 @@ chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
 
     cloneBtn.textContent = '取得中...';
     cloneBtn.disabled = true;
-
-    chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_ITEM_DATA' }, (data) => {
-      let cloneUrl;
-      if (data && data.title) {
-        try {
-          const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-          cloneUrl = `${APP_URL}?clone_data=${encodeURIComponent(encoded)}`;
-        } catch {
-          cloneUrl = `${APP_URL}?page=clone&url=${encodeURIComponent(url)}`;
+    withAppUrl((appUrl) => {
+      chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_ITEM_DATA' }, (data) => {
+        let cloneUrl;
+        if (data && data.title) {
+          try {
+            const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+            cloneUrl = `${appUrl}?clone_data=${encodeURIComponent(encoded)}`;
+          } catch {
+            cloneUrl = `${appUrl}?page=clone&url=${encodeURIComponent(url)}`;
+          }
+        } else {
+          // content scriptから応答なし → URLだけ渡してサーバーAPIにフォールバック
+          cloneUrl = `${appUrl}?page=clone&url=${encodeURIComponent(url)}`;
         }
-      } else {
-        // content scriptから応答なし → URLだけ渡してサーバーAPIにフォールバック
-        cloneUrl = `${APP_URL}?page=clone&url=${encodeURIComponent(url)}`;
-      }
-      chrome.tabs.create({ url: cloneUrl });
-      window.close();
+        chrome.tabs.create({ url: cloneUrl });
+        window.close();
+      });
     });
   });
 });
@@ -58,11 +75,15 @@ chrome.storage.local.get(['furimora_stats'], ({ furimora_stats }) => {
 });
 
 document.getElementById('btn-open-app').addEventListener('click', () => {
-  chrome.tabs.create({ url: APP_URL });
-  window.close();
+  withAppUrl((appUrl) => {
+    chrome.tabs.create({ url: appUrl });
+    window.close();
+  });
 });
 
 document.getElementById('btn-relist').addEventListener('click', () => {
-  chrome.tabs.create({ url: `${APP_URL}?page=relist` });
-  window.close();
+  withAppUrl((appUrl) => {
+    chrome.tabs.create({ url: `${appUrl}?page=relist` });
+    window.close();
+  });
 });

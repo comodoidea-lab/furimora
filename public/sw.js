@@ -1,4 +1,4 @@
-// Service Worker for フリモーラ アシスト
+// Service Worker for フリモーラ
 const CACHE_NAME = 'furimora-v3';
 const STATIC_ASSETS = [
   '/',

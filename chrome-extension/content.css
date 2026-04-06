@@ -1,6 +1,6 @@
-/* フリモーラ アシスト - Content Script Styles */
+/* フリモーラ - Content Script Styles */
 
-#furimora-assist-widget {
+#furimora-widget {
   position: fixed;
   bottom: 24px;
   right: 24px;

@@ -2,13 +2,13 @@
 <html lang="ja" class="light">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"/>
 <meta name="theme-color" content="#bb0017"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <meta name="apple-mobile-web-app-title" content="フリモーラ"/>
 <meta name="description" content="メルカリ出品を自動化・最適化するアシスタントツール"/>
-<title>フリモーラ アシスト | 再出品・値下げ自動化</title>
+<title>フリモーラ | 再出品・値下げ自動化</title>
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" type="image/png" href="icons/icon-48.png?v=4"/>
 <link rel="apple-touch-icon" href="icons/icon-192.png?v=4"/>
@@ -67,14 +67,22 @@ tailwind.config = {
 </script>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; width: 100%; overflow-x: hidden; }
   body {
     font-family: 'Inter', 'Noto Sans JP', sans-serif;
     background: #f9f9f9;
     color: #1a1c1c;
     -webkit-font-smoothing: antialiased;
     overscroll-behavior: none;
+    width: 100%;
+    max-width: 100vw;
+    /* Android: body に overflow-x:hidden + touch-action:manipulation を併用すると縦スクロールが壊れる事例があるため分離 */
   }
+  html.ios-touch-lock body {
+    overflow-x: hidden;
+    touch-action: manipulation;
+  }
+  #main-content { width: 100%; max-width: 100vw; overflow-x: hidden; }
   .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
     vertical-align: middle;
@@ -184,7 +192,7 @@ tailwind.config = {
       </div>
       <div>
         <h1 class="font-headline font-black text-base text-primary tracking-tight leading-tight">フリモーラ</h1>
-        <p class="text-[10px] text-on-surface-variant font-medium">出品自動化アシスト</p>
+        <p class="text-[10px] text-on-surface-variant font-medium">出品自動化ツール</p>
       </div>
     </div>
   </div>
@@ -398,7 +406,7 @@ tailwind.config = {
     <!-- Step 1 -->
     <div id="clone-step-1" class="bg-surface-container-lowest p-6 rounded-lg shadow-sm space-y-4">
       <!-- クリップボード検知バナー -->
-      <div id="clipboard-banner" class="hidden bg-tertiary/10 border border-tertiary/20 rounded-xl px-4 py-3 flex items-center gap-3">
+      <div id="clipboard-banner" class="hidden bg-tertiary/10 border border-tertiary/20 rounded-xl px-4 py-3 flex items-center gap-3" data-full-text="">
         <span class="material-symbols-outlined text-tertiary text-lg flex-shrink-0">content_paste_go</span>
         <div class="flex-1 min-w-0">
           <p class="text-xs font-bold text-tertiary">コピー済みのURLを検出</p>
@@ -414,6 +422,7 @@ tailwind.config = {
       </label>
       <div class="flex flex-col sm:flex-row gap-3">
         <input id="clone-url-input" type="text" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://jp.mercari.com/item/m..."
+          onpaste="onCloneUrlPaste(event)"
           class="flex-1 bg-surface-container rounded-full px-5 py-3.5 border-none focus:ring-2 focus:ring-primary/20 text-sm outline-none placeholder:text-on-surface-variant/50"/>
         <button onclick="fetchCloneData()" id="clone-fetch-btn"
           class="bg-signature-gradient text-white px-6 py-3.5 rounded-full font-bold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all text-sm whitespace-nowrap">
@@ -424,7 +433,7 @@ tailwind.config = {
         class="w-full flex items-center justify-center gap-2 bg-surface-container text-on-surface-variant py-3 rounded-full text-sm font-bold hover:bg-surface-container-high active:bg-surface-container-high transition-colors">
         <span class="material-symbols-outlined text-lg">content_paste</span>クリップボードからURLを貼り付けて取得
       </button>
-      <p class="text-[11px] text-on-surface-variant">※ メルカリ商品ページのURLをコピーしてから上のボタンをタップ。Safariでコピーしたままアプリを開くだけでOK。</p>
+      <p class="text-[11px] text-on-surface-variant">※ アドレスバーの <code class="text-[10px] bg-surface-container px-1 rounded">https://jp.mercari.com/item/m…</code> をコピーしてください（商品名だけでは取得できません）。共有文のまま貼り付けでもURLを検出します。</p>
       <div id="clone-error" class="hidden bg-error-container/40 text-error text-xs font-semibold px-4 py-2.5 rounded-xl items-center gap-2">
         <span class="material-symbols-outlined text-sm">error</span><span id="clone-error-msg"></span>
       </div>
@@ -457,7 +466,7 @@ tailwind.config = {
           </button>
         </div>
         <div class="grid grid-cols-4 sm:grid-cols-5 gap-2" id="extracted-images"></div>
-        <p class="text-[10px] text-on-surface-variant">※ 画像を長押し（またはクリック）して保存してください</p>
+        <p class="text-[10px] text-on-surface-variant">※ 「全写真を保存」は1つのZIPにまとめて保存します（モバイルで枚数分の確認画面が出続けるのを防ぎます）。個別保存は画像を長押ししてください。</p>
       </div>
 
       <!-- フィールド一覧 -->
@@ -710,6 +719,44 @@ tailwind.config = {
     </button>
   </section>
 
+  <!-- Schedule Add Modal -->
+  <div id="schedule-add-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('schedule-add-modal')">
+    <div class="modal-sheet w-full" style="max-width:420px">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-headline font-bold text-lg">予定を追加</h3>
+        <button type="button" onclick="closeModal('schedule-add-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container">
+          <span class="material-symbols-outlined text-lg">close</span>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-semibold text-on-surface-variant">対象日</label>
+          <input id="schedule-add-date" type="text" readonly class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm font-bold"/>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-on-surface-variant">種別</label>
+          <select id="schedule-add-type" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none">
+            <option value="値下げ">値下げ</option>
+            <option value="再出品">再出品</option>
+            <option value="メモ">メモ</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-on-surface-variant">タイトル</label>
+          <input id="schedule-add-title" type="text" placeholder="例: MATRIXを再出品" class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-on-surface-variant">時刻</label>
+          <input id="schedule-add-time" type="time" value="09:00" class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button type="button" onclick="closeModal('schedule-add-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
+        <button type="button" onclick="saveScheduleItemFromModal()" class="flex-1 bg-signature-gradient text-white py-3 rounded-full font-bold text-sm">追加</button>
+      </div>
+    </div>
+  </div>
+
   <!-- PAGE: SETTINGS -->
   <section id="page-settings" class="page px-5 py-6 max-w-2xl mx-auto space-y-5">
     <div>
@@ -812,70 +859,6 @@ tailwind.config = {
       </div>
     </div>
 
-    <!-- モバイル連携 -->
-    <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden">
-      <div class="px-5 py-3 bg-surface-container-low">
-        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">モバイル連携</p>
-      </div>
-      <div class="divide-y divide-surface-container">
-
-        <!-- 推奨: クリップボード -->
-        <div class="px-5 py-4 space-y-2">
-          <div class="flex items-start gap-3">
-            <span class="material-symbols-outlined text-tertiary mt-0.5">content_paste_go</span>
-            <div>
-              <p class="text-sm font-bold">📱 クリップボード貼り付け（iOS・Android 共通・推奨）</p>
-              <p class="text-[11px] text-on-surface-variant mt-0.5">最も確実な方法。追加設定不要</p>
-            </div>
-          </div>
-          <div class="bg-surface-container rounded-xl px-4 py-3 space-y-1.5">
-            <p class="text-[11px] text-on-surface-variant">① メルカリ商品ページのURLをコピー（アドレスバー長押し）</p>
-            <p class="text-[11px] text-on-surface-variant">② フリモーラを開くとバナーが自動表示 → 「取得」タップ</p>
-            <p class="text-[11px] text-on-surface-variant">または「クリップボードから貼り付けて取得」ボタンをタップ</p>
-          </div>
-        </div>
-
-        <!-- iOS ブックマークレット -->
-        <div class="px-5 py-4 space-y-2">
-          <div class="flex items-start gap-3">
-            <span class="material-symbols-outlined text-on-surface-variant mt-0.5">bookmark_add</span>
-            <div>
-              <p class="text-sm font-bold">iOS Safari ブックマークレット</p>
-              <p class="text-[11px] text-on-surface-variant mt-0.5">設定すればワンタップ。iOSキーボードの自動修正に注意</p>
-            </div>
-          </div>
-          <div class="bg-surface-container rounded-xl px-4 py-3 space-y-2">
-            <p class="text-[11px] text-on-surface-variant">① 下のコードをコピー</p>
-            <div class="flex items-center gap-2">
-              <code id="bookmarklet-code" class="flex-1 text-[10px] bg-surface-container-high rounded-lg px-3 py-2 break-all text-on-surface font-mono select-all">javascript:(function(){function extract(){const idMatch=window.location.pathname.match(/\/item\/(m\w+)/);const itemId=idMatch?idMatch[1]:null;let data={};const ndEl=document.getElementById('__NEXT_DATA__');if(ndEl){try{const nd=JSON.parse(ndEl.textContent);const item=nd?.props?.pageProps?.item||nd?.props?.pageProps?.itemResponse?.item||nd?.props?.pageProps?.data?.item;if(item){data={title:item.name||item.title,price:item.price,description:item.description,images:(item.photos||[]).map(p=>(p.imageUrl||p.url||p).split('?')[0])}}}catch(e){}}if(!data.title){data={title:document.querySelector('h1[data-testid="name"]')?.textContent||document.title,price:document.querySelector('[data-testid="price"]')?.textContent.replace(/[^\d]/g,''),description:document.querySelector('[data-testid="description"]')?.textContent,images:Array.from(new Set([...document.querySelectorAll('img')].map(img=>img.src).filter(src=>src.includes('mercdn.net')&&src.includes(itemId)))).map(s=>s.replace('/thumb/','/orig/'))}}const encoded=btoa(encodeURIComponent(JSON.stringify(data)).replace(/%([0-9A-F]{2})/g,(m,p)=>String.fromCharCode('0x'+p)));window.location.href='https://furimora-assist.vercel.app/?clone_data='+encodeURIComponent(encoded)}extract()})();</code>
-              <button onclick="copyBookmarklet()" class="shrink-0 text-xs font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full hover:bg-primary/20 transition-colors">コピー</button>
-            </div>
-            <p class="text-[11px] text-on-surface-variant">② このページをSafariでブックマーク登録</p>
-            <p class="text-[11px] text-on-surface-variant">③ ブックマーク編集 → URL欄を全選択して削除 → 貼り付け</p>
-            <p class="text-[11px] font-bold text-error">⚠️ 「JavaScript」と大文字にならないよう注意。なった場合は手動で「j」を小文字に修正</p>
-            <p class="text-[11px] text-on-surface-variant">④ メルカリ商品ページでブックマークをタップ → 自動でクローン取得</p>
-          </div>
-        </div>
-
-        <!-- Android PWA Share Target -->
-        <div class="px-5 py-4 space-y-2">
-          <div class="flex items-start gap-3">
-            <span class="material-symbols-outlined text-on-surface-variant mt-0.5">share</span>
-            <div>
-              <p class="text-sm font-bold">Android PWA 共有連携</p>
-              <p class="text-[11px] text-on-surface-variant mt-0.5">Chrome 112以上が必要。インストール後に一度再インストールが必要</p>
-            </div>
-          </div>
-          <div class="bg-surface-container rounded-xl px-4 py-3 space-y-1.5">
-            <p class="text-[11px] text-on-surface-variant">① 既にインストール済みの場合: 一度削除して再インストール（share_target登録のため）</p>
-            <p class="text-[11px] text-on-surface-variant">② 下の「ホーム画面に追加」から新規インストール</p>
-            <p class="text-[11px] text-on-surface-variant">③ メルカリ商品ページで共有ボタン →「フリモーラ」を選択</p>
-            <p class="text-[11px] font-bold text-on-surface-variant">※ 共有先に表示されない場合はクリップボード方式を使用してください</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden">
       <div class="px-5 py-3 bg-surface-container-low">
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">アプリについて</p>
@@ -907,16 +890,16 @@ tailwind.config = {
 <div id="new-item-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('new-item-modal')">
   <div class="modal-sheet max-h-[92vh] overflow-y-auto w-full" style="max-width:480px">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="font-headline font-bold text-lg">🏷️ 新規出品アシスタント</h3>
+      <h3 class="font-headline font-bold text-lg" id="ni-modal-title">新規出品</h3>
       <button onclick="closeModal('new-item-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container">
         <span class="material-symbols-outlined text-lg">close</span>
       </button>
     </div>
     <!-- Tab nav -->
     <div class="flex border-b border-surface-container mb-4">
-      <button onclick="switchItemTab('price')" id="tab-price" class="item-tab-btn px-4 py-2.5 text-sm font-bold border-b-2 border-primary text-primary">💰 価格</button>
+      <button onclick="switchItemTab('price')" id="tab-price" class="item-tab-btn px-4 py-2.5 text-sm font-bold border-b-2 border-primary text-primary">価格</button>
       <button onclick="switchItemTab('desc')" id="tab-desc" class="item-tab-btn px-4 py-2.5 text-sm font-bold border-b-2 border-transparent text-on-surface-variant">✏️ 説明文</button>
-      <button onclick="switchItemTab('schedule')" id="tab-schedule" class="item-tab-btn px-4 py-2.5 text-sm font-bold border-b-2 border-transparent text-on-surface-variant">📅 スケジュール</button>
+      <button onclick="switchItemTab('schedule')" id="tab-schedule" class="item-tab-btn px-4 py-2.5 text-sm font-bold border-b-2 border-transparent text-on-surface-variant">スケジュール</button>
     </div>
 
     <!-- Tab: 価格 -->
@@ -932,7 +915,7 @@ tailwind.config = {
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="text-xs font-semibold text-on-surface-variant">カテゴリ</label>
-              <select id="ni-category" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none">
+              <select id="ni-category" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none" onchange="syncNiCategoryFromMain()">
                 <option>その他</option><option>ファッション</option><option>家電</option>
                 <option>本・漫画</option><option>おもちゃ</option><option>スポーツ</option>
                 <option>ゲーム</option><option>DVD / Blu-ray</option><option>CD</option>
@@ -950,7 +933,7 @@ tailwind.config = {
         </div>
       </div>
       <div>
-        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">💴 価格・送料</p>
+        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">価格・送料</p>
         <div class="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label class="text-xs font-semibold text-on-surface-variant">仕入れ値</label>
@@ -1006,9 +989,10 @@ tailwind.config = {
         </div>
         <div class="mt-3 bg-primary/5 rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
           <div><p class="text-[10px] text-on-surface-variant">出品開始価格</p><p class="font-headline font-black text-primary" id="ni-startprice">¥1,200</p></div>
-          <div><p class="text-[10px] text-on-surface-variant">手数料</p><p class="font-bold text-sm" id="ni-feecalc">¥120</p></div>
-          <div><p class="text-[10px] text-on-surface-variant">利益（最低時）</p><p class="font-bold text-sm text-tertiary" id="ni-profit">¥370</p></div>
+          <div><p class="text-[10px] text-on-surface-variant">手数料（開始時）</p><p class="font-bold text-sm" id="ni-feecalc">¥120</p></div>
+          <div><p class="text-[10px] text-on-surface-variant">利益（開始時）</p><p class="font-bold text-sm text-tertiary" id="ni-profit">¥1,080</p></div>
         </div>
+        <p class="text-[10px] text-on-surface-variant mt-2 text-center">値下げ後・最低価格<span id="ni-minprice-hint">¥800</span>で売れた場合の利益: <span class="font-bold text-tertiary" id="ni-profit-min">¥720</span></p>
       </div>
     </div>
 
@@ -1025,8 +1009,10 @@ tailwind.config = {
           </div>
           <div>
             <label class="text-xs font-semibold text-on-surface-variant">カテゴリ</label>
-            <select id="ni-desc-category" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none">
-              <option>その他</option><option>ファッション</option><option>家電</option><option>本・漫画</option><option>ゲーム</option><option>DVD / Blu-ray</option><option>CD</option>
+            <select id="ni-desc-category" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none" onchange="syncNiCategoryFromDesc()">
+              <option>その他</option><option>ファッション</option><option>家電</option>
+              <option>本・漫画</option><option>おもちゃ</option><option>スポーツ</option>
+              <option>ゲーム</option><option>DVD / Blu-ray</option><option>CD</option>
             </select>
           </div>
         </div>
@@ -1057,16 +1043,16 @@ tailwind.config = {
 
     <!-- Tab: スケジュール -->
     <div id="item-tab-schedule" class="hidden space-y-4">
-      <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">📅 値下げスケジュール</p>
+      <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">値下げスケジュール</p>
       <div class="grid grid-cols-3 gap-3">
         <div>
           <label class="text-xs font-semibold text-on-surface-variant">出品開始日</label>
-          <input id="ni-listed-at" type="date" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"/>
+          <input id="ni-listed-at" type="date" oninput="updateNiScheduleTab()" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"/>
         </div>
         <div>
           <label class="text-xs font-semibold text-on-surface-variant">値下げ開始</label>
           <div class="flex items-center gap-1 mt-1">
-            <input id="ni-discount-start" type="number" value="7"
+            <input id="ni-discount-start" type="number" value="7" oninput="updateNiScheduleTab()"
               class="w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/>
             <span class="text-xs text-on-surface-variant flex-shrink-0">日後</span>
           </div>
@@ -1074,17 +1060,38 @@ tailwind.config = {
         <div>
           <label class="text-xs font-semibold text-on-surface-variant">値下げ幅/頻度</label>
           <div class="flex items-center gap-1 mt-1">
-            <input id="ni-discount-amount" type="number" value="100"
+            <input id="ni-discount-amount" type="number" value="100" oninput="updateNiScheduleTab()"
               class="w-14 bg-surface-container border-none rounded-xl px-2 py-2.5 text-sm font-bold outline-none"/>
             <span class="text-xs text-on-surface-variant">円/</span>
-            <input id="ni-discount-freq" type="number" value="1"
+            <input id="ni-discount-freq" type="number" value="1" oninput="updateNiScheduleTab()"
               class="w-10 bg-surface-container border-none rounded-xl px-2 py-2.5 text-sm font-bold outline-none"/>
             <span class="text-xs text-on-surface-variant">日</span>
           </div>
         </div>
       </div>
-      <div class="bg-primary/5 rounded-xl p-4 text-[11px] text-on-surface-variant">
-        💡 「価格」タブで最低価格を入力すると、出品開始価格から最低価格まで自動で値下げスケジュールが計算されます。
+      <p id="ni-schedule-summary" class="text-[11px] text-on-surface font-medium bg-surface-container rounded-xl px-3 py-2"></p>
+      <div id="ni-schedule-hint" class="bg-primary/5 rounded-xl p-4 text-[11px] text-on-surface-variant">
+        「価格」タブで<strong>最低価格</strong>を入力し、上記の<strong>出品開始日</strong>を設定すると、下に値下げカレンダーが表示されます（手数料・送料は価格タブの設定を使用）。
+      </div>
+      <div id="ni-schedule-table-wrap" class="hidden">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-on-surface-variant uppercase tracking-wider">プレビュー</span>
+          <button type="button" onclick="copyNiSchedule()" class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1 rounded-full">コピー</button>
+        </div>
+        <div class="overflow-x-auto rounded-xl border border-surface-container max-h-56 overflow-y-auto">
+          <table class="w-full text-left text-[11px]">
+            <thead class="bg-surface-container sticky top-0">
+              <tr>
+                <th class="py-2 px-2 font-bold">日付</th>
+                <th class="py-2 px-2 font-bold">出品日数</th>
+                <th class="py-2 px-2 font-bold">価格</th>
+                <th class="py-2 px-2 font-bold">手数料後</th>
+                <th class="py-2 px-2 font-bold">利益</th>
+              </tr>
+            </thead>
+            <tbody id="ni-schedule-tbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -1092,9 +1099,142 @@ tailwind.config = {
     <div class="flex gap-3 mt-6 pt-4 border-t border-surface-container">
       <button onclick="closeModal('new-item-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
       <button onclick="saveNewItem()" class="flex-1 bg-signature-gradient text-white py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2">
-        <span class="material-symbols-outlined text-lg">playlist_add</span>出品一覧に追加
+        <span class="material-symbols-outlined text-lg" id="ni-save-btn-icon">playlist_add</span><span id="ni-save-btn-label">出品一覧に追加</span>
       </button>
     </div>
+  </div>
+</div>
+
+<!-- 値下げ計算 Modal（出品一覧） -->
+<div id="discount-item-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('discount-item-modal')">
+  <div class="modal-sheet w-full max-h-[90vh] overflow-y-auto" style="max-width:440px">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-headline font-bold text-lg">値下げ計算</h3>
+      <button type="button" onclick="closeModal('discount-item-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container" aria-label="閉じる">
+        <span class="material-symbols-outlined text-lg">close</span>
+      </button>
+    </div>
+    <p class="text-xs font-bold text-on-surface line-clamp-2 mb-4" id="discount-modal-item-title"></p>
+
+    <div class="text-center mb-4">
+      <p class="text-xs text-on-surface-variant mb-1">現在価格: <span id="discount-modal-base-label">¥0</span></p>
+      <p class="text-3xl font-black text-error tracking-tight" id="discount-modal-preview-big">¥0</p>
+      <p class="text-[10px] text-on-surface-variant mt-1">最低価格まであと <span id="discount-modal-room" class="font-bold text-on-surface">¥0</span></p>
+    </div>
+
+    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">クイック</p>
+    <div class="flex flex-wrap gap-2 mb-4">
+      <button type="button" onclick="discountApplyPreset('yen',100)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-100円</button>
+      <button type="button" onclick="discountApplyPreset('yen',200)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-200円</button>
+      <button type="button" onclick="discountApplyPreset('yen',500)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-500円</button>
+      <button type="button" onclick="discountApplyPreset('pct',5)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-5%</button>
+      <button type="button" onclick="discountApplyPreset('pct',10)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-10%</button>
+      <button type="button" onclick="discountApplyPreset('pct',20)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-20%</button>
+    </div>
+
+    <div class="inline-flex rounded-xl border border-surface-container-highest p-0.5 mb-2 bg-surface-container-low">
+      <button type="button" id="discount-mode-yen" onclick="setDiscountInputMode('yen')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors">円</button>
+      <button type="button" id="discount-mode-pct" onclick="setDiscountInputMode('pct')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors">%</button>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <input id="discount-modal-input" type="number" min="0" step="1" placeholder="0"
+        class="flex-1 min-w-[100px] bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
+        oninput="updateDiscountModalPreview()"/>
+      <span class="text-sm font-bold text-on-surface-variant shrink-0" id="discount-modal-suffix">円引き</span>
+    </div>
+    <p class="text-[11px] text-on-surface-variant mt-2 mb-4">
+      手数料（<span id="discount-fee-rate">10</span>%）差引後の受取額: <span id="discount-modal-receive" class="font-bold text-on-surface">¥0</span>
+    </p>
+
+    <label class="text-xs font-semibold text-on-surface-variant">変更メモ（任意）</label>
+    <input id="discount-modal-memo" type="text" placeholder="例：出品から30日経過"
+      class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
+
+    <div class="mt-4">
+      <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">価格履歴</p>
+      <div id="discount-modal-history" class="rounded-xl bg-surface-container border border-surface-container-high divide-y divide-surface-container-high max-h-36 overflow-y-auto text-[11px]"></div>
+    </div>
+
+    <div class="flex gap-3 mt-6 pt-4 border-t border-surface-container justify-end">
+      <button type="button" onclick="closeModal('discount-item-modal')" class="px-5 py-2.5 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
+      <button type="button" onclick="applyDiscountFromModal()" class="px-5 py-2.5 rounded-full font-bold text-sm text-white bg-signature-gradient shadow-lg">この価格を記録</button>
+    </div>
+  </div>
+</div>
+
+<!-- 出品一覧・メルカリURL -->
+<div id="item-url-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('item-url-modal')">
+  <div class="modal-sheet w-full" style="max-width:400px">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-headline font-bold text-lg">商品URLを変更</h3>
+      <button type="button" onclick="closeModal('item-url-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container">
+        <span class="material-symbols-outlined text-lg">close</span>
+      </button>
+    </div>
+    <p class="text-xs text-on-surface-variant mb-1">対象</p>
+    <p class="text-sm font-bold line-clamp-2 mb-4" id="item-url-modal-title-preview"></p>
+    <label class="text-xs font-semibold text-on-surface-variant">メルカリ商品URL または 商品ID（mで始まる）</label>
+    <input id="item-url-input" type="text" inputmode="url" autocomplete="off" placeholder="https://jp.mercari.com/item/m12345678901"
+      class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
+    <p class="text-[10px] text-on-surface-variant mt-2">空にして保存すると紐づけを解除します。一覧のサムネイルからも開けます。</p>
+    <div class="flex gap-3 mt-5">
+      <button type="button" onclick="closeModal('item-url-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
+      <button type="button" onclick="saveItemUrlFromModal()" class="flex-1 py-3 rounded-full font-bold text-sm text-white bg-primary shadow-lg">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 出品一覧・その他メニュー（プルダウン） -->
+<div id="item-more-menu" class="hidden fixed z-[110] w-[200px] bg-surface-container-lowest rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-surface-container py-1.5" role="menu">
+  <button type="button" role="menuitem" onclick="openItemUrlModal()"
+    class="w-full text-left px-4 py-2.5 text-sm font-bold text-on-surface hover:bg-surface-container transition-colors flex items-center gap-2">
+    <span class="material-symbols-outlined text-lg text-primary">link</span>URLを変更
+  </button>
+  <button type="button" role="menuitem" onclick="openItemSoldConfirm()"
+    class="w-full text-left px-4 py-2.5 text-sm font-bold text-on-surface hover:bg-surface-container transition-colors flex items-center gap-2">
+    <span class="material-symbols-outlined text-lg text-tertiary">check_circle</span>売却済みにする
+  </button>
+  <button type="button" role="menuitem" onclick="openItemDeleteConfirm()"
+    class="w-full text-left px-4 py-2.5 text-sm font-bold text-error hover:bg-error-container/25 transition-colors flex items-center gap-2">
+    <span class="material-symbols-outlined text-lg">delete</span>削除する
+  </button>
+</div>
+
+<!-- 出品一覧・確認モーダル（売却 / 削除） -->
+<div id="item-confirm-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('item-confirm-modal')">
+  <div class="modal-sheet w-full" style="max-width:380px">
+    <div class="flex items-start gap-3 mb-3">
+      <span class="material-symbols-outlined text-3xl text-primary flex-shrink-0" id="item-confirm-icon">help</span>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-headline font-bold text-lg leading-snug" id="item-confirm-heading">確認</h3>
+        <p class="text-[12px] text-on-surface-variant mt-1" id="item-confirm-desc"></p>
+      </div>
+    </div>
+    <p class="text-sm font-bold text-on-surface bg-surface-container rounded-xl px-3 py-2.5 line-clamp-2 mb-4" id="item-confirm-title-preview"></p>
+    <div class="flex gap-3">
+      <button type="button" onclick="closeModal('item-confirm-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
+      <button type="button" onclick="executeItemConfirm()" id="item-confirm-primary" class="flex-1 py-3 rounded-full font-bold text-sm text-white shadow-lg">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- クローン: 全写真ZIP保存の進捗 -->
+<div id="clone-zip-modal" class="modal-overlay" onclick="if(event.target===this)cancelCloneZipDownload()">
+  <div class="modal-sheet w-full" style="max-width:400px" role="dialog" aria-labelledby="clone-zip-title" aria-modal="true">
+    <div class="flex items-center justify-between mb-3">
+      <h3 id="clone-zip-title" class="font-headline font-bold text-base">写真をまとめて保存</h3>
+      <button type="button" onclick="cancelCloneZipDownload()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container" aria-label="閉じる">
+        <span class="material-symbols-outlined text-lg">close</span>
+      </button>
+    </div>
+    <p id="clone-zip-phase" class="text-sm text-on-surface-variant">準備中…</p>
+    <div class="h-2 bg-surface-container rounded-full overflow-hidden mt-3">
+      <div id="clone-zip-bar" class="h-full bg-signature-gradient rounded-full transition-[width] duration-150" style="width:0%"></div>
+    </div>
+    <p class="text-xs text-on-surface-variant mt-2 text-center font-semibold"><span id="clone-zip-current">0</span> / <span id="clone-zip-total">0</span> 枚</p>
+    <p class="text-[11px] text-on-surface-variant/80 mt-3 leading-relaxed">取得した画像を1つのZIPにまとめます。ZIP完成後はこのモーダル内の「保存を開始」を押した時だけ保存UIを開きます。</p>
+    <button type="button" id="clone-zip-save-btn" onclick="triggerCloneZipDownload()" class="hidden mt-4 w-full py-3 rounded-full font-bold text-sm text-white bg-primary shadow-lg">保存を開始</button>
+    <button type="button" id="clone-zip-cancel-btn" onclick="cancelCloneZipDownload()" class="mt-3 w-full py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
   </div>
 </div>
 
@@ -1162,6 +1302,8 @@ tailwind.config = {
   </div>
 </div>
 
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
 <script>
 // ── Data (localStorage-driven, no hardcoded samples) ──
 let ALERTS = [];
@@ -1169,6 +1311,9 @@ let ACTIVITIES = [];
 let QUEUE = [];
 let SCHEDULE_DATA = {};
 let NOTIFICATIONS = [];
+const PRIMARY_WEB_ORIGIN = 'https://furimora.vercel.app';
+const LEGACY_WEB_ORIGIN = 'https://furimora-assist.vercel.app';
+const REMOTE_MERCARI_API_ORIGINS = [PRIMARY_WEB_ORIGIN, LEGACY_WEB_ORIGIN];
 
 function loadStorageData() {
   try {
@@ -1188,6 +1333,12 @@ function saveStorageData() {
   localStorage.setItem('furimora_notifications',JSON.stringify(NOTIFICATIONS));
 }
 
+function isIOSDevice() {
+  const ua = navigator.userAgent || '';
+  const touchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  return /iP(hone|ad|od)/.test(ua) || touchMac;
+}
+
 function loadStats() {
   try {
     const s = JSON.parse(localStorage.getItem('furimora_stats') || '{}');
@@ -1205,16 +1356,39 @@ function loadStats() {
 }
 
 // ── State ──
-let calYear = 2026, calMonth = 2, selectedCalDay = 26;
+const __todayCal = new Date();
+let calYear = __todayCal.getFullYear(), calMonth = __todayCal.getMonth(), selectedCalDay = __todayCal.getDate();
 let selectedTone = '丁寧';
 let clonedData = {};
 let pwaPrompt = null;
 let downloadDirHandle = null;
+/** 全写真ZIP保存の fetch / UI キャンセル用 */
+let cloneZipAbortController = null;
+/** iOS: Clipboard API を使わず、URL欄へのネイティブ貼り付け後に自動取得するフラグ */
+let cloneIOSPastePendingFetch = false;
+let cloneIOSPastePendingTimer = null;
+/** ZIP作成後、ユーザー操作で保存開始するための一時URL */
+let cloneZipPreparedObjectUrl = '';
+let cloneZipPreparedFileName = '';
 
 // ── 在庫・出品管理 ──
 let ITEMS = [];
 let itemFilter = 'all';
 let niEditId = null;
+/** 再出品フロー（一覧の「再出品」から開いたとき true） */
+let niRelistMode = false;
+/** 値下げモーダルで編集中の出品 ID */
+let discountModalItemId = null;
+/** 値下げモーダル表示時点の出品価格（変更前） */
+let discountModalBasePrice = 0;
+/** 'yen' | 'pct' */
+let discountInputMode = 'yen';
+/** 出品一覧「…」メニュー対象 ID */
+let itemMenuTargetId = null;
+let itemUrlEditId = null;
+/** item-confirm-modal: 'sold' | 'delete' */
+let itemConfirmType = null;
+let itemConfirmId = null;
 
 const DEFAULT_TEMPLATE_BODY = `◆ 商品の状態\n丁寧に使用しておりましたが、素人検品のためご了承ください。\n\n◆ 発送について\n・ご購入確定後2〜3日以内に発送いたします\n・丁寧に梱包してお届けします\n・ご不明な点はお気軽にコメントください\n\n◆ その他\n・他でも出品中のため、売り切れの際はご容赦ください\n・値下げ交渉もお気軽にどうぞ`;
 
@@ -1335,6 +1509,133 @@ function loadItems() {
 }
 function saveItems() { localStorage.setItem('furimora_items', JSON.stringify(ITEMS)); }
 
+/** クローン/APIのカテゴリ文字列を出品フォームのセレクト値に寄せる（CD・DVD 混同を避ける） */
+function mapIncomingCategoryToAppSelect(raw) {
+  if (raw == null || raw === '') return 'その他';
+  const s = String(raw).trim();
+  const EXACT = ['その他', 'ファッション', '家電', '本・漫画', 'おもちゃ', 'スポーツ', 'ゲーム', 'DVD / Blu-ray', 'CD'];
+  if (EXACT.includes(s)) return s;
+  if (/ブルーレイ|Blu-ray|DVD|映画|4K|UHD|スチール|フィルム|COLLECTION|FILM/i.test(s)) return 'DVD / Blu-ray';
+  if (/ゲーム|ソフト|プレステ|Switch|PS[45]|ニンテンドー/i.test(s)) return 'ゲーム';
+  if (/おもちゃ|フィギュア|ぬいぐるみ/i.test(s)) return 'おもちゃ';
+  if (/スポーツ|ゴルフ|アウトドア/i.test(s)) return 'スポーツ';
+  if (/本|漫画|コミック|小説|書籍/i.test(s)) return '本・漫画';
+  if (/ファッション|服|靴|バッグ|アパレル/i.test(s)) return 'ファッション';
+  if (/家電|スマホ|PC|カメラ/i.test(s)) return '家電';
+  if (/\bCD\b|音楽|アルバム/i.test(s) && !/DVD|ブルーレイ|Blu|映画/i.test(s)) return 'CD';
+  const SUB = ['DVD / Blu-ray', 'ファッション', 'ゲーム', '本・漫画', '家電', 'おもちゃ', 'スポーツ'];
+  for (const opt of SUB) {
+    if (s.includes(opt)) return opt;
+  }
+  if (s.includes('CD') && !/DVD|ブルーレイ|Blu/i.test(s)) return 'CD';
+  return 'その他';
+}
+
+function applyNiCategoryToBoth(rawCategory) {
+  const v = mapIncomingCategoryToAppSelect(rawCategory);
+  const m = document.getElementById('ni-category');
+  const d = document.getElementById('ni-desc-category');
+  if (m) m.value = v;
+  if (d) d.value = v;
+  return v;
+}
+
+function syncNiCategoryFromMain() {
+  const m = document.getElementById('ni-category');
+  const d = document.getElementById('ni-desc-category');
+  if (m && d) d.value = m.value;
+}
+
+function syncNiCategoryFromDesc() {
+  const m = document.getElementById('ni-category');
+  const d = document.getElementById('ni-desc-category');
+  if (m && d) m.value = d.value;
+}
+
+function parseMercariUrlInput(raw) {
+  const s = (raw || '').trim();
+  if (!s) return { clear: true };
+  const u1 = s.match(/^https?:\/\/jp\.mercari\.com\/item\/(m[\w-]+)/i);
+  if (u1) return { mercariUrl: `https://jp.mercari.com/item/${u1[1]}`, mercariItemId: u1[1] };
+  if (/^m[\w-]+$/i.test(s)) return { mercariUrl: `https://jp.mercari.com/item/${s}`, mercariItemId: s };
+  return null;
+}
+
+function mercariListingUrl(item) {
+  if (!item || typeof item !== 'object') return '';
+  const raw = (item.mercariUrl || item.url || '').trim();
+  if (raw && /jp\.mercari\.com\/item\//i.test(raw)) {
+    try {
+      return new URL(raw.split('?')[0]).href;
+    } catch {
+      return raw.split('?')[0];
+    }
+  }
+  const id = item.mercariItemId != null ? item.mercariItemId : item.itemId;
+  if (id != null && /^m[\w-]+$/i.test(String(id).trim())) {
+    return `https://jp.mercari.com/item/${String(id).trim()}`;
+  }
+  return '';
+}
+
+function openMercariListingFromItem(id) {
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  const url = item ? mercariListingUrl(item) : '';
+  if (url) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  if (!item) return;
+  itemUrlEditId = id;
+  document.getElementById('item-url-input').value = '';
+  document.getElementById('item-url-modal-title-preview').textContent = item.title || '';
+  document.getElementById('item-url-modal').classList.add('open');
+}
+
+function openItemUrlModal() {
+  const id = itemMenuTargetId;
+  closeItemMoreMenu();
+  if (!id) return;
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  itemUrlEditId = id;
+  document.getElementById('item-url-input').value = mercariListingUrl(item) || '';
+  document.getElementById('item-url-modal-title-preview').textContent = item.title || '';
+  document.getElementById('item-url-modal').classList.add('open');
+}
+
+function saveItemUrlFromModal() {
+  if (itemUrlEditId == null) return;
+  loadItems();
+  const item = ITEMS.find((i) => i.id === itemUrlEditId);
+  if (!item) return;
+  const raw = (document.getElementById('item-url-input')?.value || '').trim();
+  if (!raw) {
+    delete item.mercariUrl;
+    delete item.mercariItemId;
+    delete item.url;
+    saveItems();
+    renderItems();
+    closeModal('item-url-modal');
+    showToast('商品URLの紐づけを解除しました');
+    return;
+  }
+  const parsed = parseMercariUrlInput(raw);
+  if (!parsed) {
+    showToast('メルカリの商品URL（jp.mercari.com/item/m…）または商品IDを入力してください');
+    return;
+  }
+  item.mercariUrl = parsed.mercariUrl;
+  item.mercariItemId = parsed.mercariItemId;
+  delete item.url;
+  saveItems();
+  renderItems();
+  closeModal('item-url-modal');
+  showToast('商品URLを保存しました');
+}
+
 function getDaysSinceListed(listedAt) {
   if (!listedAt) return 0;
   return Math.max(0, Math.floor((Date.now() - new Date(listedAt).getTime()) / 86400000));
@@ -1393,10 +1694,13 @@ function renderItems() {
     const statusMap = { active:'出品中', relisted:'再出品済', sold:'売却済', pending:'準備中' };
     const statusCls = { active:'bg-tertiary-container text-on-tertiary-container', relisted:'bg-primary/10 text-primary', sold:'bg-surface-container-highest text-on-surface-variant', pending:'bg-surface-container text-on-surface-variant' };
     const thumb = item.images?.[0]
-      ? `<img src="${item.images[0]}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
-      : `<span class="material-symbols-outlined text-2xl text-on-surface-variant/30">image</span>`;
+      ? `<img src="${item.images[0]}" class="w-full h-full object-cover pointer-events-none" onerror="this.style.display='none'">`
+      : `<span class="material-symbols-outlined text-2xl text-on-surface-variant/30 pointer-events-none">image</span>`;
+    const hasMercari = !!mercariListingUrl(item);
+    const thumbTitle = hasMercari ? 'メルカリで開く' : 'URLを設定（タップ）';
+    const thumbBox = `<div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all ring-0 hover:ring-2 hover:ring-primary/30" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
     return `<div class="bg-surface-container-lowest rounded-lg p-3.5 flex items-center gap-3 shadow-sm">
-      <div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center">${thumb}</div>
+      ${thumbBox}
       <div class="flex-1 min-w-0">
         <div class="flex items-start justify-between gap-1 mb-0.5">
           <h4 class="text-sm font-bold leading-snug line-clamp-2 flex-1">${item.title}</h4>
@@ -1409,55 +1713,326 @@ function renderItems() {
         </div>
       </div>
       <div class="flex flex-col gap-1.5 flex-shrink-0">
-        <button onclick="relistItemFromList(${item.id})" class="text-[11px] font-bold text-white bg-signature-gradient px-3 py-1.5 rounded-full whitespace-nowrap">再出品</button>
-        <button onclick="discountItemFromList(${item.id})" class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full whitespace-nowrap">値下げ</button>
-        <button onclick="openItemMenu(${item.id})" class="text-[11px] font-bold text-on-surface-variant bg-surface-container px-3 py-1.5 rounded-full">・・・</button>
+        <button onclick="openRelistItemModal(${item.id})" class="text-[11px] font-bold text-white bg-signature-gradient px-3 py-1.5 rounded-full whitespace-nowrap">再出品</button>
+        <button onclick="openDiscountItemModal(${item.id})" class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full whitespace-nowrap">値下げ</button>
+        <button type="button" data-item-more-btn onclick="toggleItemMoreMenu(event, ${item.id})" class="text-[11px] font-bold text-on-surface-variant bg-surface-container px-3 py-1.5 rounded-full">・・・</button>
       </div>
     </div>`;
   }).join('');
 }
 
-function relistItemFromList(id) {
-  loadItems();
-  const item = ITEMS.find(i => i.id === id); if (!item) return;
-  item.status = 'active';
-  item.listedAt = new Date().toISOString().slice(0,10);
-  item.currentPrice = item.startPrice || item.currentPrice;
-  item.relistCount = (item.relistCount||0) + 1;
-  saveItems();
-  ACTIVITIES.unshift({ name: item.title, action: '再出品しました', time: 'たった今', status: '出品中', type: 'active', emoji: '🔄' });
-  saveStorageData(); renderItems();
-  showToast(`${item.title.substring(0,20)} を再出品しました`);
+function setNiModalMode(relist) {
+  const titleEl = document.getElementById('ni-modal-title');
+  const labelEl = document.getElementById('ni-save-btn-label');
+  const iconEl = document.getElementById('ni-save-btn-icon');
+  if (titleEl) titleEl.textContent = relist ? '再出品' : '新規出品';
+  if (labelEl) labelEl.textContent = relist ? '再出品を確定' : '出品一覧に追加';
+  if (iconEl) iconEl.textContent = relist ? 'autorenew' : 'playlist_add';
 }
 
-function discountItemFromList(id) {
+function openRelistItemModal(id) {
   loadItems();
-  const item = ITEMS.find(i => i.id === id); if (!item) return;
-  const amount = item.discountAmount || 100;
-  const newPrice = Math.max(Number(item.minPrice||0), Number(item.currentPrice||0) - amount);
-  if (newPrice === Number(item.currentPrice)) { showToast('最低価格に達しています'); return; }
-  const old = item.currentPrice;
-  item.currentPrice = newPrice;
-  saveItems(); renderItems();
-  showToast(`¥${Number(old).toLocaleString()} → ¥${Number(newPrice).toLocaleString()} に値下げしました`);
-}
-
-function openItemMenu(id) {
-  loadItems();
-  const item = ITEMS.find(i => i.id === id); if (!item) return;
-  const choice = confirm(`「${item.title.substring(0,30)}」\n\nOK → 売却済みにする\nキャンセル → 削除する`);
-  if (choice) {
-    item.status = 'sold'; saveItems(); renderItems(); showToast('売却済みにしました');
-  } else if (confirm('削除しますか？')) {
-    ITEMS = ITEMS.filter(i => i.id !== id); saveItems(); renderItems(); showToast('削除しました');
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  niEditId = id;
+  niRelistMode = true;
+  setNiModalMode(true);
+  document.getElementById('ni-title').value = item.title || '';
+  document.getElementById('ni-cost').value = item.costPrice ?? 0;
+  const minP = Number(item.minPrice) || 0;
+  const startP = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || minP;
+  let buf = Math.max(0, startP - minP);
+  if (!buf) buf = 400;
+  document.getElementById('ni-minprice').value = minP || 800;
+  setBuffer(buf);
+  document.getElementById('ni-fee').value = item.fee ?? 10;
+  setShipping(Number(item.shippingCost) || 0);
+  document.getElementById('ni-listed-at').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('ni-discount-start').value = item.discountStartDays ?? 7;
+  document.getElementById('ni-discount-amount').value = item.discountAmount ?? 100;
+  document.getElementById('ni-discount-freq').value = item.discountFreqDays ?? 1;
+  document.getElementById('ni-desc-title').value = item.title || '';
+  document.getElementById('ni-ai-text').value = item.description || '';
+  populateTemplateSelect();
+  applyNiCategoryToBoth(item.category);
+  const condSel = document.getElementById('ni-condition');
+  if (condSel && item.condition) {
+    [...condSel.options].forEach((o) => {
+      if (o.value === item.condition) condSel.value = o.value;
+    });
   }
+  const nm = document.getElementById('new-item-modal');
+  if (nm) {
+    nm.dataset.images = JSON.stringify(item.images || []);
+    nm.dataset.mercariUrl = (item.mercariUrl || item.url || '').trim();
+    nm.dataset.mercariItemId = item.mercariItemId != null ? String(item.mercariItemId) : (item.itemId != null ? String(item.itemId) : '');
+  }
+  switchItemTab('price');
+  calcItemPrice();
+  document.getElementById('new-item-modal').classList.add('open');
+}
+
+function setDiscountInputMode(mode) {
+  discountInputMode = mode;
+  const yenBtn = document.getElementById('discount-mode-yen');
+  const pctBtn = document.getElementById('discount-mode-pct');
+  const suffix = document.getElementById('discount-modal-suffix');
+  const active = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-colors bg-primary text-white shadow-sm';
+  const idle = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-colors bg-transparent text-on-surface-variant';
+  if (yenBtn) yenBtn.className = mode === 'yen' ? active : idle;
+  if (pctBtn) pctBtn.className = mode === 'pct' ? active : idle;
+  if (suffix) suffix.textContent = mode === 'yen' ? '円引き' : '%引き';
+  updateDiscountModalPreview();
+}
+
+function discountApplyPreset(kind, val) {
+  const inp = document.getElementById('discount-modal-input');
+  if (inp) inp.value = val;
+  setDiscountInputMode(kind === 'yen' ? 'yen' : 'pct');
+}
+
+function getDiscountModalDiscountYen(cur) {
+  const raw = parseFloat(document.getElementById('discount-modal-input')?.value) || 0;
+  if (discountInputMode === 'yen') return Math.max(0, Math.round(raw));
+  return Math.max(0, Math.round((cur * raw) / 100));
+}
+
+function getDiscountModalNewPrice() {
+  if (discountModalItemId == null) return 0;
+  // loadItems しない: 呼び出し元で loadItems 後に参照した item と配列がずれると保存が効かなくなる
+  const item = ITEMS.find((i) => i.id === discountModalItemId);
+  if (!item) return 0;
+  const cur = discountModalBasePrice;
+  const minP = Number(item.minPrice || 0);
+  const discountYen = getDiscountModalDiscountYen(cur);
+  return Math.max(minP, cur - discountYen);
+}
+
+function formatDiscountHistoryDate(at) {
+  if (!at) return '';
+  const s = String(at);
+  const d = new Date(s.includes('T') ? s : s + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
+}
+
+function escapeHtmlShort(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderDiscountModalHistory(item) {
+  const el = document.getElementById('discount-modal-history');
+  if (!el) return;
+  const rows = Array.isArray(item.priceHistory) && item.priceHistory.length
+    ? [...item.priceHistory].reverse()
+    : [
+        {
+          price: Number(item.currentPrice || 0),
+          label: '初回出品',
+          at: item.listedAt || (item.createdAt && item.createdAt.slice(0, 10)) || new Date().toISOString().slice(0, 10),
+        },
+      ];
+  el.innerHTML = rows
+    .map(
+      (h) => `
+    <div class="flex items-center justify-between gap-2 px-3 py-2">
+      <span class="font-bold tabular-nums shrink-0">¥${Number(h.price).toLocaleString()}</span>
+      <span class="text-on-surface-variant truncate flex-1 text-center">${escapeHtmlShort(h.label || '')}${h.memo ? ' · ' + escapeHtmlShort(h.memo) : ''}</span>
+      <span class="text-on-surface-variant shrink-0 tabular-nums">${formatDiscountHistoryDate(h.at)}</span>
+    </div>`
+    )
+    .join('');
+}
+
+function openDiscountItemModal(id) {
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  discountModalItemId = id;
+  discountModalBasePrice = Number(item.currentPrice || 0);
+  document.getElementById('discount-modal-item-title').textContent = item.title || '（無題）';
+  const inp = document.getElementById('discount-modal-input');
+  if (inp) inp.value = 0;
+  const memo = document.getElementById('discount-modal-memo');
+  if (memo) memo.value = '';
+  setDiscountInputMode('yen');
+  renderDiscountModalHistory(item);
+  document.getElementById('discount-item-modal').classList.add('open');
+}
+
+function updateDiscountModalPreview() {
+  if (discountModalItemId == null) return;
+  loadItems();
+  const item = ITEMS.find((i) => i.id === discountModalItemId);
+  if (!item) return;
+  const cur = discountModalBasePrice;
+  const minP = Number(item.minPrice || 0);
+  const newPrice = getDiscountModalNewPrice();
+  const fee = Number(item.fee ?? 10);
+  const receive = Math.max(0, Math.round((newPrice * (100 - fee)) / 100));
+  const baseLbl = document.getElementById('discount-modal-base-label');
+  const big = document.getElementById('discount-modal-preview-big');
+  const room = document.getElementById('discount-modal-room');
+  const feeEl = document.getElementById('discount-fee-rate');
+  const recv = document.getElementById('discount-modal-receive');
+  if (baseLbl) baseLbl.textContent = '¥' + cur.toLocaleString();
+  if (big) big.textContent = '¥' + newPrice.toLocaleString();
+  if (room) room.textContent = '¥' + Math.max(0, newPrice - minP).toLocaleString();
+  if (feeEl) feeEl.textContent = String(fee);
+  if (recv) recv.textContent = '¥' + receive.toLocaleString();
+}
+
+function applyDiscountFromModal() {
+  if (discountModalItemId == null) return;
+  loadItems();
+  const old = discountModalBasePrice;
+  const newPrice = getDiscountModalNewPrice();
+  const item = ITEMS.find((i) => i.id === discountModalItemId);
+  if (!item) return;
+  const minP = Number(item.minPrice || 0);
+  if (newPrice >= old) {
+    showToast('値下げ額を入力してください');
+    return;
+  }
+  if (newPrice < minP) {
+    showToast('最低価格を下回ります');
+    return;
+  }
+  const memo = (document.getElementById('discount-modal-memo')?.value || '').trim();
+  const discountYen = old - newPrice;
+  item.currentPrice = newPrice;
+  item.discountAmount = Math.max(1, discountYen);
+  if (!Array.isArray(item.priceHistory)) item.priceHistory = [];
+  if (item.priceHistory.length === 0) {
+    item.priceHistory.push({
+      price: old,
+      label: '初回出品',
+      at: item.listedAt || (item.createdAt && item.createdAt.slice(0, 10)) || new Date().toISOString().slice(0, 10),
+    });
+  }
+  const entry = { price: newPrice, label: '値下げ', at: new Date().toISOString().slice(0, 10) };
+  if (memo) entry.memo = memo;
+  item.priceHistory.push(entry);
+  saveItems();
+  renderItems();
+  closeModal('discount-item-modal');
+  showToast(`¥${Number(old).toLocaleString()} → ¥${Number(newPrice).toLocaleString()} に記録しました`);
+}
+
+function itemMoreMenuDocClose(e) {
+  if (e.target.closest && (e.target.closest('#item-more-menu') || e.target.closest('[data-item-more-btn]'))) return;
+  closeItemMoreMenu();
+  document.removeEventListener('click', itemMoreMenuDocClose);
+}
+
+function closeItemMoreMenu() {
+  document.removeEventListener('click', itemMoreMenuDocClose);
+  const menu = document.getElementById('item-more-menu');
+  if (menu) menu.classList.add('hidden');
+  itemMenuTargetId = null;
+}
+
+function toggleItemMoreMenu(ev, id) {
+  ev.stopPropagation();
+  document.removeEventListener('click', itemMoreMenuDocClose);
+  const menu = document.getElementById('item-more-menu');
+  if (!menu) return;
+  if (!menu.classList.contains('hidden') && itemMenuTargetId === id) {
+    menu.classList.add('hidden');
+    itemMenuTargetId = null;
+    return;
+  }
+  itemMenuTargetId = id;
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const mw = 200;
+  let left = rect.right - mw;
+  if (left < 8) left = 8;
+  if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
+  menu.style.left = left + 'px';
+  const estH = 120;
+  let top = rect.bottom + 6;
+  if (top + estH > window.innerHeight - 12) top = Math.max(8, rect.top - estH - 6);
+  menu.style.top = top + 'px';
+  menu.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    document.addEventListener('click', itemMoreMenuDocClose);
+  });
+}
+
+function openItemSoldConfirm() {
+  const id = itemMenuTargetId;
+  closeItemMoreMenu();
+  if (!id) return;
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  itemConfirmId = id;
+  itemConfirmType = 'sold';
+  document.getElementById('item-confirm-icon').textContent = 'check_circle';
+  document.getElementById('item-confirm-icon').className = 'material-symbols-outlined text-3xl text-tertiary flex-shrink-0';
+  document.getElementById('item-confirm-heading').textContent = '売却済みにしますか？';
+  document.getElementById('item-confirm-desc').textContent = '一覧上では「売却済み」として表示されます。';
+  document.getElementById('item-confirm-title-preview').textContent = item.title || '（無題）';
+  const ok = document.getElementById('item-confirm-primary');
+  ok.textContent = '売却済みにする';
+  ok.className = 'flex-1 py-3 rounded-full font-bold text-sm text-white shadow-lg bg-primary';
+  document.getElementById('item-confirm-modal').classList.add('open');
+}
+
+function openItemDeleteConfirm() {
+  const id = itemMenuTargetId;
+  closeItemMoreMenu();
+  if (!id) return;
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  itemConfirmId = id;
+  itemConfirmType = 'delete';
+  document.getElementById('item-confirm-icon').textContent = 'warning';
+  document.getElementById('item-confirm-icon').className = 'material-symbols-outlined text-3xl text-error flex-shrink-0';
+  document.getElementById('item-confirm-heading').textContent = '削除しますか？';
+  document.getElementById('item-confirm-desc').textContent = 'この操作は取り消せません。';
+  document.getElementById('item-confirm-title-preview').textContent = item.title || '（無題）';
+  const ok = document.getElementById('item-confirm-primary');
+  ok.textContent = '削除する';
+  ok.className = 'flex-1 py-3 rounded-full font-bold text-sm text-white shadow-lg bg-error';
+  document.getElementById('item-confirm-modal').classList.add('open');
+}
+
+function executeItemConfirm() {
+  if (itemConfirmId == null || !itemConfirmType) return;
+  loadItems();
+  const id = itemConfirmId;
+  if (itemConfirmType === 'sold') {
+    const item = ITEMS.find((i) => i.id === id);
+    if (item) {
+      item.status = 'sold';
+      saveItems();
+      renderItems();
+      showToast('売却済みにしました');
+    }
+  } else if (itemConfirmType === 'delete') {
+    ITEMS = ITEMS.filter((i) => i.id !== id);
+    saveItems();
+    renderItems();
+    showToast('削除しました');
+  }
+  closeModal('item-confirm-modal');
 }
 
 function openNewItemModal(draftData) {
   niEditId = null;
+  niRelistMode = false;
+  setNiModalMode(false);
   document.getElementById('ni-title').value = draftData?.title || '';
   document.getElementById('ni-cost').value = 0;
-  document.getElementById('ni-minprice').value = 800;
+  const draftPrice = Number(draftData?.price);
+  const hasDraftPrice = Number.isFinite(draftPrice) && draftPrice >= 300;
+  document.getElementById('ni-minprice').value = hasDraftPrice ? draftPrice : 800;
   document.getElementById('ni-buffer').value = 400;
   document.getElementById('ni-fee').value = 10;
   document.getElementById('ni-shipping').value = 0;
@@ -1468,15 +2043,19 @@ function openNewItemModal(draftData) {
   document.getElementById('ni-desc-title').value = draftData?.title || '';
   document.getElementById('ni-ai-text').value = draftData?.description || '';
   populateTemplateSelect();
-  if (draftData?.category) {
-    const sel = document.getElementById('ni-category');
-    [...sel.options].forEach(o => { if (draftData.category.includes(o.value) || o.value.includes(draftData.category)) sel.value = o.value; });
-  }
+  applyNiCategoryToBoth(draftData?.category);
   if (draftData?.condition) {
     const sel = document.getElementById('ni-condition');
     [...sel.options].forEach(o => { if (o.value === draftData.condition) sel.value = o.value; });
   }
-  document.getElementById('new-item-modal').dataset.images = JSON.stringify(draftData?.images || []);
+  const nm = document.getElementById('new-item-modal');
+  if (nm) {
+    nm.dataset.images = JSON.stringify(draftData?.images || []);
+    nm.dataset.mercariUrl = draftData?.url ? String(draftData.url).trim() : '';
+    nm.dataset.mercariItemId = draftData?.itemId != null ? String(draftData.itemId) : '';
+  }
+  setBuffer(400);
+  setShipping(0);
   switchItemTab('price'); calcItemPrice();
   document.getElementById('new-item-modal').classList.add('open');
 }
@@ -1490,6 +2069,9 @@ function switchItemTab(tab) {
       btn.classList.toggle('border-transparent', t!==tab); btn.classList.toggle('text-on-surface-variant', t!==tab);
     }
   });
+  if (tab === 'desc') syncNiCategoryFromMain();
+  else if (tab === 'price') syncNiCategoryFromDesc();
+  if (tab === 'schedule') updateNiScheduleTab();
 }
 
 function setBuffer(amount) {
@@ -1520,12 +2102,154 @@ function calcItemPrice() {
   const ship = parseInt(document.getElementById('ni-shipping')?.value)||0;
   const cost = parseInt(document.getElementById('ni-cost')?.value)||0;
   const start = min + buf;
-  const feeAmt = Math.round(start * fee / 100);
-  const profit = min - Math.round(min * fee / 100) - ship - cost;
+  const feeStart = Math.round(start * fee / 100);
+  const feeMin = Math.round(min * fee / 100);
+  const profitStart = start - feeStart - ship - cost;
+  const profitMin = min - feeMin - ship - cost;
   const set = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
   set('ni-startprice','¥'+start.toLocaleString());
-  set('ni-feecalc','¥'+feeAmt.toLocaleString());
-  set('ni-profit','¥'+profit.toLocaleString());
+  set('ni-feecalc','¥'+feeStart.toLocaleString());
+  set('ni-profit','¥'+profitStart.toLocaleString());
+  set('ni-minprice-hint','¥'+min.toLocaleString());
+  set('ni-profit-min','¥'+profitMin.toLocaleString());
+  updateNiScheduleTab();
+}
+
+/** 価格タブ・スケジュール欄の入力に連動した値下げプレビュー */
+function updateNiScheduleTab() {
+  const minP = parseInt(document.getElementById('ni-minprice')?.value, 10) || 0;
+  const buf = parseInt(document.getElementById('ni-buffer')?.value, 10) || 0;
+  const feePct = parseFloat(document.getElementById('ni-fee')?.value) || 10;
+  const ship = parseInt(document.getElementById('ni-shipping')?.value, 10) || 0;
+  const cost = parseInt(document.getElementById('ni-cost')?.value, 10) || 0;
+  const delay = Math.max(0, parseInt(document.getElementById('ni-discount-start')?.value, 10) || 0);
+  const step = Math.max(1, parseInt(document.getElementById('ni-discount-amount')?.value, 10) || 100);
+  const freq = Math.max(1, parseInt(document.getElementById('ni-discount-freq')?.value, 10) || 1);
+  const startDateStr = (document.getElementById('ni-listed-at')?.value || '').trim();
+
+  const startPrice = minP + buf;
+  const feeRate = feePct / 100;
+
+  const sumEl = document.getElementById('ni-schedule-summary');
+  const hint = document.getElementById('ni-schedule-hint');
+  const wrap = document.getElementById('ni-schedule-table-wrap');
+  const tbody = document.getElementById('ni-schedule-tbody');
+
+  if (sumEl) {
+    sumEl.textContent = `出品開始 ¥${startPrice.toLocaleString()}　最低 ¥${minP.toLocaleString()}　手数料 ${feePct}%　送料 ¥${ship.toLocaleString()}${cost > 0 ? `　仕入れ ¥${cost.toLocaleString()}` : ''}`;
+  }
+
+  if (!tbody || !hint || !wrap) return;
+
+  if (!minP || startPrice < 300 || !startDateStr) {
+    hint.classList.remove('hidden');
+    wrap.classList.add('hidden');
+    tbody.innerHTML = '';
+    return;
+  }
+
+  hint.classList.add('hidden');
+  wrap.classList.remove('hidden');
+
+  let startDate;
+  try {
+    startDate = new Date(startDateStr + 'T12:00:00');
+    if (Number.isNaN(startDate.getTime())) throw new Error('bad');
+  } catch {
+    hint.classList.remove('hidden');
+    wrap.classList.add('hidden');
+    tbody.innerHTML = '';
+    return;
+  }
+
+  const rows = [{ day: 0, date: new Date(startDate), price: startPrice, isMin: false }];
+  if (step > 0 && startPrice > minP) {
+    let dayOffset = delay;
+    let currentPrice = startPrice;
+    while (currentPrice > minP && dayOffset < 400) {
+      const newPrice = Math.max(minP, currentPrice - step);
+      const rowDate = new Date(startDate);
+      rowDate.setDate(rowDate.getDate() + dayOffset);
+      rows.push({ day: dayOffset, date: rowDate, price: newPrice, isMin: newPrice === minP });
+      currentPrice = newPrice;
+      dayOffset += freq;
+    }
+  }
+
+  const fmtDate = (d) =>
+    d.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
+
+  tbody.innerHTML = rows
+    .map((r) => {
+      const net = Math.max(0, Math.floor(r.price * (1 - feeRate)) - ship);
+      const profit = cost > 0 ? net - cost : null;
+      const profitHtml =
+        profit === null
+          ? '—'
+          : `<span class="font-bold ${profit >= 0 ? 'text-tertiary' : 'text-error'}">${profit >= 0 ? '+' : ''}¥${profit.toLocaleString()}</span>`;
+      const dayLabel = r.day === 0 ? '初日' : `${r.day}日目`;
+      const rowCls = r.day === 0 ? 'bg-primary/5' : r.isMin ? 'bg-tertiary-container/30' : '';
+      return `<tr class="border-b border-surface-container ${rowCls}">
+      <td class="py-2 px-2 align-top">${fmtDate(r.date)}</td>
+      <td class="py-2 px-2 align-top text-on-surface-variant">${dayLabel}</td>
+      <td class="py-2 px-2 align-top font-bold">¥${r.price.toLocaleString()}</td>
+      <td class="py-2 px-2 align-top">¥${net.toLocaleString()}</td>
+      <td class="py-2 px-2 align-top">${profitHtml}</td>
+    </tr>`;
+    })
+    .join('');
+}
+
+function copyNiSchedule() {
+  const minP = parseInt(document.getElementById('ni-minprice')?.value, 10) || 0;
+  const buf = parseInt(document.getElementById('ni-buffer')?.value, 10) || 0;
+  const feePct = parseFloat(document.getElementById('ni-fee')?.value) || 10;
+  const ship = parseInt(document.getElementById('ni-shipping')?.value, 10) || 0;
+  const cost = parseInt(document.getElementById('ni-cost')?.value, 10) || 0;
+  const delay = Math.max(0, parseInt(document.getElementById('ni-discount-start')?.value, 10) || 0);
+  const step = Math.max(1, parseInt(document.getElementById('ni-discount-amount')?.value, 10) || 100);
+  const freq = Math.max(1, parseInt(document.getElementById('ni-discount-freq')?.value, 10) || 1);
+  const startDateStr = (document.getElementById('ni-listed-at')?.value || '').trim();
+  const startPrice = minP + buf;
+  const feeRate = feePct / 100;
+  if (!minP || startPrice < 300 || !startDateStr) {
+    showToast('最低価格・出品開始日を確認してください');
+    return;
+  }
+  const startDate = new Date(startDateStr + 'T12:00:00');
+  const lines = [
+    `値下げスケジュール（${startDateStr} 出品開始）`,
+    `出品開始: ¥${startPrice.toLocaleString()}　最低: ¥${minP.toLocaleString()}　手数料: ${feePct}%　送料: ¥${ship.toLocaleString()}`,
+    cost > 0 ? `仕入れ: ¥${cost.toLocaleString()}` : '',
+    '',
+    '日付\t出品日数\t価格\t手数料後受取\t利益',
+  ].filter(Boolean);
+  const rows = [{ day: 0, date: new Date(startDate), price: startPrice }];
+  if (step > 0 && startPrice > minP) {
+    let dayOffset = delay;
+    let currentPrice = startPrice;
+    while (currentPrice > minP && dayOffset < 400) {
+      const newPrice = Math.max(minP, currentPrice - step);
+      const rowDate = new Date(startDate);
+      rowDate.setDate(rowDate.getDate() + dayOffset);
+      rows.push({ day: dayOffset, date: rowDate, price: newPrice });
+      currentPrice = newPrice;
+      dayOffset += freq;
+    }
+  }
+  const fmtD = (d) =>
+    d.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
+  rows.forEach((r) => {
+    const net = Math.max(0, Math.floor(r.price * (1 - feeRate)) - ship);
+    const profit = cost > 0 ? net - cost : null;
+    const dayLabel = r.day === 0 ? '初日' : `${r.day}日目`;
+    const profitCell =
+      profit === null ? '—' : `${profit >= 0 ? '+' : ''}¥${profit.toLocaleString()}`;
+    lines.push(
+      `${fmtD(r.date)}\t${dayLabel}\t¥${r.price.toLocaleString()}\t¥${net.toLocaleString()}\t${profitCell}`
+    );
+  });
+  navigator.clipboard.writeText(lines.join('\n')).then(() => showToast('スケジュールをコピーしました')).catch(() => showToast('コピーに失敗しました'));
 }
 
 async function generateItemDesc(e) {
@@ -1555,14 +2279,99 @@ function combineDesc() {
   showToast('テンプレートと結合しました');
 }
 
+function scheduleKeyFromDate(d) {
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+function parseItemListedDate(item) {
+  const raw = (item && item.listedAt) ? String(item.listedAt) : '';
+  const d = raw ? new Date(raw + 'T12:00:00') : new Date();
+  if (Number.isNaN(d.getTime())) return new Date();
+  return d;
+}
+
+function removeScheduleEntriesForItem(itemId) {
+  const id = String(itemId);
+  for (const key of Object.keys(SCHEDULE_DATA || {})) {
+    const rows = Array.isArray(SCHEDULE_DATA[key]) ? SCHEDULE_DATA[key] : [];
+    const next = rows.filter((r) => String(r.itemId || '') !== id);
+    if (next.length) SCHEDULE_DATA[key] = next;
+    else delete SCHEDULE_DATA[key];
+  }
+}
+
+function upsertScheduleFromItem(item) {
+  if (!item || item.id == null) return;
+  if (!SCHEDULE_DATA || typeof SCHEDULE_DATA !== 'object') SCHEDULE_DATA = {};
+  removeScheduleEntriesForItem(item.id);
+
+  const listed = parseItemListedDate(item);
+  const startPrice = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || 0;
+  const minPrice = Number(item.minPrice || 0);
+  const delay = Math.max(0, parseInt(item.discountStartDays, 10) || 0);
+  const step = Math.max(1, parseInt(item.discountAmount, 10) || 100);
+  const freq = Math.max(1, parseInt(item.discountFreqDays, 10) || 1);
+  const baseName = item.title || '商品';
+
+  const pushEvent = (dateObj, payload) => {
+    const key = scheduleKeyFromDate(dateObj);
+    if (!Array.isArray(SCHEDULE_DATA[key])) SCHEDULE_DATA[key] = [];
+    SCHEDULE_DATA[key].push(payload);
+  };
+
+  pushEvent(new Date(listed), {
+    itemId: item.id,
+    name: baseName,
+    icon: 'tag',
+    time: '09:00',
+    type: `出品開始 ¥${Math.max(0, startPrice).toLocaleString()}`,
+    status: '予定',
+  });
+
+  if (startPrice > 0 && minPrice > 0 && startPrice > minPrice) {
+    let current = startPrice;
+    let dayOffset = delay;
+    while (current > minPrice && dayOffset < 400) {
+      const nextPrice = Math.max(minPrice, current - step);
+      const d = new Date(listed);
+      d.setDate(d.getDate() + dayOffset);
+      pushEvent(d, {
+        itemId: item.id,
+        name: baseName,
+        icon: 'trending-down',
+        time: '09:00',
+        type: `値下げ ¥${current.toLocaleString()} → ¥${nextPrice.toLocaleString()}`,
+        status: '予定',
+      });
+      current = nextPrice;
+      dayOffset += freq;
+    }
+  }
+}
+
 
 function saveNewItem() {
   const title = document.getElementById('ni-title').value.trim();
   if (!title) { showToast('商品タイトルを入力してください'); switchItemTab('price'); return; }
+  const descTabEl = document.getElementById('item-tab-desc');
+  if (descTabEl && !descTabEl.classList.contains('hidden')) syncNiCategoryFromDesc();
+  else syncNiCategoryFromMain();
   const min = parseInt(document.getElementById('ni-minprice').value)||0;
   const buf = parseInt(document.getElementById('ni-buffer').value)||0;
   const startPrice = min + buf;
   const images = JSON.parse(document.getElementById('new-item-modal').dataset.images||'[]');
+  loadItems();
+  const prev = niEditId ? ITEMS.find((i) => i.id === niEditId) : null;
+  const createdAt = prev?.createdAt || new Date().toISOString();
+  const relistCount = (prev?.relistCount || 0) + (niRelistMode ? 1 : 0);
+  const listedAtStr = document.getElementById('ni-listed-at').value || new Date().toISOString().slice(0, 10);
+  const priceHistory =
+    prev && Array.isArray(prev.priceHistory) && prev.priceHistory.length
+      ? [...prev.priceHistory]
+      : [{ price: startPrice, label: '初回出品', at: listedAtStr }];
+  const nmEl = document.getElementById('new-item-modal');
+  const mercariUrl = (nmEl?.dataset?.mercariUrl || '').trim() || prev?.mercariUrl || '';
+  const mercariItemId = (nmEl?.dataset?.mercariItemId || '').trim() || prev?.mercariItemId || '';
   const item = {
     id: niEditId || Date.now(),
     title, images,
@@ -1574,23 +2383,36 @@ function saveNewItem() {
     shippingCost: parseInt(document.getElementById('ni-shipping').value)||0,
     description: document.getElementById('ni-ai-text').value,
     status: 'active',
-    listedAt: document.getElementById('ni-listed-at').value || new Date().toISOString().slice(0,10),
+    listedAt: listedAtStr,
     discountStartDays: parseInt(document.getElementById('ni-discount-start').value)||7,
     discountAmount: parseInt(document.getElementById('ni-discount-amount').value)||100,
     discountFreqDays: parseInt(document.getElementById('ni-discount-freq').value)||1,
-    relistCount: 0, createdAt: new Date().toISOString(),
+    relistCount, createdAt,
+    priceHistory,
+    mercariUrl: mercariUrl || undefined,
+    mercariItemId: mercariItemId || undefined,
   };
-  loadItems();
   if (niEditId) { const idx=ITEMS.findIndex(i=>i.id===niEditId); if(idx>=0) ITEMS[idx]=item; }
   else ITEMS.unshift(item);
   saveItems();
+  upsertScheduleFromItem(item);
+  saveStorageData();
   const s = JSON.parse(localStorage.getItem('furimora_stats')||'{}');
   if (!niEditId) s.total = (s.total||0)+1;
   localStorage.setItem('furimora_stats', JSON.stringify(s)); loadStats();
-  ACTIVITIES.unshift({ name: title, action: '出品一覧に追加しました', time: 'たった今', status: '出品中', type: 'active', emoji: '🏷️' });
+  const isRelist = niRelistMode;
+  ACTIVITIES.unshift({
+    name: title,
+    action: isRelist ? '再出品しました' : '出品一覧に追加しました',
+    time: 'たった今',
+    status: '出品中',
+    type: 'active',
+    icon: isRelist ? 'refresh-cw' : 'tag',
+  });
   saveStorageData();
-  closeModal('new-item-modal'); navigate('relist');
-  showToast(`「${title.substring(0,20)}」を出品一覧に追加しました`);
+  closeModal('new-item-modal');
+  navigate('relist');
+  showToast(isRelist ? `「${title.substring(0,20)}」を再出品しました` : `「${title.substring(0,20)}」を出品一覧に追加しました`);
 }
 
 function exportItemsCSV() {
@@ -1687,6 +2509,13 @@ async function _loadHandleFromIDB() {
 
 // ── Navigation ──
 function navigate(page, navOpts = {}) {
+  if (page !== 'clone') {
+    cloneIOSPastePendingFetch = false;
+    if (cloneIOSPastePendingTimer) {
+      clearTimeout(cloneIOSPastePendingTimer);
+      cloneIOSPastePendingTimer = null;
+    }
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const target = document.getElementById('page-' + page);
   if (target) target.classList.add('active');
@@ -1716,13 +2545,34 @@ function navigate(page, navOpts = {}) {
       const input = document.getElementById('clone-url-input');
       if (input) input.value = deep;
     } else {
-      checkClipboardForMercari();
+      // iOS では自動 clipboard read が「ペースト」UIを出してUXを崩すため、明示ボタン経由に限定
+      if (!isIOSDevice()) checkClipboardForMercari();
     }
   }
   if (page === 'relist') renderItems();
   if (page === 'listing') renderListingDrafts();
   if (page === 'settings') renderTemplatesList();
+  if (page === 'home') {
+    renderAlerts();
+    renderActivities();
+    loadStats();
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// iOS Safari/PWA: ピンチアウト・ダブルタップ拡大を抑止
+if (typeof window !== 'undefined' && isIOSDevice()) {
+  document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
+  let __lastTouchEnd = 0;
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - __lastTouchEnd <= 280) e.preventDefault();
+    __lastTouchEnd = now;
+  }, { passive: false });
 }
 
 // ── Toast ──
@@ -1738,7 +2588,67 @@ function showNotifications() {
   renderNotifications();
   document.getElementById('notif-modal').classList.add('open');
 }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  if (id === 'new-item-modal') {
+    niRelistMode = false;
+    niEditId = null;
+    setNiModalMode(false);
+  }
+  if (id === 'discount-item-modal') {
+    discountModalItemId = null;
+    discountModalBasePrice = 0;
+  }
+  if (id === 'item-confirm-modal') {
+    itemConfirmId = null;
+    itemConfirmType = null;
+  }
+  if (id === 'item-url-modal') itemUrlEditId = null;
+  if (id === 'clone-zip-modal') {
+    cancelCloneZipDownload();
+  }
+}
+
+function cancelCloneZipDownload() {
+  if (cloneZipAbortController) {
+    cloneZipAbortController.abort();
+    cloneZipAbortController = null;
+  }
+  if (cloneZipPreparedObjectUrl) {
+    URL.revokeObjectURL(cloneZipPreparedObjectUrl);
+    cloneZipPreparedObjectUrl = '';
+  }
+  cloneZipPreparedFileName = '';
+  const saveBtn = document.getElementById('clone-zip-save-btn');
+  if (saveBtn) saveBtn.classList.add('hidden');
+  const cancelBtn = document.getElementById('clone-zip-cancel-btn');
+  if (cancelBtn) cancelBtn.textContent = 'キャンセル';
+  document.getElementById('clone-zip-modal')?.classList.remove('open');
+}
+
+function setCloneZipModalProgress(current, total, phaseText) {
+  const curEl = document.getElementById('clone-zip-current');
+  const totEl = document.getElementById('clone-zip-total');
+  const bar = document.getElementById('clone-zip-bar');
+  const phase = document.getElementById('clone-zip-phase');
+  if (curEl) curEl.textContent = String(current);
+  if (totEl) totEl.textContent = String(total);
+  if (bar) bar.style.width = (total ? Math.min(100, Math.round((current / total) * 100)) : 0) + '%';
+  if (phase && phaseText) phase.textContent = phaseText;
+}
+
+function triggerCloneZipDownload() {
+  if (!cloneZipPreparedObjectUrl) {
+    showToast('ZIPの準備が完了していません');
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = cloneZipPreparedObjectUrl;
+  a.download = cloneZipPreparedFileName || 'photos.zip';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
 
 // ── Render Notifications ──
 function renderNotifications() {
@@ -1784,17 +2694,92 @@ function emptyState(icon, msg, sub='') {
   </div>`;
 }
 
+function lucideIconName(hint) {
+  const text = String(hint || '').toLowerCase();
+  if (text.includes('値下げ') || text.includes('📉') || text.includes('trending-down')) return 'trending-down';
+  if (text.includes('再出品') || text.includes('🔄') || text.includes('refresh-cw')) return 'refresh-cw';
+  if (text.includes('出品開始') || text.includes('出品') || text.includes('🏷')) return 'tag';
+  if (text.includes('メモ') || text.includes('📝') || text.includes('file-pen')) return 'file-pen-line';
+  if (text.includes('クローン') || text.includes('📋') || text.includes('copy')) return 'copy';
+  return 'package';
+}
+
+function lucideBadge(iconHint, extraClass = '') {
+  const icon = lucideIconName(iconHint);
+  return `<div class="w-14 h-14 rounded-md bg-surface-container flex items-center justify-center flex-shrink-0 ${extraClass}">
+    <i data-lucide="${icon}" class="w-6 h-6 text-on-surface-variant"></i>
+  </div>`;
+}
+
+function refreshLucideIcons() {
+  if (window.lucide && typeof window.lucide.createIcons === 'function') {
+    window.lucide.createIcons();
+  }
+}
+
+function parseScheduleDateKey(key) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(key || ''))) return null;
+  const d = new Date(`${key}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function scheduleEventsForHome(limit = 4) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const events = [];
+  for (const [key, rows] of Object.entries(SCHEDULE_DATA || {})) {
+    const day = parseScheduleDateKey(key);
+    if (!day || day < today || !Array.isArray(rows) || !rows.length) continue;
+    for (const row of rows) {
+      const name = (row?.name ? String(row.name) : '').trim();
+      const type = (row?.type ? String(row.type) : '').trim();
+      if (!name && !type) continue;
+      events.push({
+        dateKey: key,
+        time: (row?.time ? String(row.time) : '09:00'),
+        name: name || '予定',
+        type: type || '予定',
+        icon: (row?.icon ? String(row.icon) : ''),
+      });
+    }
+  }
+  events.sort((a, b) => {
+    const ak = `${a.dateKey} ${a.time}`;
+    const bk = `${b.dateKey} ${b.time}`;
+    if (ak < bk) return -1;
+    if (ak > bk) return 1;
+    return 0;
+  });
+  return events.slice(0, limit);
+}
+
 // ── Render Alerts ──
 function renderAlerts() {
   const el = document.getElementById('alert-list');
   if (!el) return;
   if (!ALERTS.length) {
-    el.innerHTML = emptyState('notifications_off', '値下げアラートはありません', 'クローン機能で商品を登録すると表示されます');
+    const upcoming = scheduleEventsForHome(4);
+    if (!upcoming.length) {
+      el.innerHTML = emptyState('notifications_off', '値下げアラートはありません', 'クローン機能で商品を登録すると表示されます');
+      return;
+    }
+    el.innerHTML = upcoming.map((e) => `
+    <div class="bg-error-container/15 p-4 rounded-lg flex gap-3 items-center">
+      ${lucideBadge(e.icon || e.type)}
+      <div class="flex-1 min-w-0">
+        <h4 class="text-sm font-bold truncate">${e.name}</h4>
+        <p class="text-[10px] text-on-surface-variant mt-0.5">${e.dateKey} ${e.time} • ${e.type}</p>
+      </div>
+      <button onclick="navigate('schedule')" class="bg-surface-container-lowest text-primary text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm hover:bg-white transition-colors flex-shrink-0">
+        開く
+      </button>
+    </div>`).join('');
+    refreshLucideIcons();
     return;
   }
   el.innerHTML = ALERTS.map(a => `
     <div class="bg-error-container/15 p-4 rounded-lg flex gap-3 items-center">
-      <div class="w-14 h-14 rounded-md bg-surface-container flex items-center justify-center text-2xl flex-shrink-0">${a.emoji || '📦'}</div>
+      ${lucideBadge(a.icon || a.emoji || a.name)}
       <div class="flex-1 min-w-0">
         <h4 class="text-sm font-bold truncate">${a.name}</h4>
         <p class="text-[10px] text-on-surface-variant mt-0.5">閲覧: ${a.views ?? '—'} • いいね: ${a.likes ?? '—'}</p>
@@ -1804,6 +2789,7 @@ function renderAlerts() {
         ${a.discount}%OFF
       </button>
     </div>`).join('');
+  refreshLucideIcons();
 }
 
 function applyDiscount(btn, name, pct) {
@@ -1828,7 +2814,9 @@ function renderActivities() {
   el.innerHTML = ACTIVITIES.map(a => `
     <div class="bg-surface-container-lowest p-4 rounded-lg flex items-center justify-between card-interactive">
       <div class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-md bg-surface-container flex items-center justify-center text-xl flex-shrink-0">${a.emoji}</div>
+        <div class="w-11 h-11 rounded-md bg-surface-container flex items-center justify-center flex-shrink-0">
+          <i data-lucide="${lucideIconName(a.icon || a.emoji || a.action)}" class="w-5 h-5 text-on-surface-variant"></i>
+        </div>
         <div>
           <p class="text-sm font-bold">${a.name}</p>
           <p class="text-[10px] text-on-surface-variant mt-0.5">${a.time} • <span class="${a.type==='active'?'text-tertiary':'text-primary'}">${a.action}</span></p>
@@ -1836,6 +2824,7 @@ function renderActivities() {
       </div>
       <span class="text-[10px] font-bold px-2 py-0.5 rounded-sm flex-shrink-0 ${a.type==='active'?'bg-tertiary-container text-on-tertiary-container':'bg-surface-dim text-on-surface-variant'}">${a.status}</span>
     </div>`).join('');
+  refreshLucideIcons();
 }
 
 // ── Render Queue ──
@@ -1854,7 +2843,9 @@ function renderQueue() {
   }
   el.innerHTML = QUEUE.map(item => `
     <div class="bg-surface-container-lowest p-4 rounded-lg flex items-center gap-3 shadow-sm">
-      <div class="w-16 h-16 rounded-md bg-surface-container flex items-center justify-center text-2xl flex-shrink-0">${item.emoji}</div>
+      <div class="w-16 h-16 rounded-md bg-surface-container flex items-center justify-center flex-shrink-0">
+        <i data-lucide="${lucideIconName(item.icon || item.emoji || item.note || item.name)}" class="w-7 h-7 text-on-surface-variant"></i>
+      </div>
       <div class="flex-grow min-w-0">
         <div class="flex justify-between items-start mb-1">
           <h4 class="text-sm font-bold truncate pr-3">${item.name}</h4>
@@ -1871,6 +2862,7 @@ function renderQueue() {
         今すぐ再出品
       </button>
     </div>`).join('');
+  refreshLucideIcons();
 }
 
 function relistItem(btn, name) {
@@ -1879,7 +2871,7 @@ function relistItem(btn, name) {
   btn.style.background = '#e2e2e2';
   btn.style.color = '#5f3e3b';
   // アクティビティに記録
-  ACTIVITIES.unshift({ name, action: '再出品を予約しました', time: 'たった今', status: '出品中', type: 'active', emoji: '🔄' });
+  ACTIVITIES.unshift({ name, action: '再出品を予約しました', time: 'たった今', status: '出品中', type: 'active', icon: 'refresh-cw' });
   saveStorageData();
   // 再出品済みカウント更新
   const done = document.getElementById('relist-done-count');
@@ -1889,7 +2881,7 @@ function relistItem(btn, name) {
 }
 function relistAll() {
   QUEUE.forEach(item => {
-    ACTIVITIES.unshift({ name: item.name, action: '一括再出品を予約しました', time: 'たった今', status: '出品中', type: 'active', emoji: '🔄' });
+    ACTIVITIES.unshift({ name: item.name, action: '一括再出品を予約しました', time: 'たった今', status: '出品中', type: 'active', icon: 'refresh-cw' });
   });
   saveStorageData();
   showToast('全アイテムを一括再出品キューに追加しました');
@@ -1956,13 +2948,23 @@ function renderScheduleForDay() {
   lbl.textContent = `${calMonth+1}月${selectedCalDay}日 (${weekDays[dateObj.getDay()]}) の予定`;
   const key = `${calYear}-${calMonth+1}-${selectedCalDay}`;
   const items = SCHEDULE_DATA[key] || [];
+  let touched = false;
+  for (const it of items) {
+    if (!it.id) {
+      it.id = `sc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      touched = true;
+    }
+  }
+  if (touched) saveStorageData();
   if (!items.length) {
     el.innerHTML = `<div class="text-center py-10 text-on-surface-variant/50"><span class="material-symbols-outlined text-4xl block mb-2">event_available</span><p class="text-sm">この日の予定はありません</p></div>`;
     return;
   }
   el.innerHTML = items.map(item => `
     <div class="bg-surface-container-lowest p-4 rounded-lg flex items-center gap-3 ${item.status==='完了'?'opacity-60':''}">
-      <div class="w-16 h-16 rounded-md bg-surface-container flex items-center justify-center text-2xl flex-shrink-0 ${item.status==='完了'?'grayscale':''}">${item.emoji}</div>
+      <div class="w-16 h-16 rounded-md bg-surface-container flex items-center justify-center flex-shrink-0 ${item.status==='完了'?'grayscale':''}">
+        <i data-lucide="${lucideIconName(item.icon || item.emoji || item.type)}" class="w-7 h-7 text-on-surface-variant"></i>
+      </div>
       <div class="flex-1 min-w-0">
         <div class="flex justify-between items-start mb-0.5">
           <span class="text-xs font-bold text-on-surface-variant">${item.time} ${item.status==='完了'?'完了':'予定'}</span>
@@ -1976,34 +2978,149 @@ function renderScheduleForDay() {
       </div>
       ${item.status==='完了'
         ? `<span class="material-symbols-outlined text-primary icon-filled text-xl">check_circle</span>`
-        : `<button class="p-1.5 text-on-surface-variant/40 hover:text-on-surface-variant"><span class="material-symbols-outlined">more_vert</span></button>`}
+        : `<button type="button" onclick="deleteScheduleItem('${key}','${item.id}')" class="p-1.5 text-on-surface-variant/40 hover:text-error"><span class="material-symbols-outlined">delete</span></button>`}
     </div>`).join('');
+  refreshLucideIcons();
 }
 
-function addScheduleItem() { showToast('スケジュール追加機能は近日公開予定です'); }
+function addScheduleItem() {
+  const dateObj = new Date(calYear, calMonth, selectedCalDay);
+  const d = `${dateObj.getFullYear()}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getDate()).padStart(2, '0')}`;
+  const dateEl = document.getElementById('schedule-add-date');
+  const titleEl = document.getElementById('schedule-add-title');
+  const typeEl = document.getElementById('schedule-add-type');
+  const timeEl = document.getElementById('schedule-add-time');
+  if (dateEl) dateEl.value = d;
+  if (titleEl) titleEl.value = '';
+  if (typeEl) typeEl.value = '値下げ';
+  if (timeEl) timeEl.value = '09:00';
+  document.getElementById('schedule-add-modal')?.classList.add('open');
+}
+
+function saveScheduleItemFromModal() {
+  const type = (document.getElementById('schedule-add-type')?.value || 'メモ').trim();
+  const titleInput = (document.getElementById('schedule-add-title')?.value || '').trim();
+  const time = (document.getElementById('schedule-add-time')?.value || '09:00').trim() || '09:00';
+  const key = `${calYear}-${calMonth + 1}-${selectedCalDay}`;
+  const fallbackTitle = type === '値下げ' ? '手動値下げ' : (type === '再出品' ? '手動再出品' : 'メモ');
+  const name = titleInput || fallbackTitle;
+  const icon = type === '値下げ' ? 'trending-down' : (type === '再出品' ? 'refresh-cw' : 'file-pen-line');
+  if (!Array.isArray(SCHEDULE_DATA[key])) SCHEDULE_DATA[key] = [];
+  SCHEDULE_DATA[key].push({
+    id: `sc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    icon,
+    time,
+    type,
+    status: '予定',
+  });
+  saveStorageData();
+  renderCalendar();
+  closeModal('schedule-add-modal');
+  showToast('予定を追加しました');
+}
+
+function deleteScheduleItem(key, id) {
+  if (!id || !key) return;
+  const list = Array.isArray(SCHEDULE_DATA[key]) ? SCHEDULE_DATA[key] : [];
+  const next = list.filter((x) => x.id !== id);
+  if (next.length) SCHEDULE_DATA[key] = next;
+  else delete SCHEDULE_DATA[key];
+  saveStorageData();
+  renderCalendar();
+  showToast('予定を削除しました');
+}
 
 // ── Clone ──
+function mightContainMercariUrl(s) {
+  return typeof s === 'string' && (/jp\.mercari\.com\/item\/m/i.test(s) || /merc\.li\//i.test(s));
+}
+
+function extractMercariDisplayUrl(s) {
+  if (!s || typeof s !== 'string') return '';
+  const jp = s.match(/https:\/\/jp\.mercari\.com\/item\/m\w+/i);
+  if (jp) return jp[0];
+  const li = s.match(/https:\/\/merc\.li\/[a-zA-Z0-9_-]+/i);
+  if (li) return li[0];
+  return '';
+}
+
+function messageForMercariFailure(res, data) {
+  if (data && data.code === 'BAD_URL') return data.error;
+  if (res.status === 404 || (data && data.error === '商品データを取得できませんでした')) {
+    return 'この商品情報は取得できませんでした（削除・非公開・売り切れ、または一時的な障害の可能性があります）。';
+  }
+  if (res.status === 400) return (data && data.error) ? data.error : 'URLの形式を確認してください。';
+  if (res.status >= 500) return 'サーバーでエラーが発生しました。しばらくしてから再度お試しください。';
+  return (data && data.error) || '商品情報を取得できませんでした。URLを確認してください。';
+}
+
 function useBannerUrl() {
-  const url = document.getElementById('clipboard-banner-url')?.textContent;
-  if (url) {
-    document.getElementById('clone-url-input').value = url;
-    document.getElementById('clipboard-banner').classList.add('hidden');
+  const banner = document.getElementById('clipboard-banner');
+  const full = (banner && banner.dataset.fullText) ? banner.dataset.fullText : (document.getElementById('clipboard-banner-url')?.textContent || '');
+  if (full) {
+    document.getElementById('clone-url-input').value = full.trim();
+    banner.classList.add('hidden');
     fetchCloneData();
   }
 }
 
-async function pasteAndFetch() {
-  try {
-    const text = await navigator.clipboard.readText();
-    const url = text.trim();
-    if (!url.includes('jp.mercari.com/item/')) {
-      showToast('クリップボードにメルカリ商品URLがありません');
+function clearCloneIOSPastePending() {
+  cloneIOSPastePendingFetch = false;
+  if (cloneIOSPastePendingTimer) {
+    clearTimeout(cloneIOSPastePendingTimer);
+    cloneIOSPastePendingTimer = null;
+  }
+}
+
+/** iOS: readText() がシステムの「ペースト」許可UIを出すため、ネイティブ貼り付け→自動取得に切り替え */
+function onCloneUrlPaste() {
+  if (!cloneIOSPastePendingFetch) return;
+  clearCloneIOSPastePending();
+  setTimeout(() => {
+    const input = document.getElementById('clone-url-input');
+    if (!input) return;
+    const raw = input.value.trim();
+    if (!raw) return;
+    if (!mightContainMercariUrl(raw)) {
+      showToast('メルカリの商品URL（jp.mercari.com または merc.li）が見つかりません');
       return;
     }
-    document.getElementById('clone-url-input').value = url;
+    fetchCloneData();
+  }, 0);
+}
+
+async function pasteAndFetch() {
+  if (isIOSDevice()) {
+    clearCloneIOSPastePending();
+    cloneIOSPastePendingFetch = true;
+    cloneIOSPastePendingTimer = setTimeout(() => clearCloneIOSPastePending(), 120000);
+    const input = document.getElementById('clone-url-input');
+    if (input) {
+      input.focus();
+      try {
+        input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      } catch {
+        input.scrollIntoView();
+      }
+    }
+    showToast('上のURL欄を長押しして「ペースト」するか、キーボードの「貼り付け」で貼り付けてください（貼り付け後に自動で取得します）');
+    return;
+  }
+  try {
+    const text = await navigator.clipboard.readText();
+    const trimmed = text.trim();
+    if (!trimmed) {
+      showToast('クリップボードが空です');
+      return;
+    }
+    if (!mightContainMercariUrl(trimmed)) {
+      showToast('クリップボードにメルカリの商品URL（jp.mercari.com または merc.li）が見つかりません');
+      return;
+    }
+    document.getElementById('clone-url-input').value = trimmed;
     fetchCloneData();
   } catch (e) {
-    // クリップボードアクセス拒否 → 手動入力を促す
     showToast('クリップボードへのアクセスを許可してください');
     document.getElementById('clone-url-input').focus();
   }
@@ -2013,11 +3130,13 @@ async function pasteAndFetch() {
 async function checkClipboardForMercari() {
   try {
     const text = await navigator.clipboard.readText();
-    if (!text.trim().includes('jp.mercari.com/item/')) return;
+    if (!mightContainMercariUrl(text)) return;
     const banner = document.getElementById('clipboard-banner');
     if (banner) {
+      banner.dataset.fullText = text.trim();
       banner.classList.remove('hidden');
-      document.getElementById('clipboard-banner-url').textContent = text.trim().replace(/\?.*/, '');
+      const display = extractMercariDisplayUrl(text) || text.trim().replace(/\?.*/, '');
+      document.getElementById('clipboard-banner-url').textContent = display.length > 90 ? display.slice(0, 90) + '…' : display;
     }
   } catch {}
 }
@@ -2026,15 +3145,16 @@ async function fetchCloneData() {
   const urlInput = document.getElementById('clone-url-input');
   const btn = document.getElementById('clone-fetch-btn');
   const errorEl = document.getElementById('clone-error');
-  const url = urlInput.value.trim();
-  if (!url) { showCloneError('URLを入力してください'); return; }
-  if (!url.includes('mercari')) { showCloneError('メルカリのURLを入力してください'); return; }
+  const raw = urlInput.value.trim();
+  if (!raw) { showCloneError('商品ページのURLを入力するか、クリップボードから貼り付けてください。'); return; }
+
+  const extracted = extractMercariDisplayUrl(raw);
+  if (extracted) urlInput.value = extracted;
 
   btn.innerHTML = '<span style="display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;"></span> 取得中...';
   btn.disabled = true;
   errorEl.classList.add('hidden');
 
-  // Add spinner keyframes if not exists
   if (!document.getElementById('spin-style')) {
     const s = document.createElement('style');
     s.id = 'spin-style';
@@ -2042,26 +3162,47 @@ async function fetchCloneData() {
     document.head.appendChild(s);
   }
 
-  const encoded = encodeURIComponent(url);
-  // ローカル → 本番Vercel の順で試行
-  const endpoints = ['/api/mercari?url=' + encoded, 'https://furimora-assist.vercel.app/api/mercari?url=' + encoded];
-  let lastErr = '';
+  const payload = extracted || raw;
+  if (!mightContainMercariUrl(payload)) {
+    showCloneError('メルカリの商品URLが見つかりません。アドレスバーに表示される「https://jp.mercari.com/item/m…」をコピーするか、共有文の中にURLが含まれるようにしてください。');
+    btn.innerHTML = '<span class="material-symbols-outlined text-lg">download</span>データ取得';
+    btn.disabled = false;
+    return;
+  }
+
+  const encoded = encodeURIComponent(raw);
+  const endpoints = ['/api/mercari?url=' + encoded, ...REMOTE_MERCARI_API_ORIGINS.map((origin) => `${origin}/api/mercari?url=${encoded}`)];
+  let lastUserMsg = '';
   let success = false;
   for (const endpoint of endpoints) {
     try {
       const res = await fetch(endpoint);
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || 'APIエラー');
+      const data = await res.json().catch(() => null);
+      if (!data) {
+        lastUserMsg = 'サーバーからの応答を解析できませんでした。';
+        continue;
+      }
+      if (!res.ok) {
+        lastUserMsg = messageForMercariFailure(res, data);
+        continue;
+      }
+      if (data.error) {
+        lastUserMsg = messageForMercariFailure({ status: 404 }, data);
+        continue;
+      }
       clonedData = data;
       showCloneStep2(data);
       success = true;
       break;
     } catch (e) {
-      lastErr = e.message;
+      const net = e instanceof TypeError || String(e && e.message || '').includes('Failed to fetch');
+      lastUserMsg = net
+        ? '通信に失敗しました。電波を確認するか、Wi-Fiに切り替えて再度お試しください。'
+        : '商品情報を取得できませんでした。URLを確認してください。';
     }
   }
   if (!success) {
-    showCloneError('商品情報を取得できませんでした。Vercelにデプロイするか、Chrome拡張機能をお使いください。');
+    showCloneError(lastUserMsg || '商品情報を取得できませんでした。URLを確認してください。');
   }
   btn.innerHTML = '<span class="material-symbols-outlined text-lg">download</span>データ取得';
   btn.disabled = false;
@@ -2137,7 +3278,7 @@ async function enrichCloneDataFromApi(data) {
   if (!lacksPrice && !lacksMeta) return norm;
 
   const q = encodeURIComponent(url);
-  const endpoints = [`/api/mercari?url=${q}`, `https://furimora-assist.vercel.app/api/mercari?url=${q}`];
+  const endpoints = [`/api/mercari?url=${q}`, ...REMOTE_MERCARI_API_ORIGINS.map((origin) => `${origin}/api/mercari?url=${q}`)];
   let api = null;
   for (const ep of endpoints) {
     try {
@@ -2257,7 +3398,7 @@ async function downloadAllImages() {
   let count = 0;
 
   const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'https://furimora-assist.vercel.app'
+    ? PRIMARY_WEB_ORIGIN
     : '';
 
   // File System Access API（フォルダが選択済みの場合）
@@ -2295,32 +3436,97 @@ async function downloadAllImages() {
     }
   }
 
-  // フォールバック: 従来のブラウザダウンロード
-  for (let i = 0; i < imgs.length; i++) {
-    try {
+  // フォールバック: ZIP にまとめて1回だけダウンロード（モバイルで枚数分の OS プレビューを避ける）
+  if (typeof JSZip === 'undefined') {
+    showToast('ZIP用ライブラリの読み込みに失敗しました。ページを再読み込みしてください');
+    btn.innerHTML = origHtml;
+    btn.disabled = false;
+    return;
+  }
+
+  cloneZipAbortController = new AbortController();
+  const signal = cloneZipAbortController.signal;
+  const cancelBtn = document.getElementById('clone-zip-cancel-btn');
+  const saveBtn = document.getElementById('clone-zip-save-btn');
+  if (cloneZipPreparedObjectUrl) {
+    URL.revokeObjectURL(cloneZipPreparedObjectUrl);
+    cloneZipPreparedObjectUrl = '';
+  }
+  cloneZipPreparedFileName = '';
+  if (saveBtn) saveBtn.classList.add('hidden');
+  if (cancelBtn) cancelBtn.textContent = 'キャンセル';
+  document.getElementById('clone-zip-modal')?.classList.add('open');
+  setCloneZipModalProgress(0, imgs.length, '画像を取得しています…');
+  if (cancelBtn) cancelBtn.disabled = false;
+
+  const safeFolder = String(itemId).replace(/[^a-zA-Z0-9_-]/g, '') || 'item';
+  let zipErr = null;
+
+  try {
+    const zip = new JSZip();
+    const folder = zip.folder(safeFolder);
+
+    for (let i = 0; i < imgs.length; i++) {
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       const proxyUrl = `${baseUrl}/api/image-proxy?url=${encodeURIComponent(imgs[i])}`;
-      const res = await fetch(proxyUrl);
+      const res = await fetch(proxyUrl, { signal });
       if (!res.ok) continue;
       const blob = await res.blob();
       const ext = (imgs[i].split('.').pop().split('?')[0] || 'jpg').substring(0, 4);
-      const filename = useFolderPerItem
-        ? `${itemId}/${String(i + 1).padStart(2, '0')}.${ext}`
-        : `${itemId}_${String(i + 1).padStart(2, '0')}.${ext}`;
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      const filename = `${String(i + 1).padStart(2, '0')}.${ext}`;
+      folder.file(filename, blob);
       count++;
-      await new Promise(r => setTimeout(r, 400));
-    } catch (e) {}
-  }
+      setCloneZipModalProgress(i + 1, imgs.length, `画像を取得しています（${i + 1} / ${imgs.length}）…`);
+    }
 
-  btn.innerHTML = `<span class="material-symbols-outlined text-sm">check</span>${count}枚保存済`;
-  setTimeout(() => { btn.innerHTML = origHtml; btn.disabled = false; }, 3000);
-  showToast(`${count}枚の写真を保存しました`);
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (count === 0) {
+      showToast('画像の取得に失敗しました');
+      cancelCloneZipDownload();
+      btn.innerHTML = origHtml;
+      btn.disabled = false;
+      return;
+    }
+
+    if (cancelBtn) cancelBtn.disabled = true;
+    setCloneZipModalProgress(imgs.length, imgs.length, 'ZIP を作成しています…');
+
+    const content = await zip.generateAsync(
+      { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+      (meta) => {
+        const p = meta && typeof meta.percent === 'number' ? meta.percent : 0;
+        const bar = document.getElementById('clone-zip-bar');
+        if (bar) bar.style.width = Math.min(100, Math.round(p)) + '%';
+        const phase = document.getElementById('clone-zip-phase');
+        if (phase) phase.textContent = `ZIP を作成しています（${Math.round(p)}%）…`;
+      }
+    );
+
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    const zipName = `${safeFolder}_photos.zip`;
+    cloneZipPreparedObjectUrl = URL.createObjectURL(content);
+    cloneZipPreparedFileName = zipName;
+    if (saveBtn) saveBtn.classList.remove('hidden');
+    if (cancelBtn) cancelBtn.textContent = '閉じる';
+    btn.innerHTML = `<span class="material-symbols-outlined text-sm">check</span>${count}枚をZIPで保存`;
+    const phaseEl = document.getElementById('clone-zip-phase');
+    if (phaseEl) phaseEl.textContent = 'ZIP準備完了。下の「保存を開始」を押してください。';
+  } catch (e) {
+    zipErr = e;
+    if (e.name === 'AbortError') {
+      showToast('保存をキャンセルしました');
+    } else {
+      showToast('ZIPの作成に失敗しました: ' + (e.message || String(e)));
+    }
+    cancelCloneZipDownload();
+  } finally {
+    cloneZipAbortController = null;
+    const delay = zipErr && zipErr.name === 'AbortError' ? 0 : 0;
+    setTimeout(() => { btn.innerHTML = origHtml; btn.disabled = false; }, delay);
+    const cb = document.getElementById('clone-zip-cancel-btn');
+    if (cb) cb.disabled = false;
+  }
 }
 
 function updateFeeCalc() {
@@ -2363,7 +3569,7 @@ function createClone() {
     s.total = (s.total || 0) + 1;
     try { localStorage.setItem('furimora_stats', JSON.stringify(s)); } catch {}
     // アクティビティに追加
-    ACTIVITIES.unshift({ name: title || '新しい商品', action: 'クローンを作成しました', time: 'たった今', status: '下書き', type: 'active', emoji: '📋' });
+    ACTIVITIES.unshift({ name: title || '新しい商品', action: 'クローンを作成しました', time: 'たった今', status: '下書き', type: 'active', icon: 'copy' });
     saveStorageData();
     loadStats();
     document.getElementById('clone-step-2').classList.add('hidden');
@@ -2380,6 +3586,7 @@ function createClone() {
 }
 
 function resetClone() {
+  clearCloneIOSPastePending();
   clonedData = {};
   document.getElementById('clone-step-1').classList.remove('hidden');
   ['clone-step-2','clone-step-3'].forEach(id => document.getElementById(id).classList.add('hidden'));
@@ -2534,11 +3741,6 @@ function copyToClipboard(msg) {
 // ── PWA ──
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pwaPrompt = e; });
 
-function copyBookmarklet() {
-  const code = document.getElementById('bookmarklet-code')?.textContent || '';
-  navigator.clipboard.writeText(code).then(() => showToast('コピーしました')).catch(() => showToast('コピーに失敗しました'));
-}
-
 function installPWA() {
   if (pwaPrompt) {
     pwaPrompt.prompt();
@@ -2550,6 +3752,7 @@ function installPWA() {
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
+  if (isIOSDevice()) document.documentElement.classList.add('ios-touch-lock');
   loadStorageData();
   loadStats();
   renderAlerts();
@@ -2606,7 +3809,7 @@ document.addEventListener('DOMContentLoaded', () => {
     history.replaceState({}, '', window.location.pathname);
     if (autofetch && u) setTimeout(() => fetchCloneData(), 300);
   } else {
-    // モバイル連携: ブックマークレット(iOS) / Share Target(Android PWA) — page=clone と排他
+    // モバイル共有連携: ブックマークレット(iOS) / Share Target(Android PWA) — page=clone と排他
     const mercariRaw = params.get('mercari_url');
     const mercariUrlNorm = normalizeIncomingMercariUrl(mercariRaw);
     const hasItemPath = /\/item\/m\w+/i.test(mercariUrlNorm);

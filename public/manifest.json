@@ -1,7 +1,7 @@
 {
-  "name": "フリモーラ アシスト",
+  "name": "フリモーラ",
   "short_name": "フリモーラ",
-  "description": "メルカリ出品を自動化・最適化するアシスタントツール",
+  "description": "メルカリ出品を自動化・最適化するツール",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f9f9f9",
@@ -14,8 +14,20 @@
   ],
   "categories": ["productivity", "shopping"],
   "screenshots": [
-    { "src": "/screenshots/home.png", "sizes": "390x844", "type": "image/png", "label": "ダッシュボード" },
-    { "src": "/screenshots/clone.png", "sizes": "390x844", "type": "image/png", "label": "クローン作成" }
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "label": "フリモーラ",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "label": "フリモーラ",
+      "form_factor": "wide"
+    }
   ],
   "share_target": {
     "action": "/",

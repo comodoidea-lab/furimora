@@ -1,6 +1,6 @@
 {
-  "appId": "jp.furimora.assist",
-  "appName": "フリモーラ アシスト",
+  "appId": "jp.furimora",
+  "appName": "フリモーラ",
   "webDir": "public",
   "server": {
     "androidScheme": "https"

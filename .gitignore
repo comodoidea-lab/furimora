@@ -5,5 +5,5 @@ node_modules/
 .env.*
 npm-debug.log*
 .claude/settings.local.json
-stitch_furimora-assist.zip
+stitch_furimora.zip
 *.zip

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "フリモーラ アシスト",
+  "name": "フリモーラ",
   "short_name": "フリモーラ",
   "version": "1.0.0",
   "description": "メルカリの商品ページにクローン・値下げボタンを追加します",
@@ -15,7 +15,7 @@
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png"
     },
-    "default_title": "フリモーラ アシスト"
+    "default_title": "フリモーラ"
   },
   "content_scripts": [
     {

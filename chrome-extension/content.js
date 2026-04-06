@@ -1,12 +1,21 @@
 /**
- * フリモーラ アシスト - Content Script
- * メルカリの商品ページに自動でアシストUIを注入します
+ * フリモーラ - Content Script
+ * メルカリの商品ページに補助UIを注入します
  */
 
 (function () {
   'use strict';
+  const APP_URL = 'https://furimora.vercel.app';
+  const LEGACY_APP_URL = 'https://furimora-assist.vercel.app';
 
-  if (document.getElementById('furimora-assist-widget')) return;
+  function normalizeAppUrl(raw) {
+    const value = String(raw || '').trim();
+    if (!value) return APP_URL;
+    if (value.startsWith(LEGACY_APP_URL)) return value.replace(LEGACY_APP_URL, APP_URL);
+    return value;
+  }
+
+  if (document.getElementById('furimora-widget')) return;
 
   const isItemPage = /\/item\/m\w+/.test(window.location.pathname);
   const isSellPage = /\/sell/.test(window.location.pathname);
@@ -265,9 +274,9 @@
     const data = extractItemData();
 
     const widget = document.createElement('div');
-    widget.id = 'furimora-assist-widget';
+    widget.id = 'furimora-widget';
     widget.innerHTML = `
-      <div id="furimora-toggle" title="フリモーラ アシスト">
+      <div id="furimora-toggle" title="フリモーラ">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
           <path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/>
@@ -276,7 +285,7 @@
       </div>
       <div id="furimora-panel" class="furimora-hidden">
         <div id="furimora-header">
-          <span>フリモーラ アシスト</span>
+          <span>フリモーラ</span>
           <button id="furimora-close">✕</button>
         </div>
         <div id="furimora-body">
@@ -324,7 +333,8 @@
       setTimeout(() => {
         const freshData = extractItemData();
         chrome.storage.local.get('furimora_app_url', ({ furimora_app_url }) => {
-          const appUrl = furimora_app_url || 'https://furimora-assist.vercel.app';
+          const appUrl = normalizeAppUrl(furimora_app_url);
+          if (furimora_app_url !== appUrl) chrome.storage.local.set({ furimora_app_url: appUrl });
           const cloneUrl = buildCloneUrl(appUrl, freshData);
           chrome.runtime.sendMessage({ type: 'OPEN_TAB', url: cloneUrl });
           showStatus('✓ フリモーラでクローン作成画面を開きます', 'success');
@@ -399,7 +409,7 @@
   new MutationObserver(() => {
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
-      const existing = document.getElementById('furimora-assist-widget');
+      const existing = document.getElementById('furimora-widget');
       if (existing) existing.remove();
       setTimeout(createWidget, 1000);
     }
