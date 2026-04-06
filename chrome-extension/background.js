@@ -1,5 +1,5 @@
 /**
- * フリモーラ アシスト - Background Service Worker (Manifest V3)
+ * フリモーラ - Background Service Worker (Manifest V3)
  */
 
 const APP_URL = 'https://furimora-assist.vercel.app';
@@ -98,7 +98,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     chrome.notifications.create('furimora-relist', {
       type: 'basic',
       iconUrl: '../icons/icon-48.png',
-      title: 'フリモーラ アシスト',
+      title: 'フリモーラ',
       message: `再出品待ちの商品が ${relist} 件あります`,
       buttons: [{ title: '管理画面を開く' }],
     });

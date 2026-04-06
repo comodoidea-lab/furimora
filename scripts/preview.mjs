@@ -98,5 +98,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`フリモーラ アシスト: http://${host}:${port}`);
+  console.log(`フリモーラ: http://${host}:${port}`);
 });

@@ -1,12 +1,12 @@
 /**
- * フリモーラ アシスト - Content Script
- * メルカリの商品ページに自動でアシストUIを注入します
+ * フリモーラ - Content Script
+ * メルカリの商品ページに補助UIを注入します
  */
 
 (function () {
   'use strict';
 
-  if (document.getElementById('furimora-assist-widget')) return;
+  if (document.getElementById('furimora-widget')) return;
 
   const isItemPage = /\/item\/m\w+/.test(window.location.pathname);
   const isSellPage = /\/sell/.test(window.location.pathname);
@@ -265,9 +265,9 @@
     const data = extractItemData();
 
     const widget = document.createElement('div');
-    widget.id = 'furimora-assist-widget';
+    widget.id = 'furimora-widget';
     widget.innerHTML = `
-      <div id="furimora-toggle" title="フリモーラ アシスト">
+      <div id="furimora-toggle" title="フリモーラ">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
           <path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/>
@@ -276,7 +276,7 @@
       </div>
       <div id="furimora-panel" class="furimora-hidden">
         <div id="furimora-header">
-          <span>フリモーラ アシスト</span>
+          <span>フリモーラ</span>
           <button id="furimora-close">✕</button>
         </div>
         <div id="furimora-body">
@@ -399,7 +399,7 @@
   new MutationObserver(() => {
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
-      const existing = document.getElementById('furimora-assist-widget');
+      const existing = document.getElementById('furimora-widget');
       if (existing) existing.remove();
       setTimeout(createWidget, 1000);
     }
