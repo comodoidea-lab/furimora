@@ -1,0 +1,13 @@
+{
+  "name": "furimora-assist",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/preview.mjs",
+    "preview": "node scripts/preview.mjs",
+    "preview:vercel": "vercel dev"
+  },
+  "devDependencies": {
+    "vercel": "^41.0.0"
+  }
+}

@@ -398,7 +398,7 @@ tailwind.config = {
     <!-- Step 1 -->
     <div id="clone-step-1" class="bg-surface-container-lowest p-6 rounded-lg shadow-sm space-y-4">
       <!-- クリップボード検知バナー -->
-      <div id="clipboard-banner" class="hidden bg-tertiary/10 border border-tertiary/20 rounded-xl px-4 py-3 flex items-center gap-3">
+      <div id="clipboard-banner" class="hidden bg-tertiary/10 border border-tertiary/20 rounded-xl px-4 py-3 flex items-center gap-3" data-full-text="">
         <span class="material-symbols-outlined text-tertiary text-lg flex-shrink-0">content_paste_go</span>
         <div class="flex-1 min-w-0">
           <p class="text-xs font-bold text-tertiary">コピー済みのURLを検出</p>
@@ -424,7 +424,7 @@ tailwind.config = {
         class="w-full flex items-center justify-center gap-2 bg-surface-container text-on-surface-variant py-3 rounded-full text-sm font-bold hover:bg-surface-container-high active:bg-surface-container-high transition-colors">
         <span class="material-symbols-outlined text-lg">content_paste</span>クリップボードからURLを貼り付けて取得
       </button>
-      <p class="text-[11px] text-on-surface-variant">※ メルカリ商品ページのURLをコピーしてから上のボタンをタップ。Safariでコピーしたままアプリを開くだけでOK。</p>
+      <p class="text-[11px] text-on-surface-variant">※ アドレスバーの <code class="text-[10px] bg-surface-container px-1 rounded">https://jp.mercari.com/item/m…</code> をコピーしてください（商品名だけでは取得できません）。共有文のまま貼り付けでもURLを検出します。</p>
       <div id="clone-error" class="hidden bg-error-container/40 text-error text-xs font-semibold px-4 py-2.5 rounded-xl items-center gap-2">
         <span class="material-symbols-outlined text-sm">error</span><span id="clone-error-msg"></span>
       </div>
@@ -1983,11 +1983,35 @@ function renderScheduleForDay() {
 function addScheduleItem() { showToast('スケジュール追加機能は近日公開予定です'); }
 
 // ── Clone ──
+function mightContainMercariUrl(s) {
+  return typeof s === 'string' && (/jp\.mercari\.com\/item\/m/i.test(s) || /merc\.li\//i.test(s));
+}
+
+function extractMercariDisplayUrl(s) {
+  if (!s || typeof s !== 'string') return '';
+  const jp = s.match(/https:\/\/jp\.mercari\.com\/item\/m\w+/i);
+  if (jp) return jp[0];
+  const li = s.match(/https:\/\/merc\.li\/[a-zA-Z0-9_-]+/i);
+  if (li) return li[0];
+  return '';
+}
+
+function messageForMercariFailure(res, data) {
+  if (data && data.code === 'BAD_URL') return data.error;
+  if (res.status === 404 || (data && data.error === '商品データを取得できませんでした')) {
+    return 'この商品情報は取得できませんでした（削除・非公開・売り切れ、または一時的な障害の可能性があります）。';
+  }
+  if (res.status === 400) return (data && data.error) ? data.error : 'URLの形式を確認してください。';
+  if (res.status >= 500) return 'サーバーでエラーが発生しました。しばらくしてから再度お試しください。';
+  return (data && data.error) || '商品情報を取得できませんでした。URLを確認してください。';
+}
+
 function useBannerUrl() {
-  const url = document.getElementById('clipboard-banner-url')?.textContent;
-  if (url) {
-    document.getElementById('clone-url-input').value = url;
-    document.getElementById('clipboard-banner').classList.add('hidden');
+  const banner = document.getElementById('clipboard-banner');
+  const full = (banner && banner.dataset.fullText) ? banner.dataset.fullText : (document.getElementById('clipboard-banner-url')?.textContent || '');
+  if (full) {
+    document.getElementById('clone-url-input').value = full.trim();
+    banner.classList.add('hidden');
     fetchCloneData();
   }
 }
@@ -1995,15 +2019,18 @@ function useBannerUrl() {
 async function pasteAndFetch() {
   try {
     const text = await navigator.clipboard.readText();
-    const url = text.trim();
-    if (!url.includes('jp.mercari.com/item/')) {
-      showToast('クリップボードにメルカリ商品URLがありません');
+    const trimmed = text.trim();
+    if (!trimmed) {
+      showToast('クリップボードが空です');
       return;
     }
-    document.getElementById('clone-url-input').value = url;
+    if (!mightContainMercariUrl(trimmed)) {
+      showToast('クリップボードにメルカリの商品URL（jp.mercari.com または merc.li）が見つかりません');
+      return;
+    }
+    document.getElementById('clone-url-input').value = trimmed;
     fetchCloneData();
   } catch (e) {
-    // クリップボードアクセス拒否 → 手動入力を促す
     showToast('クリップボードへのアクセスを許可してください');
     document.getElementById('clone-url-input').focus();
   }
@@ -2013,11 +2040,13 @@ async function pasteAndFetch() {
 async function checkClipboardForMercari() {
   try {
     const text = await navigator.clipboard.readText();
-    if (!text.trim().includes('jp.mercari.com/item/')) return;
+    if (!mightContainMercariUrl(text)) return;
     const banner = document.getElementById('clipboard-banner');
     if (banner) {
+      banner.dataset.fullText = text.trim();
       banner.classList.remove('hidden');
-      document.getElementById('clipboard-banner-url').textContent = text.trim().replace(/\?.*/, '');
+      const display = extractMercariDisplayUrl(text) || text.trim().replace(/\?.*/, '');
+      document.getElementById('clipboard-banner-url').textContent = display.length > 90 ? display.slice(0, 90) + '…' : display;
     }
   } catch {}
 }
@@ -2026,15 +2055,16 @@ async function fetchCloneData() {
   const urlInput = document.getElementById('clone-url-input');
   const btn = document.getElementById('clone-fetch-btn');
   const errorEl = document.getElementById('clone-error');
-  const url = urlInput.value.trim();
-  if (!url) { showCloneError('URLを入力してください'); return; }
-  if (!url.includes('mercari')) { showCloneError('メルカリのURLを入力してください'); return; }
+  const raw = urlInput.value.trim();
+  if (!raw) { showCloneError('商品ページのURLを入力するか、クリップボードから貼り付けてください。'); return; }
+
+  const extracted = extractMercariDisplayUrl(raw);
+  if (extracted) urlInput.value = extracted;
 
   btn.innerHTML = '<span style="display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;"></span> 取得中...';
   btn.disabled = true;
   errorEl.classList.add('hidden');
 
-  // Add spinner keyframes if not exists
   if (!document.getElementById('spin-style')) {
     const s = document.createElement('style');
     s.id = 'spin-style';
@@ -2042,26 +2072,47 @@ async function fetchCloneData() {
     document.head.appendChild(s);
   }
 
-  const encoded = encodeURIComponent(url);
-  // ローカル → 本番Vercel の順で試行
+  const payload = extracted || raw;
+  if (!mightContainMercariUrl(payload)) {
+    showCloneError('メルカリの商品URLが見つかりません。アドレスバーに表示される「https://jp.mercari.com/item/m…」をコピーするか、共有文の中にURLが含まれるようにしてください。');
+    btn.innerHTML = '<span class="material-symbols-outlined text-lg">download</span>データ取得';
+    btn.disabled = false;
+    return;
+  }
+
+  const encoded = encodeURIComponent(raw);
   const endpoints = ['/api/mercari?url=' + encoded, 'https://furimora-assist.vercel.app/api/mercari?url=' + encoded];
-  let lastErr = '';
+  let lastUserMsg = '';
   let success = false;
   for (const endpoint of endpoints) {
     try {
       const res = await fetch(endpoint);
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || 'APIエラー');
+      const data = await res.json().catch(() => null);
+      if (!data) {
+        lastUserMsg = 'サーバーからの応答を解析できませんでした。';
+        continue;
+      }
+      if (!res.ok) {
+        lastUserMsg = messageForMercariFailure(res, data);
+        continue;
+      }
+      if (data.error) {
+        lastUserMsg = messageForMercariFailure({ status: 404 }, data);
+        continue;
+      }
       clonedData = data;
       showCloneStep2(data);
       success = true;
       break;
     } catch (e) {
-      lastErr = e.message;
+      const net = e instanceof TypeError || String(e && e.message || '').includes('Failed to fetch');
+      lastUserMsg = net
+        ? '通信に失敗しました。電波を確認するか、Wi-Fiに切り替えて再度お試しください。'
+        : '商品情報を取得できませんでした。URLを確認してください。';
     }
   }
   if (!success) {
-    showCloneError('商品情報を取得できませんでした。Vercelにデプロイするか、Chrome拡張機能をお使いください。');
+    showCloneError(lastUserMsg || '商品情報を取得できませんでした。URLを確認してください。');
   }
   btn.innerHTML = '<span class="material-symbols-outlined text-lg">download</span>データ取得';
   btn.disabled = false;
