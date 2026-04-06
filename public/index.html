@@ -462,7 +462,7 @@ tailwind.config = {
           </button>
         </div>
         <div class="grid grid-cols-4 sm:grid-cols-5 gap-2" id="extracted-images"></div>
-        <p class="text-[10px] text-on-surface-variant">※ 画像を長押し（またはクリック）して保存してください</p>
+        <p class="text-[10px] text-on-surface-variant">※ 「全写真を保存」は1つのZIPにまとめて保存します（モバイルで枚数分の確認画面が出続けるのを防ぎます）。個別保存は画像を長押ししてください。</p>
       </div>
 
       <!-- フィールド一覧 -->
@@ -1278,6 +1278,25 @@ tailwind.config = {
   </div>
 </div>
 
+<!-- クローン: 全写真ZIP保存の進捗 -->
+<div id="clone-zip-modal" class="modal-overlay" onclick="if(event.target===this)cancelCloneZipDownload()">
+  <div class="modal-sheet w-full" style="max-width:400px" role="dialog" aria-labelledby="clone-zip-title" aria-modal="true">
+    <div class="flex items-center justify-between mb-3">
+      <h3 id="clone-zip-title" class="font-headline font-bold text-base">写真をまとめて保存</h3>
+      <button type="button" onclick="cancelCloneZipDownload()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container" aria-label="閉じる">
+        <span class="material-symbols-outlined text-lg">close</span>
+      </button>
+    </div>
+    <p id="clone-zip-phase" class="text-sm text-on-surface-variant">準備中…</p>
+    <div class="h-2 bg-surface-container rounded-full overflow-hidden mt-3">
+      <div id="clone-zip-bar" class="h-full bg-signature-gradient rounded-full transition-[width] duration-150" style="width:0%"></div>
+    </div>
+    <p class="text-xs text-on-surface-variant mt-2 text-center font-semibold"><span id="clone-zip-current">0</span> / <span id="clone-zip-total">0</span> 枚</p>
+    <p class="text-[11px] text-on-surface-variant/80 mt-3 leading-relaxed">取得した画像を1つのZIPにまとめ、ダウンロードは1回だけです。iOSでは共有シートから「ファイルに保存」などを選べます。</p>
+    <button type="button" id="clone-zip-cancel-btn" onclick="cancelCloneZipDownload()" class="mt-4 w-full py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
+  </div>
+</div>
+
 <!-- テンプレート編集 Modal -->
 <div id="template-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('template-modal')">
   <div class="modal-sheet w-full" style="max-width:480px">
@@ -1342,6 +1361,7 @@ tailwind.config = {
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
 <script>
 // ── Data (localStorage-driven, no hardcoded samples) ──
 let ALERTS = [];
@@ -1397,6 +1417,8 @@ let selectedTone = '丁寧';
 let clonedData = {};
 let pwaPrompt = null;
 let downloadDirHandle = null;
+/** 全写真ZIP保存の fetch / UI キャンセル用 */
+let cloneZipAbortController = null;
 
 // ── 在庫・出品管理 ──
 let ITEMS = [];
@@ -2619,6 +2641,29 @@ function closeModal(id) {
     itemConfirmType = null;
   }
   if (id === 'item-url-modal') itemUrlEditId = null;
+  if (id === 'clone-zip-modal' && cloneZipAbortController) {
+    cloneZipAbortController.abort();
+    cloneZipAbortController = null;
+  }
+}
+
+function cancelCloneZipDownload() {
+  if (cloneZipAbortController) {
+    cloneZipAbortController.abort();
+    cloneZipAbortController = null;
+  }
+  document.getElementById('clone-zip-modal')?.classList.remove('open');
+}
+
+function setCloneZipModalProgress(current, total, phaseText) {
+  const curEl = document.getElementById('clone-zip-current');
+  const totEl = document.getElementById('clone-zip-total');
+  const bar = document.getElementById('clone-zip-bar');
+  const phase = document.getElementById('clone-zip-phase');
+  if (curEl) curEl.textContent = String(current);
+  if (totEl) totEl.textContent = String(total);
+  if (bar) bar.style.width = (total ? Math.min(100, Math.round((current / total) * 100)) : 0) + '%';
+  if (phase && phaseText) phase.textContent = phaseText;
 }
 
 // ── Render Notifications ──
@@ -3281,32 +3326,98 @@ async function downloadAllImages() {
     }
   }
 
-  // フォールバック: 従来のブラウザダウンロード
-  for (let i = 0; i < imgs.length; i++) {
-    try {
+  // フォールバック: ZIP にまとめて1回だけダウンロード（モバイルで枚数分の OS プレビューを避ける）
+  if (typeof JSZip === 'undefined') {
+    showToast('ZIP用ライブラリの読み込みに失敗しました。ページを再読み込みしてください');
+    btn.innerHTML = origHtml;
+    btn.disabled = false;
+    return;
+  }
+
+  cloneZipAbortController = new AbortController();
+  const signal = cloneZipAbortController.signal;
+  const cancelBtn = document.getElementById('clone-zip-cancel-btn');
+  document.getElementById('clone-zip-modal')?.classList.add('open');
+  setCloneZipModalProgress(0, imgs.length, '画像を取得しています…');
+  if (cancelBtn) cancelBtn.disabled = false;
+
+  const safeFolder = String(itemId).replace(/[^a-zA-Z0-9_-]/g, '') || 'item';
+  let zipErr = null;
+
+  try {
+    const zip = new JSZip();
+    const folder = zip.folder(safeFolder);
+
+    for (let i = 0; i < imgs.length; i++) {
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       const proxyUrl = `${baseUrl}/api/image-proxy?url=${encodeURIComponent(imgs[i])}`;
-      const res = await fetch(proxyUrl);
+      const res = await fetch(proxyUrl, { signal });
       if (!res.ok) continue;
       const blob = await res.blob();
       const ext = (imgs[i].split('.').pop().split('?')[0] || 'jpg').substring(0, 4);
-      const filename = useFolderPerItem
-        ? `${itemId}/${String(i + 1).padStart(2, '0')}.${ext}`
-        : `${itemId}_${String(i + 1).padStart(2, '0')}.${ext}`;
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      const filename = `${String(i + 1).padStart(2, '0')}.${ext}`;
+      folder.file(filename, blob);
       count++;
-      await new Promise(r => setTimeout(r, 400));
-    } catch (e) {}
-  }
+      setCloneZipModalProgress(i + 1, imgs.length, `画像を取得しています（${i + 1} / ${imgs.length}）…`);
+    }
 
-  btn.innerHTML = `<span class="material-symbols-outlined text-sm">check</span>${count}枚保存済`;
-  setTimeout(() => { btn.innerHTML = origHtml; btn.disabled = false; }, 3000);
-  showToast(`${count}枚の写真を保存しました`);
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (count === 0) {
+      showToast('画像の取得に失敗しました');
+      cancelCloneZipDownload();
+      btn.innerHTML = origHtml;
+      btn.disabled = false;
+      return;
+    }
+
+    if (cancelBtn) cancelBtn.disabled = true;
+    setCloneZipModalProgress(imgs.length, imgs.length, 'ZIP を作成しています…');
+
+    const content = await zip.generateAsync(
+      { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+      (meta) => {
+        const p = meta && typeof meta.percent === 'number' ? meta.percent : 0;
+        const bar = document.getElementById('clone-zip-bar');
+        if (bar) bar.style.width = Math.min(100, Math.round(p)) + '%';
+        const phase = document.getElementById('clone-zip-phase');
+        if (phase) phase.textContent = `ZIP を作成しています（${Math.round(p)}%）…`;
+      }
+    );
+
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    const zipName = `${safeFolder}_photos.zip`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(content);
+    a.download = zipName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 2500);
+
+    btn.innerHTML = `<span class="material-symbols-outlined text-sm">check</span>${count}枚をZIPで保存`;
+    showToast(`${count}枚の写真を1つのZIPにまとめました`);
+    const phaseEl = document.getElementById('clone-zip-phase');
+    if (phaseEl) phaseEl.textContent = '完了しました';
+    setTimeout(() => {
+      document.getElementById('clone-zip-modal')?.classList.remove('open');
+      cloneZipAbortController = null;
+    }, 600);
+  } catch (e) {
+    zipErr = e;
+    if (e.name === 'AbortError') {
+      showToast('保存をキャンセルしました');
+    } else {
+      showToast('ZIPの作成に失敗しました: ' + (e.message || String(e)));
+    }
+    document.getElementById('clone-zip-modal')?.classList.remove('open');
+  } finally {
+    cloneZipAbortController = null;
+    const delay = zipErr && zipErr.name === 'AbortError' ? 0 : 3000;
+    setTimeout(() => { btn.innerHTML = origHtml; btn.disabled = false; }, delay);
+    const cb = document.getElementById('clone-zip-cancel-btn');
+    if (cb) cb.disabled = false;
+  }
 }
 
 function updateFeeCalc() {
