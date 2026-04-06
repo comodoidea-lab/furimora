@@ -2,7 +2,7 @@
 <html lang="ja" class="light">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"/>
 <meta name="theme-color" content="#bb0017"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
@@ -67,14 +67,19 @@ tailwind.config = {
 </script>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; width: 100%; overflow-x: hidden; }
   body {
     font-family: 'Inter', 'Noto Sans JP', sans-serif;
     background: #f9f9f9;
     color: #1a1c1c;
     -webkit-font-smoothing: antialiased;
     overscroll-behavior: none;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    touch-action: manipulation;
   }
+  #main-content { width: 100%; max-width: 100vw; overflow-x: hidden; }
   .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
     vertical-align: middle;
@@ -1363,6 +1368,12 @@ function saveStorageData() {
   localStorage.setItem('furimora_notifications',JSON.stringify(NOTIFICATIONS));
 }
 
+function isIOSDevice() {
+  const ua = navigator.userAgent || '';
+  const touchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  return /iP(hone|ad|od)/.test(ua) || touchMac;
+}
+
 function loadStats() {
   try {
     const s = JSON.parse(localStorage.getItem('furimora_stats') || '{}');
@@ -2554,13 +2565,29 @@ function navigate(page, navOpts = {}) {
       const input = document.getElementById('clone-url-input');
       if (input) input.value = deep;
     } else {
-      checkClipboardForMercari();
+      // iOS では自動 clipboard read が「ペースト」UIを出してUXを崩すため、明示ボタン経由に限定
+      if (!isIOSDevice()) checkClipboardForMercari();
     }
   }
   if (page === 'relist') renderItems();
   if (page === 'listing') renderListingDrafts();
   if (page === 'settings') renderTemplatesList();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// iOS Safari/PWA: ピンチアウト・ダブルタップ拡大を抑止
+if (typeof window !== 'undefined' && isIOSDevice()) {
+  document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
+  let __lastTouchEnd = 0;
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - __lastTouchEnd <= 280) e.preventDefault();
+    __lastTouchEnd = now;
+  }, { passive: false });
 }
 
 // ── Toast ──
