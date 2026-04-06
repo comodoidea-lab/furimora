@@ -344,23 +344,27 @@ async function fetchFromPage(url, itemId) {
           }
         }
         row.price = row.currentPrice;
-        return row;
+        return await maybeExpandMercdnImages(row, itemId);
       }
     } catch (e) {
       console.error('[mercari] __NEXT_DATA__ parse', e);
     }
   }
 
-  // og: メタタグにフォールバック
-  const og = parseOgMeta(html, itemId, url);
-  if (og && (og.currentPrice == null || og.currentPrice === 0)) {
-    const fromLd = extractPriceFromLdJson(html);
-    if (fromLd != null && fromLd > 0) og.currentPrice = fromLd;
-    else {
-      const fromHtml = extractPriceFromItemPageHtml(html);
-      if (fromHtml != null && fromHtml > 0) og.currentPrice = fromHtml;
+  // og: メタタグにフォールバック（現行 SSR では商品 JSON が無く、SEO 用 meta のみのことが多い）
+  let og = parseOgMeta(html, itemId, url);
+  if (og) {
+    if (isGenericMercariSeoDescription(og.description)) og.description = '';
+    if (og.currentPrice == null || og.currentPrice === 0) {
+      const fromLd = extractPriceFromLdJson(html);
+      if (fromLd != null && fromLd > 0) og.currentPrice = fromLd;
+      else {
+        const fromHtml = extractPriceFromItemPageHtml(html);
+        if (fromHtml != null && fromHtml > 0) og.currentPrice = fromHtml;
+      }
+      og.price = og.currentPrice;
     }
-    og.price = og.currentPrice;
+    og = await maybeExpandMercdnImages(og, itemId);
   }
   return og;
 }
@@ -517,6 +521,63 @@ function extractImages(item) {
  * App Router 化後の商品ページでは __NEXT_DATA__ が無く、価格が meta のみに出ることが多い。
  * 例: <meta name="product:price:amount" content="3280"/>
  */
+/** og:description のメルカリ共通 SEO 文（出品者の説明文ではない） */
+function isGenericMercariSeoDescription(desc) {
+  if (!desc || typeof desc !== 'string') return false;
+  const t = desc.trim();
+  return (
+    t.includes('誰でも安心して簡単に売り買いが楽しめるフリマサービス') ||
+    t.includes('品物が届いてから出品者に入金される独自システム') ||
+    t.includes('をメルカリでお得に通販')
+  );
+}
+
+/**
+ * og 画像は 1 枚のみのことが多いが、mercdn は連番 URL で実在する — HEAD で列挙して拡張。
+ */
+async function probeMercdnPhotoUrls(itemId, sampleUrl) {
+  const urls = [];
+  let prefix;
+  if (sampleUrl && /mercdn\.net\/item\//i.test(sampleUrl)) {
+    const m = sampleUrl.match(
+      /^(https:\/\/static\.mercdn\.net\/item\/detail\/orig\/photos\/m[a-zA-Z0-9]+)_\d+\.jpg/i
+    );
+    if (m) prefix = m[1];
+  }
+  if (!prefix) {
+    prefix = `https://static.mercdn.net/item/detail/orig/photos/${itemId}`;
+  }
+  for (let n = 1; n <= 24; n++) {
+    const u = `${prefix}_${n}.jpg`;
+    try {
+      const res = await fetch(u, {
+        method: 'HEAD',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+        },
+        signal: AbortSignal.timeout(4500),
+      });
+      if (res.ok) urls.push(u);
+      else break;
+    } catch {
+      break;
+    }
+  }
+  return urls;
+}
+
+async function maybeExpandMercdnImages(row, itemId) {
+  if (!row || !itemId) return row;
+  if (row.images && row.images.length > 1) return row;
+  const sample = row.images?.[0] || row.thumbnailUrl || '';
+  const probed = await probeMercdnPhotoUrls(itemId, sample);
+  if (probed.length === 0) return row;
+  row.images = probed;
+  row.thumbnailUrl = probed[0];
+  return row;
+}
+
 function extractMercariMetaPrice(html) {
   if (!html || typeof html !== 'string') return null;
   const patterns = [
@@ -549,9 +610,13 @@ function parseOgMeta(html, itemId, url) {
   const fromProductMeta = extractMercariMetaPrice(html);
   const priceNum = (html.match(/"price"\s*:\s*(\d+)/) || [])[1];
   const cp = fromProductMeta ?? (priceNum ? parseInt(priceNum, 10) : null);
+  const cleanTitle = title
+    .replace(/\s*[-–]\s*メルカリ.*$/, '')
+    .replace(/\s+by\s+メルカリ\s*$/i, '')
+    .trim();
   return {
     itemId,
-    title: title.replace(/\s*[-–]\s*メルカリ.*$/, '').trim(),
+    title: cleanTitle,
     currentPrice: cp,
     price: cp,
     description: desc || '',
