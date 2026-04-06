@@ -907,7 +907,7 @@ tailwind.config = {
 <div id="new-item-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('new-item-modal')">
   <div class="modal-sheet max-h-[92vh] overflow-y-auto w-full" style="max-width:480px">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="font-headline font-bold text-lg">🏷️ 新規出品アシスタント</h3>
+      <h3 class="font-headline font-bold text-lg" id="ni-modal-title">🏷️ 新規出品アシスタント</h3>
       <button onclick="closeModal('new-item-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container">
         <span class="material-symbols-outlined text-lg">close</span>
       </button>
@@ -1093,8 +1093,95 @@ tailwind.config = {
     <div class="flex gap-3 mt-6 pt-4 border-t border-surface-container">
       <button onclick="closeModal('new-item-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
       <button onclick="saveNewItem()" class="flex-1 bg-signature-gradient text-white py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2">
-        <span class="material-symbols-outlined text-lg">playlist_add</span>出品一覧に追加
+        <span class="material-symbols-outlined text-lg" id="ni-save-btn-icon">playlist_add</span><span id="ni-save-btn-label">出品一覧に追加</span>
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- 値下げ計算 Modal（出品一覧） -->
+<div id="discount-item-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('discount-item-modal')">
+  <div class="modal-sheet w-full max-h-[90vh] overflow-y-auto" style="max-width:440px">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-headline font-bold text-lg">値下げ計算</h3>
+      <button type="button" onclick="closeModal('discount-item-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container" aria-label="閉じる">
+        <span class="material-symbols-outlined text-lg">close</span>
+      </button>
+    </div>
+    <p class="text-xs font-bold text-on-surface line-clamp-2 mb-4" id="discount-modal-item-title"></p>
+
+    <div class="text-center mb-4">
+      <p class="text-xs text-on-surface-variant mb-1">現在価格: <span id="discount-modal-base-label">¥0</span></p>
+      <p class="text-3xl font-black text-error tracking-tight" id="discount-modal-preview-big">¥0</p>
+      <p class="text-[10px] text-on-surface-variant mt-1">最低価格まであと <span id="discount-modal-room" class="font-bold text-on-surface">¥0</span></p>
+    </div>
+
+    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">クイック</p>
+    <div class="flex flex-wrap gap-2 mb-4">
+      <button type="button" onclick="discountApplyPreset('yen',100)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-100円</button>
+      <button type="button" onclick="discountApplyPreset('yen',200)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-200円</button>
+      <button type="button" onclick="discountApplyPreset('yen',500)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-500円</button>
+      <button type="button" onclick="discountApplyPreset('pct',5)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-5%</button>
+      <button type="button" onclick="discountApplyPreset('pct',10)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-10%</button>
+      <button type="button" onclick="discountApplyPreset('pct',20)" class="px-2.5 py-1.5 rounded-full border border-surface-container-highest text-[11px] font-bold hover:bg-surface-container">-20%</button>
+    </div>
+
+    <div class="inline-flex rounded-xl border border-surface-container-highest p-0.5 mb-2 bg-surface-container-low">
+      <button type="button" id="discount-mode-yen" onclick="setDiscountInputMode('yen')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors">円</button>
+      <button type="button" id="discount-mode-pct" onclick="setDiscountInputMode('pct')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors">%</button>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <input id="discount-modal-input" type="number" min="0" step="1" placeholder="0"
+        class="flex-1 min-w-[100px] bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
+        oninput="updateDiscountModalPreview()"/>
+      <span class="text-sm font-bold text-on-surface-variant shrink-0" id="discount-modal-suffix">円引き</span>
+    </div>
+    <p class="text-[11px] text-on-surface-variant mt-2 mb-4">
+      手数料（<span id="discount-fee-rate">10</span>%）差引後の受取額: <span id="discount-modal-receive" class="font-bold text-on-surface">¥0</span>
+    </p>
+
+    <label class="text-xs font-semibold text-on-surface-variant">変更メモ（任意）</label>
+    <input id="discount-modal-memo" type="text" placeholder="例：出品から30日経過"
+      class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
+
+    <div class="mt-4">
+      <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">価格履歴</p>
+      <div id="discount-modal-history" class="rounded-xl bg-surface-container border border-surface-container-high divide-y divide-surface-container-high max-h-36 overflow-y-auto text-[11px]"></div>
+    </div>
+
+    <div class="flex gap-3 mt-6 pt-4 border-t border-surface-container justify-end">
+      <button type="button" onclick="closeModal('discount-item-modal')" class="px-5 py-2.5 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
+      <button type="button" onclick="applyDiscountFromModal()" class="px-5 py-2.5 rounded-full font-bold text-sm text-white bg-signature-gradient shadow-lg">この価格を記録</button>
+    </div>
+  </div>
+</div>
+
+<!-- 出品一覧・その他メニュー（プルダウン） -->
+<div id="item-more-menu" class="hidden fixed z-[110] w-[192px] bg-surface-container-lowest rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-surface-container py-1.5" role="menu">
+  <button type="button" role="menuitem" onclick="openItemSoldConfirm()"
+    class="w-full text-left px-4 py-2.5 text-sm font-bold text-on-surface hover:bg-surface-container transition-colors flex items-center gap-2">
+    <span class="material-symbols-outlined text-lg text-tertiary">check_circle</span>売却済みにする
+  </button>
+  <button type="button" role="menuitem" onclick="openItemDeleteConfirm()"
+    class="w-full text-left px-4 py-2.5 text-sm font-bold text-error hover:bg-error-container/25 transition-colors flex items-center gap-2">
+    <span class="material-symbols-outlined text-lg">delete</span>削除する
+  </button>
+</div>
+
+<!-- 出品一覧・確認モーダル（売却 / 削除） -->
+<div id="item-confirm-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('item-confirm-modal')">
+  <div class="modal-sheet w-full" style="max-width:380px">
+    <div class="flex items-start gap-3 mb-3">
+      <span class="material-symbols-outlined text-3xl text-primary flex-shrink-0" id="item-confirm-icon">help</span>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-headline font-bold text-lg leading-snug" id="item-confirm-heading">確認</h3>
+        <p class="text-[12px] text-on-surface-variant mt-1" id="item-confirm-desc"></p>
+      </div>
+    </div>
+    <p class="text-sm font-bold text-on-surface bg-surface-container rounded-xl px-3 py-2.5 line-clamp-2 mb-4" id="item-confirm-title-preview"></p>
+    <div class="flex gap-3">
+      <button type="button" onclick="closeModal('item-confirm-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
+      <button type="button" onclick="executeItemConfirm()" id="item-confirm-primary" class="flex-1 py-3 rounded-full font-bold text-sm text-white shadow-lg">OK</button>
     </div>
   </div>
 </div>
@@ -1216,6 +1303,19 @@ let downloadDirHandle = null;
 let ITEMS = [];
 let itemFilter = 'all';
 let niEditId = null;
+/** 再出品フロー（一覧の「再出品」から開いたとき true） */
+let niRelistMode = false;
+/** 値下げモーダルで編集中の出品 ID */
+let discountModalItemId = null;
+/** 値下げモーダル表示時点の出品価格（変更前） */
+let discountModalBasePrice = 0;
+/** 'yen' | 'pct' */
+let discountInputMode = 'yen';
+/** 出品一覧「…」メニュー対象 ID */
+let itemMenuTargetId = null;
+/** item-confirm-modal: 'sold' | 'delete' */
+let itemConfirmType = null;
+let itemConfirmId = null;
 
 const DEFAULT_TEMPLATE_BODY = `◆ 商品の状態\n丁寧に使用しておりましたが、素人検品のためご了承ください。\n\n◆ 発送について\n・ご購入確定後2〜3日以内に発送いたします\n・丁寧に梱包してお届けします\n・ご不明な点はお気軽にコメントください\n\n◆ その他\n・他でも出品中のため、売り切れの際はご容赦ください\n・値下げ交渉もお気軽にどうぞ`;
 
@@ -1336,6 +1436,35 @@ function loadItems() {
 }
 function saveItems() { localStorage.setItem('furimora_items', JSON.stringify(ITEMS)); }
 
+/** 出品データから jp.mercari.com の商品URLを組み立てる */
+function mercariListingUrl(item) {
+  if (!item || typeof item !== 'object') return '';
+  const raw = (item.mercariUrl || item.url || '').trim();
+  if (raw && /jp\.mercari\.com\/item\//i.test(raw)) {
+    try {
+      return new URL(raw.split('?')[0]).href;
+    } catch {
+      return raw.split('?')[0];
+    }
+  }
+  const id = item.mercariItemId != null ? item.mercariItemId : item.itemId;
+  if (id != null && /^m[\w-]+$/i.test(String(id).trim())) {
+    return `https://jp.mercari.com/item/${String(id).trim()}`;
+  }
+  return '';
+}
+
+function openMercariListingFromItem(id) {
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  const url = item ? mercariListingUrl(item) : '';
+  if (!url) {
+    showToast('メルカリの商品ページに紐づいていません');
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 function getDaysSinceListed(listedAt) {
   if (!listedAt) return 0;
   return Math.max(0, Math.floor((Date.now() - new Date(listedAt).getTime()) / 86400000));
@@ -1394,10 +1523,14 @@ function renderItems() {
     const statusMap = { active:'出品中', relisted:'再出品済', sold:'売却済', pending:'準備中' };
     const statusCls = { active:'bg-tertiary-container text-on-tertiary-container', relisted:'bg-primary/10 text-primary', sold:'bg-surface-container-highest text-on-surface-variant', pending:'bg-surface-container text-on-surface-variant' };
     const thumb = item.images?.[0]
-      ? `<img src="${item.images[0]}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
-      : `<span class="material-symbols-outlined text-2xl text-on-surface-variant/30">image</span>`;
+      ? `<img src="${item.images[0]}" class="w-full h-full object-cover pointer-events-none" onerror="this.style.display='none'">`
+      : `<span class="material-symbols-outlined text-2xl text-on-surface-variant/30 pointer-events-none">image</span>`;
+    const hasMercari = !!mercariListingUrl(item);
+    const thumbBox = hasMercari
+      ? `<div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all ring-0 hover:ring-2 hover:ring-primary/30" role="button" tabindex="0" title="メルカリで開く" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`
+      : `<div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center">${thumb}</div>`;
     return `<div class="bg-surface-container-lowest rounded-lg p-3.5 flex items-center gap-3 shadow-sm">
-      <div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center">${thumb}</div>
+      ${thumbBox}
       <div class="flex-1 min-w-0">
         <div class="flex items-start justify-between gap-1 mb-0.5">
           <h4 class="text-sm font-bold leading-snug line-clamp-2 flex-1">${item.title}</h4>
@@ -1410,52 +1543,326 @@ function renderItems() {
         </div>
       </div>
       <div class="flex flex-col gap-1.5 flex-shrink-0">
-        <button onclick="relistItemFromList(${item.id})" class="text-[11px] font-bold text-white bg-signature-gradient px-3 py-1.5 rounded-full whitespace-nowrap">再出品</button>
-        <button onclick="discountItemFromList(${item.id})" class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full whitespace-nowrap">値下げ</button>
-        <button onclick="openItemMenu(${item.id})" class="text-[11px] font-bold text-on-surface-variant bg-surface-container px-3 py-1.5 rounded-full">・・・</button>
+        <button onclick="openRelistItemModal(${item.id})" class="text-[11px] font-bold text-white bg-signature-gradient px-3 py-1.5 rounded-full whitespace-nowrap">再出品</button>
+        <button onclick="openDiscountItemModal(${item.id})" class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full whitespace-nowrap">値下げ</button>
+        <button type="button" data-item-more-btn onclick="toggleItemMoreMenu(event, ${item.id})" class="text-[11px] font-bold text-on-surface-variant bg-surface-container px-3 py-1.5 rounded-full">・・・</button>
       </div>
     </div>`;
   }).join('');
 }
 
-function relistItemFromList(id) {
-  loadItems();
-  const item = ITEMS.find(i => i.id === id); if (!item) return;
-  item.status = 'active';
-  item.listedAt = new Date().toISOString().slice(0,10);
-  item.currentPrice = item.startPrice || item.currentPrice;
-  item.relistCount = (item.relistCount||0) + 1;
-  saveItems();
-  ACTIVITIES.unshift({ name: item.title, action: '再出品しました', time: 'たった今', status: '出品中', type: 'active', emoji: '🔄' });
-  saveStorageData(); renderItems();
-  showToast(`${item.title.substring(0,20)} を再出品しました`);
+function setNiModalMode(relist) {
+  const titleEl = document.getElementById('ni-modal-title');
+  const labelEl = document.getElementById('ni-save-btn-label');
+  const iconEl = document.getElementById('ni-save-btn-icon');
+  if (titleEl) titleEl.textContent = relist ? '🔄 再出品アシスタント' : '🏷️ 新規出品アシスタント';
+  if (labelEl) labelEl.textContent = relist ? '再出品を確定' : '出品一覧に追加';
+  if (iconEl) iconEl.textContent = relist ? 'autorenew' : 'playlist_add';
 }
 
-function discountItemFromList(id) {
+function openRelistItemModal(id) {
   loadItems();
-  const item = ITEMS.find(i => i.id === id); if (!item) return;
-  const amount = item.discountAmount || 100;
-  const newPrice = Math.max(Number(item.minPrice||0), Number(item.currentPrice||0) - amount);
-  if (newPrice === Number(item.currentPrice)) { showToast('最低価格に達しています'); return; }
-  const old = item.currentPrice;
-  item.currentPrice = newPrice;
-  saveItems(); renderItems();
-  showToast(`¥${Number(old).toLocaleString()} → ¥${Number(newPrice).toLocaleString()} に値下げしました`);
-}
-
-function openItemMenu(id) {
-  loadItems();
-  const item = ITEMS.find(i => i.id === id); if (!item) return;
-  const choice = confirm(`「${item.title.substring(0,30)}」\n\nOK → 売却済みにする\nキャンセル → 削除する`);
-  if (choice) {
-    item.status = 'sold'; saveItems(); renderItems(); showToast('売却済みにしました');
-  } else if (confirm('削除しますか？')) {
-    ITEMS = ITEMS.filter(i => i.id !== id); saveItems(); renderItems(); showToast('削除しました');
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  niEditId = id;
+  niRelistMode = true;
+  setNiModalMode(true);
+  document.getElementById('ni-title').value = item.title || '';
+  document.getElementById('ni-cost').value = item.costPrice ?? 0;
+  const minP = Number(item.minPrice) || 0;
+  const startP = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || minP;
+  let buf = Math.max(0, startP - minP);
+  if (!buf) buf = 400;
+  document.getElementById('ni-minprice').value = minP || 800;
+  setBuffer(buf);
+  document.getElementById('ni-fee').value = item.fee ?? 10;
+  setShipping(Number(item.shippingCost) || 0);
+  document.getElementById('ni-listed-at').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('ni-discount-start').value = item.discountStartDays ?? 7;
+  document.getElementById('ni-discount-amount').value = item.discountAmount ?? 100;
+  document.getElementById('ni-discount-freq').value = item.discountFreqDays ?? 1;
+  document.getElementById('ni-desc-title').value = item.title || '';
+  document.getElementById('ni-ai-text').value = item.description || '';
+  populateTemplateSelect();
+  const catSel = document.getElementById('ni-category');
+  if (catSel && item.category) {
+    [...catSel.options].forEach((o) => {
+      if (o.value === item.category || item.category.includes(o.value) || o.value.includes(item.category)) catSel.value = o.value;
+    });
   }
+  const condSel = document.getElementById('ni-condition');
+  if (condSel && item.condition) {
+    [...condSel.options].forEach((o) => {
+      if (o.value === item.condition) condSel.value = o.value;
+    });
+  }
+  const nm = document.getElementById('new-item-modal');
+  if (nm) {
+    nm.dataset.images = JSON.stringify(item.images || []);
+    nm.dataset.mercariUrl = (item.mercariUrl || item.url || '').trim();
+    nm.dataset.mercariItemId = item.mercariItemId != null ? String(item.mercariItemId) : (item.itemId != null ? String(item.itemId) : '');
+  }
+  switchItemTab('price');
+  calcItemPrice();
+  document.getElementById('new-item-modal').classList.add('open');
+}
+
+function setDiscountInputMode(mode) {
+  discountInputMode = mode;
+  const yenBtn = document.getElementById('discount-mode-yen');
+  const pctBtn = document.getElementById('discount-mode-pct');
+  const suffix = document.getElementById('discount-modal-suffix');
+  const active = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-colors bg-primary text-white shadow-sm';
+  const idle = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-colors bg-transparent text-on-surface-variant';
+  if (yenBtn) yenBtn.className = mode === 'yen' ? active : idle;
+  if (pctBtn) pctBtn.className = mode === 'pct' ? active : idle;
+  if (suffix) suffix.textContent = mode === 'yen' ? '円引き' : '%引き';
+  updateDiscountModalPreview();
+}
+
+function discountApplyPreset(kind, val) {
+  const inp = document.getElementById('discount-modal-input');
+  if (inp) inp.value = val;
+  setDiscountInputMode(kind === 'yen' ? 'yen' : 'pct');
+}
+
+function getDiscountModalDiscountYen(cur) {
+  const raw = parseFloat(document.getElementById('discount-modal-input')?.value) || 0;
+  if (discountInputMode === 'yen') return Math.max(0, Math.round(raw));
+  return Math.max(0, Math.round((cur * raw) / 100));
+}
+
+function getDiscountModalNewPrice() {
+  if (discountModalItemId == null) return 0;
+  // loadItems しない: 呼び出し元で loadItems 後に参照した item と配列がずれると保存が効かなくなる
+  const item = ITEMS.find((i) => i.id === discountModalItemId);
+  if (!item) return 0;
+  const cur = discountModalBasePrice;
+  const minP = Number(item.minPrice || 0);
+  const discountYen = getDiscountModalDiscountYen(cur);
+  return Math.max(minP, cur - discountYen);
+}
+
+function formatDiscountHistoryDate(at) {
+  if (!at) return '';
+  const s = String(at);
+  const d = new Date(s.includes('T') ? s : s + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
+}
+
+function escapeHtmlShort(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderDiscountModalHistory(item) {
+  const el = document.getElementById('discount-modal-history');
+  if (!el) return;
+  const rows = Array.isArray(item.priceHistory) && item.priceHistory.length
+    ? [...item.priceHistory].reverse()
+    : [
+        {
+          price: Number(item.currentPrice || 0),
+          label: '初回出品',
+          at: item.listedAt || (item.createdAt && item.createdAt.slice(0, 10)) || new Date().toISOString().slice(0, 10),
+        },
+      ];
+  el.innerHTML = rows
+    .map(
+      (h) => `
+    <div class="flex items-center justify-between gap-2 px-3 py-2">
+      <span class="font-bold tabular-nums shrink-0">¥${Number(h.price).toLocaleString()}</span>
+      <span class="text-on-surface-variant truncate flex-1 text-center">${escapeHtmlShort(h.label || '')}${h.memo ? ' · ' + escapeHtmlShort(h.memo) : ''}</span>
+      <span class="text-on-surface-variant shrink-0 tabular-nums">${formatDiscountHistoryDate(h.at)}</span>
+    </div>`
+    )
+    .join('');
+}
+
+function openDiscountItemModal(id) {
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  discountModalItemId = id;
+  discountModalBasePrice = Number(item.currentPrice || 0);
+  document.getElementById('discount-modal-item-title').textContent = item.title || '（無題）';
+  const inp = document.getElementById('discount-modal-input');
+  if (inp) inp.value = 0;
+  const memo = document.getElementById('discount-modal-memo');
+  if (memo) memo.value = '';
+  setDiscountInputMode('yen');
+  renderDiscountModalHistory(item);
+  document.getElementById('discount-item-modal').classList.add('open');
+}
+
+function updateDiscountModalPreview() {
+  if (discountModalItemId == null) return;
+  loadItems();
+  const item = ITEMS.find((i) => i.id === discountModalItemId);
+  if (!item) return;
+  const cur = discountModalBasePrice;
+  const minP = Number(item.minPrice || 0);
+  const newPrice = getDiscountModalNewPrice();
+  const fee = Number(item.fee ?? 10);
+  const receive = Math.max(0, Math.round((newPrice * (100 - fee)) / 100));
+  const baseLbl = document.getElementById('discount-modal-base-label');
+  const big = document.getElementById('discount-modal-preview-big');
+  const room = document.getElementById('discount-modal-room');
+  const feeEl = document.getElementById('discount-fee-rate');
+  const recv = document.getElementById('discount-modal-receive');
+  if (baseLbl) baseLbl.textContent = '¥' + cur.toLocaleString();
+  if (big) big.textContent = '¥' + newPrice.toLocaleString();
+  if (room) room.textContent = '¥' + Math.max(0, newPrice - minP).toLocaleString();
+  if (feeEl) feeEl.textContent = String(fee);
+  if (recv) recv.textContent = '¥' + receive.toLocaleString();
+}
+
+function applyDiscountFromModal() {
+  if (discountModalItemId == null) return;
+  loadItems();
+  const old = discountModalBasePrice;
+  const newPrice = getDiscountModalNewPrice();
+  const item = ITEMS.find((i) => i.id === discountModalItemId);
+  if (!item) return;
+  const minP = Number(item.minPrice || 0);
+  if (newPrice >= old) {
+    showToast('値下げ額を入力してください');
+    return;
+  }
+  if (newPrice < minP) {
+    showToast('最低価格を下回ります');
+    return;
+  }
+  const memo = (document.getElementById('discount-modal-memo')?.value || '').trim();
+  const discountYen = old - newPrice;
+  item.currentPrice = newPrice;
+  item.discountAmount = Math.max(1, discountYen);
+  if (!Array.isArray(item.priceHistory)) item.priceHistory = [];
+  if (item.priceHistory.length === 0) {
+    item.priceHistory.push({
+      price: old,
+      label: '初回出品',
+      at: item.listedAt || (item.createdAt && item.createdAt.slice(0, 10)) || new Date().toISOString().slice(0, 10),
+    });
+  }
+  const entry = { price: newPrice, label: '値下げ', at: new Date().toISOString().slice(0, 10) };
+  if (memo) entry.memo = memo;
+  item.priceHistory.push(entry);
+  saveItems();
+  renderItems();
+  closeModal('discount-item-modal');
+  showToast(`¥${Number(old).toLocaleString()} → ¥${Number(newPrice).toLocaleString()} に記録しました`);
+}
+
+function itemMoreMenuDocClose(e) {
+  if (e.target.closest && (e.target.closest('#item-more-menu') || e.target.closest('[data-item-more-btn]'))) return;
+  closeItemMoreMenu();
+  document.removeEventListener('click', itemMoreMenuDocClose);
+}
+
+function closeItemMoreMenu() {
+  document.removeEventListener('click', itemMoreMenuDocClose);
+  const menu = document.getElementById('item-more-menu');
+  if (menu) menu.classList.add('hidden');
+  itemMenuTargetId = null;
+}
+
+function toggleItemMoreMenu(ev, id) {
+  ev.stopPropagation();
+  document.removeEventListener('click', itemMoreMenuDocClose);
+  const menu = document.getElementById('item-more-menu');
+  if (!menu) return;
+  if (!menu.classList.contains('hidden') && itemMenuTargetId === id) {
+    menu.classList.add('hidden');
+    itemMenuTargetId = null;
+    return;
+  }
+  itemMenuTargetId = id;
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const mw = 192;
+  let left = rect.right - mw;
+  if (left < 8) left = 8;
+  if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
+  menu.style.left = left + 'px';
+  const estH = 120;
+  let top = rect.bottom + 6;
+  if (top + estH > window.innerHeight - 12) top = Math.max(8, rect.top - estH - 6);
+  menu.style.top = top + 'px';
+  menu.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    document.addEventListener('click', itemMoreMenuDocClose);
+  });
+}
+
+function openItemSoldConfirm() {
+  const id = itemMenuTargetId;
+  closeItemMoreMenu();
+  if (!id) return;
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  itemConfirmId = id;
+  itemConfirmType = 'sold';
+  document.getElementById('item-confirm-icon').textContent = 'check_circle';
+  document.getElementById('item-confirm-icon').className = 'material-symbols-outlined text-3xl text-tertiary flex-shrink-0';
+  document.getElementById('item-confirm-heading').textContent = '売却済みにしますか？';
+  document.getElementById('item-confirm-desc').textContent = '一覧上では「売却済み」として表示されます。';
+  document.getElementById('item-confirm-title-preview').textContent = item.title || '（無題）';
+  const ok = document.getElementById('item-confirm-primary');
+  ok.textContent = '売却済みにする';
+  ok.className = 'flex-1 py-3 rounded-full font-bold text-sm text-white shadow-lg bg-primary';
+  document.getElementById('item-confirm-modal').classList.add('open');
+}
+
+function openItemDeleteConfirm() {
+  const id = itemMenuTargetId;
+  closeItemMoreMenu();
+  if (!id) return;
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  itemConfirmId = id;
+  itemConfirmType = 'delete';
+  document.getElementById('item-confirm-icon').textContent = 'warning';
+  document.getElementById('item-confirm-icon').className = 'material-symbols-outlined text-3xl text-error flex-shrink-0';
+  document.getElementById('item-confirm-heading').textContent = '削除しますか？';
+  document.getElementById('item-confirm-desc').textContent = 'この操作は取り消せません。';
+  document.getElementById('item-confirm-title-preview').textContent = item.title || '（無題）';
+  const ok = document.getElementById('item-confirm-primary');
+  ok.textContent = '削除する';
+  ok.className = 'flex-1 py-3 rounded-full font-bold text-sm text-white shadow-lg bg-error';
+  document.getElementById('item-confirm-modal').classList.add('open');
+}
+
+function executeItemConfirm() {
+  if (itemConfirmId == null || !itemConfirmType) return;
+  loadItems();
+  const id = itemConfirmId;
+  if (itemConfirmType === 'sold') {
+    const item = ITEMS.find((i) => i.id === id);
+    if (item) {
+      item.status = 'sold';
+      saveItems();
+      renderItems();
+      showToast('売却済みにしました');
+    }
+  } else if (itemConfirmType === 'delete') {
+    ITEMS = ITEMS.filter((i) => i.id !== id);
+    saveItems();
+    renderItems();
+    showToast('削除しました');
+  }
+  closeModal('item-confirm-modal');
 }
 
 function openNewItemModal(draftData) {
   niEditId = null;
+  niRelistMode = false;
+  setNiModalMode(false);
   document.getElementById('ni-title').value = draftData?.title || '';
   document.getElementById('ni-cost').value = 0;
   const draftPrice = Number(draftData?.price);
@@ -1479,7 +1886,12 @@ function openNewItemModal(draftData) {
     const sel = document.getElementById('ni-condition');
     [...sel.options].forEach(o => { if (o.value === draftData.condition) sel.value = o.value; });
   }
-  document.getElementById('new-item-modal').dataset.images = JSON.stringify(draftData?.images || []);
+  const nm = document.getElementById('new-item-modal');
+  if (nm) {
+    nm.dataset.images = JSON.stringify(draftData?.images || []);
+    nm.dataset.mercariUrl = draftData?.url ? String(draftData.url).trim() : '';
+    nm.dataset.mercariItemId = draftData?.itemId != null ? String(draftData.itemId) : '';
+  }
   setBuffer(400);
   setShipping(0);
   switchItemTab('price'); calcItemPrice();
@@ -1572,6 +1984,18 @@ function saveNewItem() {
   const buf = parseInt(document.getElementById('ni-buffer').value)||0;
   const startPrice = min + buf;
   const images = JSON.parse(document.getElementById('new-item-modal').dataset.images||'[]');
+  loadItems();
+  const prev = niEditId ? ITEMS.find((i) => i.id === niEditId) : null;
+  const createdAt = prev?.createdAt || new Date().toISOString();
+  const relistCount = (prev?.relistCount || 0) + (niRelistMode ? 1 : 0);
+  const listedAtStr = document.getElementById('ni-listed-at').value || new Date().toISOString().slice(0, 10);
+  const priceHistory =
+    prev && Array.isArray(prev.priceHistory) && prev.priceHistory.length
+      ? [...prev.priceHistory]
+      : [{ price: startPrice, label: '初回出品', at: listedAtStr }];
+  const nmEl = document.getElementById('new-item-modal');
+  const mercariUrl = (nmEl?.dataset?.mercariUrl || '').trim() || prev?.mercariUrl || '';
+  const mercariItemId = (nmEl?.dataset?.mercariItemId || '').trim() || prev?.mercariItemId || '';
   const item = {
     id: niEditId || Date.now(),
     title, images,
@@ -1583,23 +2007,34 @@ function saveNewItem() {
     shippingCost: parseInt(document.getElementById('ni-shipping').value)||0,
     description: document.getElementById('ni-ai-text').value,
     status: 'active',
-    listedAt: document.getElementById('ni-listed-at').value || new Date().toISOString().slice(0,10),
+    listedAt: listedAtStr,
     discountStartDays: parseInt(document.getElementById('ni-discount-start').value)||7,
     discountAmount: parseInt(document.getElementById('ni-discount-amount').value)||100,
     discountFreqDays: parseInt(document.getElementById('ni-discount-freq').value)||1,
-    relistCount: 0, createdAt: new Date().toISOString(),
+    relistCount, createdAt,
+    priceHistory,
+    mercariUrl: mercariUrl || undefined,
+    mercariItemId: mercariItemId || undefined,
   };
-  loadItems();
   if (niEditId) { const idx=ITEMS.findIndex(i=>i.id===niEditId); if(idx>=0) ITEMS[idx]=item; }
   else ITEMS.unshift(item);
   saveItems();
   const s = JSON.parse(localStorage.getItem('furimora_stats')||'{}');
   if (!niEditId) s.total = (s.total||0)+1;
   localStorage.setItem('furimora_stats', JSON.stringify(s)); loadStats();
-  ACTIVITIES.unshift({ name: title, action: '出品一覧に追加しました', time: 'たった今', status: '出品中', type: 'active', emoji: '🏷️' });
+  const isRelist = niRelistMode;
+  ACTIVITIES.unshift({
+    name: title,
+    action: isRelist ? '再出品しました' : '出品一覧に追加しました',
+    time: 'たった今',
+    status: '出品中',
+    type: 'active',
+    emoji: isRelist ? '🔄' : '🏷️',
+  });
   saveStorageData();
-  closeModal('new-item-modal'); navigate('relist');
-  showToast(`「${title.substring(0,20)}」を出品一覧に追加しました`);
+  closeModal('new-item-modal');
+  navigate('relist');
+  showToast(isRelist ? `「${title.substring(0,20)}」を再出品しました` : `「${title.substring(0,20)}」を出品一覧に追加しました`);
 }
 
 function exportItemsCSV() {
@@ -1747,7 +2182,22 @@ function showNotifications() {
   renderNotifications();
   document.getElementById('notif-modal').classList.add('open');
 }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  if (id === 'new-item-modal') {
+    niRelistMode = false;
+    niEditId = null;
+    setNiModalMode(false);
+  }
+  if (id === 'discount-item-modal') {
+    discountModalItemId = null;
+    discountModalBasePrice = 0;
+  }
+  if (id === 'item-confirm-modal') {
+    itemConfirmId = null;
+    itemConfirmType = null;
+  }
+}
 
 // ── Render Notifications ──
 function renderNotifications() {
