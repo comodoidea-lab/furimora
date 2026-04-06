@@ -188,16 +188,13 @@ function normalizeApi(item) {
   const daysObj = item.shipping_duration || item.shippingDuration || {};
   const shippingDays = daysObj.name || daysObj.displayName || '';
 
-  let currentPrice = null;
-  if (item.price != null) {
-    const n = Number(item.price);
-    if (Number.isFinite(n)) currentPrice = n;
-  }
+  const currentPrice = coercePriceFromItem(item);
 
   return {
     itemId: item.id,
     title: item.name || '',
     currentPrice,
+    price: currentPrice,
     description: item.description || '',
     category,
     condition,
@@ -213,6 +210,37 @@ function normalizeApi(item) {
   };
 }
 
+/**
+ * メルカリ API / Next の item で price が number / string / { amount } などになる場合に対応
+ */
+function coercePriceFromItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  const candidates = [
+    item.price,
+    item.itemPrice,
+    item.salePrice,
+    item.item?.price,
+    item.item?.itemPrice,
+    item.itemStatus?.price,
+  ];
+  for (const c of candidates) {
+    if (c == null) continue;
+    if (typeof c === 'number' && Number.isFinite(c) && c >= 0) return c > 0 ? c : null;
+    if (typeof c === 'string') {
+      const n = parseInt(String(c).replace(/[^\d]/g, ''), 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    if (typeof c === 'object' && c !== null) {
+      const amt = c.amount ?? c.value ?? c.price;
+      if (amt != null) {
+        const n = Number(amt);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+  }
+  return null;
+}
+
 function nonEmptyStr(v) {
   if (v == null) return '';
   const t = String(v).trim();
@@ -220,8 +248,8 @@ function nonEmptyStr(v) {
 }
 
 function pickPrice(p, a) {
-  const np = Number(p?.currentPrice);
-  const na = Number(a?.currentPrice);
+  const np = Number(p?.currentPrice ?? p?.price);
+  const na = Number(a?.currentPrice ?? a?.price);
   if (Number.isFinite(np) && np > 0) return np;
   if (Number.isFinite(na) && na > 0) return na;
   if (Number.isFinite(np)) return np;
@@ -295,30 +323,124 @@ async function fetchFromPage(url, itemId) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const html = await res.text();
 
-  // __NEXT_DATA__ を解析
-  const ndMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([^<]+)<\/script>/);
-  if (ndMatch) {
+  // __NEXT_DATA__ — [^<]+ だと JSON 内の '<' で途切れて parse 失敗するため境界で切り出す
+  const ndJson = extractNextDataJson(html);
+  if (ndJson) {
     try {
-      const nd = JSON.parse(ndMatch[1]);
+      const nd = JSON.parse(ndJson);
       const item = nd?.props?.pageProps?.item
         || nd?.props?.pageProps?.itemResponse?.item
         || nd?.props?.pageProps?.data?.item
         || findItemInObject(nd?.props);
-      if (item) return normalizePageData(item, itemId, url);
-    } catch {}
+      if (item) {
+        const row = normalizePageData(item, itemId, url);
+        if (row.currentPrice == null || row.currentPrice === 0) {
+          const fromLd = extractPriceFromLdJson(html);
+          if (fromLd != null && fromLd > 0) row.currentPrice = fromLd;
+          else {
+            const fromHtml = extractPriceFromItemPageHtml(html);
+            if (fromHtml != null && fromHtml > 0) row.currentPrice = fromHtml;
+          }
+        }
+        row.price = row.currentPrice;
+        return row;
+      }
+    } catch (e) {
+      console.error('[mercari] __NEXT_DATA__ parse', e);
+    }
   }
 
   // og: メタタグにフォールバック
-  return parseOgMeta(html, itemId, url);
+  const og = parseOgMeta(html, itemId, url);
+  if (og && (og.currentPrice == null || og.currentPrice === 0)) {
+    const fromLd = extractPriceFromLdJson(html);
+    if (fromLd != null && fromLd > 0) og.currentPrice = fromLd;
+    else {
+      const fromHtml = extractPriceFromItemPageHtml(html);
+      if (fromHtml != null && fromHtml > 0) og.currentPrice = fromHtml;
+    }
+    og.price = og.currentPrice;
+  }
+  return og;
+}
+
+function extractNextDataJson(html) {
+  const startMark = '<script id="__NEXT_DATA__" type="application/json">';
+  const i = html.indexOf(startMark);
+  if (i === -1) return null;
+  const jsonStart = i + startMark.length;
+  const j = html.indexOf('</script>', jsonStart);
+  if (j === -1) return null;
+  return html.slice(jsonStart, j);
+}
+
+/** 説明文内の '<' 等で item が取れない場合に備え、id が m で始まる商品オブジェクトを探索 */
+function looksLikeMercariItem(obj) {
+  if (!obj || typeof obj !== 'object') return false;
+  const sid = obj.id != null ? String(obj.id) : '';
+  if (!/^m\d/i.test(sid)) return false;
+  return !!(obj.name || obj.title);
 }
 
 // __NEXT_DATA__ のネスト構造を再帰探索
 function findItemInObject(obj, depth = 0) {
-  if (!obj || typeof obj !== 'object' || depth > 5) return null;
-  if (obj.id && (obj.name || obj.title) && (obj.price !== undefined)) return obj;
+  if (!obj || typeof obj !== 'object' || depth > 12) return null;
+  if (looksLikeMercariItem(obj)) return obj;
   for (const val of Object.values(obj)) {
     const found = findItemInObject(val, depth + 1);
     if (found) return found;
+  }
+  return null;
+}
+
+/** schema.org Product / Offer から価格 */
+function extractPriceFromLdJson(html) {
+  const re = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      const j = JSON.parse(m[1]);
+      const nodes = Array.isArray(j) ? j : [j];
+      for (const node of nodes) {
+        if (!node || typeof node !== 'object') continue;
+        const types = ([]).concat(node['@type'] || []);
+        const isProduct = types.some((t) => t === 'Product' || t === 'product');
+        if (!isProduct && !node.offers) continue;
+        const off = node.offers;
+        if (!off) continue;
+        const offer = Array.isArray(off) ? off[0] : off;
+        const p = offer?.price ?? offer?.lowPrice ?? offer?.highPrice;
+        if (p != null) {
+          const n = typeof p === 'string' ? parseInt(p.replace(/[^\d]/g, ''), 10) : Number(p);
+          if (Number.isFinite(n) && n > 0) return n;
+        }
+      }
+    } catch {
+      /* next script */
+    }
+  }
+  return null;
+}
+
+/** JSON 文字列または DOM から商品価格らしき数値（関連出品の高額を拾わないよう __NEXT_DATA__ 内を優先） */
+function extractPriceFromItemPageHtml(html) {
+  const nd = extractNextDataJson(html);
+  if (nd) {
+    const m = nd.match(/"price"\s*:\s*(\d{2,8})\b/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n >= 100) return n;
+    }
+  }
+  const dom = html.match(/data-testid="price"[^>]*>[\s\S]{0,240}?([\d,]+)\s*円/i);
+  if (dom) {
+    const n = parseInt(dom[1].replace(/,/g, ''), 10);
+    if (Number.isFinite(n) && n >= 100) return n;
+  }
+  const yen = html.match(/data-testid="price"[^>]*>[\s\S]{0,240}?¥\s*([\d,]+)/);
+  if (yen) {
+    const n = parseInt(yen[1].replace(/,/g, ''), 10);
+    if (Number.isFinite(n) && n >= 100) return n;
   }
   return null;
 }
@@ -345,10 +467,12 @@ function normalizePageData(item, itemId, url) {
   const shippingFrom = item.shippingFromArea?.name || '';
   const shippingDays = item.shippingDuration?.name || item.shippingDays?.name || '';
 
+  const cp = coercePriceFromItem(item);
   return {
     itemId: item.id || itemId,
     title: item.name || item.title || '',
-    currentPrice: item.price ?? null,
+    currentPrice: cp,
+    price: cp,
     description: item.description || '',
     category,
     condition,
@@ -391,10 +515,12 @@ function parseOgMeta(html, itemId, url) {
   const desc = (html.match(/<meta property="og:description" content="([^"]+)"/) || [])[1];
   const img = (html.match(/<meta property="og:image" content="([^"]+)"/) || [])[1];
   const priceNum = (html.match(/"price"\s*:\s*(\d+)/) || [])[1];
+  const cp = priceNum ? parseInt(priceNum, 10) : null;
   return {
     itemId,
     title: title.replace(/\s*[-–]\s*メルカリ.*$/, '').trim(),
-    currentPrice: priceNum ? parseInt(priceNum, 10) : null,
+    currentPrice: cp,
+    price: cp,
     description: desc || '',
     category: '', condition: '',
     shippingPayer: '', shippingMethod: '', shippingFrom: '', shippingDays: '',
