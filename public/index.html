@@ -1006,9 +1006,10 @@ tailwind.config = {
         </div>
         <div class="mt-3 bg-primary/5 rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
           <div><p class="text-[10px] text-on-surface-variant">出品開始価格</p><p class="font-headline font-black text-primary" id="ni-startprice">¥1,200</p></div>
-          <div><p class="text-[10px] text-on-surface-variant">手数料</p><p class="font-bold text-sm" id="ni-feecalc">¥120</p></div>
-          <div><p class="text-[10px] text-on-surface-variant">利益（最低時）</p><p class="font-bold text-sm text-tertiary" id="ni-profit">¥370</p></div>
+          <div><p class="text-[10px] text-on-surface-variant">手数料（開始時）</p><p class="font-bold text-sm" id="ni-feecalc">¥120</p></div>
+          <div><p class="text-[10px] text-on-surface-variant">利益（開始時）</p><p class="font-bold text-sm text-tertiary" id="ni-profit">¥1,080</p></div>
         </div>
+        <p class="text-[10px] text-on-surface-variant mt-2 text-center">値下げ後・最低価格<span id="ni-minprice-hint">¥800</span>で売れた場合の利益: <span class="font-bold text-tertiary" id="ni-profit-min">¥720</span></p>
       </div>
     </div>
 
@@ -1457,7 +1458,9 @@ function openNewItemModal(draftData) {
   niEditId = null;
   document.getElementById('ni-title').value = draftData?.title || '';
   document.getElementById('ni-cost').value = 0;
-  document.getElementById('ni-minprice').value = 800;
+  const draftPrice = Number(draftData?.price);
+  const hasDraftPrice = Number.isFinite(draftPrice) && draftPrice >= 300;
+  document.getElementById('ni-minprice').value = hasDraftPrice ? draftPrice : 800;
   document.getElementById('ni-buffer').value = 400;
   document.getElementById('ni-fee').value = 10;
   document.getElementById('ni-shipping').value = 0;
@@ -1477,6 +1480,8 @@ function openNewItemModal(draftData) {
     [...sel.options].forEach(o => { if (o.value === draftData.condition) sel.value = o.value; });
   }
   document.getElementById('new-item-modal').dataset.images = JSON.stringify(draftData?.images || []);
+  setBuffer(400);
+  setShipping(0);
   switchItemTab('price'); calcItemPrice();
   document.getElementById('new-item-modal').classList.add('open');
 }
@@ -1520,12 +1525,16 @@ function calcItemPrice() {
   const ship = parseInt(document.getElementById('ni-shipping')?.value)||0;
   const cost = parseInt(document.getElementById('ni-cost')?.value)||0;
   const start = min + buf;
-  const feeAmt = Math.round(start * fee / 100);
-  const profit = min - Math.round(min * fee / 100) - ship - cost;
+  const feeStart = Math.round(start * fee / 100);
+  const feeMin = Math.round(min * fee / 100);
+  const profitStart = start - feeStart - ship - cost;
+  const profitMin = min - feeMin - ship - cost;
   const set = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
   set('ni-startprice','¥'+start.toLocaleString());
-  set('ni-feecalc','¥'+feeAmt.toLocaleString());
-  set('ni-profit','¥'+profit.toLocaleString());
+  set('ni-feecalc','¥'+feeStart.toLocaleString());
+  set('ni-profit','¥'+profitStart.toLocaleString());
+  set('ni-minprice-hint','¥'+min.toLocaleString());
+  set('ni-profit-min','¥'+profitMin.toLocaleString());
 }
 
 async function generateItemDesc(e) {
