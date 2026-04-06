@@ -9,5 +9,8 @@
   },
   "devDependencies": {
     "vercel": "^41.0.0"
+  },
+  "dependencies": {
+    "jose": "^5.10.0"
   }
 }

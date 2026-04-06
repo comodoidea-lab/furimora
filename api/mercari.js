@@ -1,7 +1,53 @@
 // api/mercari.js  –  Vercel Edge Function
 // メルカリ商品URLから全フィールドをJSONで返す
+//
+// api.mercari.jp/items/get は DPoP（RFC 9449）付きでないと拒否される。
+// 参考: take-kun/mercapi（Python）と同様に ES256 + uuid を payload に含める。
+
+import { SignJWT } from 'jose';
 
 export const config = { runtime: 'edge' };
+
+/** アイソレート内で鍵とクライアント uuid を再利用（mercapi と同様の挙動） */
+async function getMercariDpopState() {
+  const g = globalThis;
+  if (!g.__furimoraMercariDpop) {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign']
+    );
+    const pubJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+    g.__furimoraMercariDpop = {
+      privateKey: keyPair.privateKey,
+      publicJwk: pubJwk,
+      uuid: crypto.randomUUID(),
+    };
+  }
+  return g.__furimoraMercariDpop;
+}
+
+async function buildMercariDPoP(fullUrl, method) {
+  const { privateKey, publicJwk, uuid } = await getMercariDpopState();
+  return new SignJWT({
+    iat: Math.floor(Date.now() / 1000),
+    jti: crypto.randomUUID(),
+    htu: fullUrl,
+    htm: String(method).toUpperCase(),
+    uuid,
+  })
+    .setProtectedHeader({
+      typ: 'dpop+jwt',
+      alg: 'ES256',
+      jwk: {
+        crv: publicJwk.crv,
+        kty: publicJwk.kty,
+        x: publicJwk.x,
+        y: publicJwk.y,
+      },
+    })
+    .sign(privateKey);
+}
 
 /** ユーザー入力は検証後、必ずこの canonical URL のみ fetch する（SSRF 防止） */
 function parseMercariItemUrl(raw) {
@@ -121,15 +167,20 @@ export default async function handler(req) {
   }
 }
 
-// ── 非公式API ──────────────────────────────────────────────────────────
+// ── 非公式API（DPoP 必須）──────────────────────────────────────────────
 async function fetchFromMercariApi(itemId) {
   try {
-    const res = await fetch(`https://api.mercari.jp/items/get?id=${itemId}`, {
+    const apiUrl = `https://api.mercari.jp/items/get?id=${encodeURIComponent(itemId)}`;
+    const dpop = await buildMercariDPoP(apiUrl, 'GET');
+    const res = await fetch(apiUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
-        'Accept': 'application/json',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        Accept: 'application/json',
+        'X-Platform': 'web',
+        DPoP: dpop,
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(12000),
     });
     if (!res.ok) return null;
     const json = await res.json();
@@ -137,7 +188,8 @@ async function fetchFromMercariApi(itemId) {
     const item = json.data;
     if (!item) return null;
     return normalizeApi(item);
-  } catch {
+  } catch (e) {
+    console.error('[mercari] fetchFromMercariApi', e);
     return null;
   }
 }
