@@ -1342,7 +1342,8 @@ function loadStats() {
 }
 
 // ── State ──
-let calYear = 2026, calMonth = 2, selectedCalDay = 26;
+const __todayCal = new Date();
+let calYear = __todayCal.getFullYear(), calMonth = __todayCal.getMonth(), selectedCalDay = __todayCal.getDate();
 let selectedTone = '丁寧';
 let clonedData = {};
 let pwaPrompt = null;
@@ -2256,6 +2257,76 @@ function combineDesc() {
   showToast('テンプレートと結合しました');
 }
 
+function scheduleKeyFromDate(d) {
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+function parseItemListedDate(item) {
+  const raw = (item && item.listedAt) ? String(item.listedAt) : '';
+  const d = raw ? new Date(raw + 'T12:00:00') : new Date();
+  if (Number.isNaN(d.getTime())) return new Date();
+  return d;
+}
+
+function removeScheduleEntriesForItem(itemId) {
+  const id = String(itemId);
+  for (const key of Object.keys(SCHEDULE_DATA || {})) {
+    const rows = Array.isArray(SCHEDULE_DATA[key]) ? SCHEDULE_DATA[key] : [];
+    const next = rows.filter((r) => String(r.itemId || '') !== id);
+    if (next.length) SCHEDULE_DATA[key] = next;
+    else delete SCHEDULE_DATA[key];
+  }
+}
+
+function upsertScheduleFromItem(item) {
+  if (!item || item.id == null) return;
+  if (!SCHEDULE_DATA || typeof SCHEDULE_DATA !== 'object') SCHEDULE_DATA = {};
+  removeScheduleEntriesForItem(item.id);
+
+  const listed = parseItemListedDate(item);
+  const startPrice = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || 0;
+  const minPrice = Number(item.minPrice || 0);
+  const delay = Math.max(0, parseInt(item.discountStartDays, 10) || 0);
+  const step = Math.max(1, parseInt(item.discountAmount, 10) || 100);
+  const freq = Math.max(1, parseInt(item.discountFreqDays, 10) || 1);
+  const baseName = item.title || '商品';
+
+  const pushEvent = (dateObj, payload) => {
+    const key = scheduleKeyFromDate(dateObj);
+    if (!Array.isArray(SCHEDULE_DATA[key])) SCHEDULE_DATA[key] = [];
+    SCHEDULE_DATA[key].push(payload);
+  };
+
+  pushEvent(new Date(listed), {
+    itemId: item.id,
+    name: baseName,
+    emoji: '🏷️',
+    time: '09:00',
+    type: `出品開始 ¥${Math.max(0, startPrice).toLocaleString()}`,
+    status: '予定',
+  });
+
+  if (startPrice > 0 && minPrice > 0 && startPrice > minPrice) {
+    let current = startPrice;
+    let dayOffset = delay;
+    while (current > minPrice && dayOffset < 400) {
+      const nextPrice = Math.max(minPrice, current - step);
+      const d = new Date(listed);
+      d.setDate(d.getDate() + dayOffset);
+      pushEvent(d, {
+        itemId: item.id,
+        name: baseName,
+        emoji: '📉',
+        time: '09:00',
+        type: `値下げ ¥${current.toLocaleString()} → ¥${nextPrice.toLocaleString()}`,
+        status: '予定',
+      });
+      current = nextPrice;
+      dayOffset += freq;
+    }
+  }
+}
+
 
 function saveNewItem() {
   const title = document.getElementById('ni-title').value.trim();
@@ -2302,6 +2373,8 @@ function saveNewItem() {
   if (niEditId) { const idx=ITEMS.findIndex(i=>i.id===niEditId); if(idx>=0) ITEMS[idx]=item; }
   else ITEMS.unshift(item);
   saveItems();
+  upsertScheduleFromItem(item);
+  saveStorageData();
   const s = JSON.parse(localStorage.getItem('furimora_stats')||'{}');
   if (!niEditId) s.total = (s.total||0)+1;
   localStorage.setItem('furimora_stats', JSON.stringify(s)); loadStats();
