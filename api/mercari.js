@@ -133,6 +133,7 @@ async function fetchFromMercariApi(itemId) {
     });
     if (!res.ok) return null;
     const json = await res.json();
+    if (json.result === 'error' || !json.data) return null;
     const item = json.data;
     if (!item) return null;
     return normalizeApi(item);
@@ -424,6 +425,9 @@ function extractPriceFromLdJson(html) {
 
 /** JSON 文字列または DOM から商品価格らしき数値（関連出品の高額を拾わないよう __NEXT_DATA__ 内を優先） */
 function extractPriceFromItemPageHtml(html) {
+  const metaPrice = extractMercariMetaPrice(html);
+  if (metaPrice != null) return metaPrice;
+
   const nd = extractNextDataJson(html);
   if (nd) {
     const m = nd.match(/"price"\s*:\s*(\d{2,8})\b/);
@@ -509,13 +513,42 @@ function extractImages(item) {
   return images;
 }
 
+/**
+ * App Router 化後の商品ページでは __NEXT_DATA__ が無く、価格が meta のみに出ることが多い。
+ * 例: <meta name="product:price:amount" content="3280"/>
+ */
+function extractMercariMetaPrice(html) {
+  if (!html || typeof html !== 'string') return null;
+  const patterns = [
+    /name="product:price:amount"[^>]*content="(\d+)"/i,
+    /property="product:price:amount"[^>]*content="(\d+)"/i,
+    /content="(\d+)"[^>]*name="product:price:amount"/i,
+    /content="(\d+)"[^>]*property="product:price:amount"/i,
+  ];
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  // RSC Flight 内のエスケープされた meta 表現
+  const rsc = html.match(/\\"product:price:amount\\",\\"content\\":\\"(\d+)\\"/);
+  if (rsc) {
+    const n = parseInt(rsc[1], 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
 function parseOgMeta(html, itemId, url) {
   const title = (html.match(/<meta property="og:title" content="([^"]+)"/) || [])[1];
   if (!title) return null;
   const desc = (html.match(/<meta property="og:description" content="([^"]+)"/) || [])[1];
   const img = (html.match(/<meta property="og:image" content="([^"]+)"/) || [])[1];
+  const fromProductMeta = extractMercariMetaPrice(html);
   const priceNum = (html.match(/"price"\s*:\s*(\d+)/) || [])[1];
-  const cp = priceNum ? parseInt(priceNum, 10) : null;
+  const cp = fromProductMeta ?? (priceNum ? parseInt(priceNum, 10) : null);
   return {
     itemId,
     title: title.replace(/\s*[-–]\s*メルカリ.*$/, '').trim(),
