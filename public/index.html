@@ -836,18 +836,13 @@ tailwind.config = {
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">バックアップ・復元（推奨）</p>
       </div>
       <div class="px-5 py-4 space-y-4">
-        <p class="text-[11px] text-on-surface-variant leading-relaxed">データの退避は<strong>暗号化ファイル</strong>で行います。Googleドライブへは、このファイルを手動でアップロードしてください（同じファイルを別端末で取得して復元できます）。</p>
-        <div class="space-y-1.5">
-          <label class="text-[10px] font-bold text-on-surface-variant" for="backup-export-pwd">エクスポート用パスワード</label>
-          <input type="password" id="backup-export-pwd" autocomplete="new-password" placeholder="8文字以上" class="w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
-        </div>
-        <button type="button" id="backup-export-btn" class="w-full py-3 rounded-full bg-signature-gradient text-white font-bold text-sm shadow-lg active:scale-[0.98] transition-transform">暗号化してダウンロード</button>
+        <p class="text-[11px] text-on-surface-variant leading-relaxed">JSON ファイルとして保存します。Google ドライブ等へは手動でアップロードし、同じファイルを別端末で選んで復元できます（ファイルは平文のため、共有先には注意してください）。</p>
+        <button type="button" id="backup-export-btn" class="w-full py-3 rounded-full bg-signature-gradient text-white font-bold text-sm shadow-lg active:scale-[0.98] transition-transform">バックアップをダウンロード</button>
         <div class="border-t border-surface-container pt-4 space-y-3">
           <p class="text-[10px] font-bold text-on-surface-variant">復元</p>
           <input type="file" id="backup-import-file" accept=".json,application/json" class="hidden"/>
           <button type="button" id="backup-import-pick-btn" class="w-full py-2.5 rounded-full border border-surface-container-highest font-bold text-sm">ファイルを選択</button>
           <p class="text-[10px] text-on-surface-variant" id="backup-import-filename">未選択</p>
-          <input type="password" id="backup-import-pwd" autocomplete="new-password" placeholder="復元用パスワード" class="w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
           <button type="button" id="backup-import-btn" class="w-full py-3 rounded-full bg-primary/10 text-primary font-bold text-sm active:scale-[0.98] transition-transform">復元を実行</button>
         </div>
       </div>
@@ -1531,7 +1526,7 @@ tailwind.config = {
       </div>
       <button type="button" id="modal-sync-logout-btn" class="text-error font-bold text-xs underline underline-offset-2 touch-manipulation">ログアウト</button>
     </div>
-    <p class="text-[10px] text-on-surface-variant/80 leading-relaxed mt-4">※ 設定ページの「クラウド同期」でも同じ操作ができます。暗号化バックアップは設定の「バックアップ・復元」から行えます。</p>
+    <p class="text-[10px] text-on-surface-variant/80 leading-relaxed mt-4">※ 設定ページの「クラウド同期」でも同じ操作ができます。JSON バックアップは設定の「バックアップ・復元」から行えます。</p>
   </div>
 </div>
 
@@ -1767,67 +1762,6 @@ function furimoraSetSupabaseAutoSync(on) {
   } catch (e) { /* quota */ }
 }
 
-function furimoraBufToB64(buf) {
-  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-function furimoraB64ToBuf(b64) {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-async function furimoraDeriveBackupKey(password, salt) {
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(password),
-    'PBKDF2',
-    false,
-    ['deriveBits', 'deriveKey'],
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt,
-      iterations: 210000,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
-}
-async function furimoraEncryptBackupJson(obj, password) {
-  const enc = new TextEncoder();
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const aesKey = await furimoraDeriveBackupKey(password, salt);
-  const plaintext = enc.encode(JSON.stringify(obj));
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
-  return {
-    format: FURIMORA_BACKUP_FORMAT,
-    v: 1,
-    salt: furimoraBufToB64(salt),
-    iv: furimoraBufToB64(iv),
-    ciphertext: furimoraBufToB64(new Uint8Array(ciphertext)),
-  };
-}
-async function furimoraDecryptBackupJson(blob, password) {
-  if (!blob || blob.format !== FURIMORA_BACKUP_FORMAT || typeof blob.ciphertext !== 'string') {
-    throw new Error('invalid backup file');
-  }
-  const salt = furimoraB64ToBuf(blob.salt);
-  const iv = furimoraB64ToBuf(blob.iv);
-  const ct = furimoraB64ToBuf(blob.ciphertext);
-  const aesKey = await furimoraDeriveBackupKey(password, salt);
-  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
-  const dec = new TextDecoder();
-  return JSON.parse(dec.decode(pt));
-}
 function furimoraCollectBackupPayload() {
   const keys = [...new Set([...FURIMORA_SYNC_KEYS, ...FURIMORA_LEGACY_SYNC_WRITE_KEYS, FURIMORA_ITEMS_TOMBSTONES_KEY])];
   const data = {};
@@ -5920,17 +5854,10 @@ function furimoraWireBackupButtons() {
     if (fname) fname.textContent = f ? f.name : '未選択';
   });
 
-  document.getElementById('backup-export-btn')?.addEventListener('click', async () => {
-    const pwd = (document.getElementById('backup-export-pwd')?.value || '').trim();
-    if (pwd.length < 8) { showToast('パスワードは8文字以上にしてください'); return; }
-    if (!window.crypto?.subtle) {
-      showToast('この環境では暗号化に対応していません（HTTPSで開いてください）');
-      return;
-    }
+  document.getElementById('backup-export-btn')?.addEventListener('click', () => {
     try {
-      const inner = furimoraCollectBackupPayload();
-      const encrypted = await furimoraEncryptBackupJson(inner, pwd);
-      const blob = new Blob([JSON.stringify(encrypted)], { type: 'application/json' });
+      const payload = furimoraCollectBackupPayload();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       const stamp = new Date().toISOString().slice(0, 10);
       a.href = URL.createObjectURL(blob);
@@ -5945,28 +5872,25 @@ function furimoraWireBackupButtons() {
   });
 
   document.getElementById('backup-import-btn')?.addEventListener('click', async () => {
-    const pwd = (document.getElementById('backup-import-pwd')?.value || '').trim();
     if (!furimoraBackupImportFile) { showToast('ファイルを選択してください'); return; }
-    if (!pwd) { showToast('復元用パスワードを入力してください'); return; }
-    if (!window.crypto?.subtle) {
-      showToast('この環境では復元に対応していません');
-      return;
-    }
     const ok = confirm('現在の端末のデータを、バックアップの内容で上書きします。よろしいですか？');
     if (!ok) return;
     try {
       const text = await furimoraBackupImportFile.text();
-      const outer = JSON.parse(text);
-      const inner = await furimoraDecryptBackupJson(outer, pwd);
-      if (inner?.format !== FURIMORA_BACKUP_FORMAT || !inner?.data) throw new Error('invalid backup');
-      furimoraApplyBackupPayload(inner);
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.ciphertext === 'string' && parsed.data == null) {
+        showToast('このファイルは旧形式（暗号化）です。平文 JSON で再エクスポートしたファイルを使ってください');
+        return;
+      }
+      if (parsed?.format !== FURIMORA_BACKUP_FORMAT || !parsed?.data) throw new Error('invalid backup');
+      furimoraApplyBackupPayload(parsed);
       furimoraReloadAllFromStorage();
       furimoraResetSyncSignature();
       notifyLocalDataChanged();
       showToast('復元しました');
     } catch (e) {
       console.error(e);
-      showToast('復元に失敗しました（パスワードまたはファイル形式を確認してください）');
+      showToast('復元に失敗しました（ファイル形式を確認してください）');
     }
   });
 }
