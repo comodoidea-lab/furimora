@@ -4690,6 +4690,34 @@ function installPWA() {
   }
 }
 
+// ── Quick numeric input (tap to clear) ──
+function enableTapClearNumberInputs(modalId) {
+  const root = document.getElementById(modalId);
+  if (!root) return;
+  root.addEventListener('pointerdown', (e) => {
+    const input = e.target.closest('input[type="number"]');
+    if (!input || input.readOnly || input.disabled) return;
+    input.dataset.tapToClearArmed = '1';
+  });
+  root.addEventListener('focusin', (e) => {
+    const input = e.target.closest('input[type="number"]');
+    if (!input || input.readOnly || input.disabled) return;
+    if (input.dataset.tapToClearArmed === '1') {
+      input.dataset.tapToClearArmed = '0';
+      if (input.value !== '') {
+        input.value = '';
+        // 既存 oninput ロジック（利益計算など）を再評価
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+  });
+  root.addEventListener('focusout', (e) => {
+    const input = e.target.closest('input[type="number"]');
+    if (!input) return;
+    input.dataset.tapToClearArmed = '0';
+  });
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   if (isIOSDevice()) document.documentElement.classList.add('ios-touch-lock');
@@ -4703,6 +4731,8 @@ document.addEventListener('DOMContentLoaded', () => {
   renderCalendar();
   renderCommerceSettings();
   calcStartPrice();
+  enableTapClearNumberInputs('new-item-modal');
+  enableTapClearNumberInputs('discount-item-modal');
   navigate('home');
   // 未読通知バッジ
   if (NOTIFICATIONS.length > 0) {
