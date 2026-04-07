@@ -333,7 +333,7 @@ tailwind.config = {
     </div>
 
     <!-- Quick Actions -->
-    <div class="grid grid-cols-2 gap-3">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
       <button onclick="navigate('clone')" class="bg-surface-container-lowest p-4 rounded-lg shadow-sm flex items-center gap-3 text-left card-interactive">
         <div class="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
           <span class="material-symbols-outlined text-primary">content_copy</span>
@@ -350,6 +350,15 @@ tailwind.config = {
         <div>
           <p class="font-bold text-sm">AI出品作成</p>
           <p class="text-[10px] text-on-surface-variant">説明文を自動生成</p>
+        </div>
+      </button>
+      <button onclick="openNewItemModal(null)" class="bg-surface-container-lowest p-4 rounded-lg shadow-sm flex items-center gap-3 text-left card-interactive">
+        <div class="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-emerald-600">calculate</span>
+        </div>
+        <div>
+          <p class="font-bold text-sm">利益計算</p>
+          <p class="text-[10px] text-on-surface-variant">新規出品を直接開く</p>
         </div>
       </button>
     </div>
@@ -799,7 +808,16 @@ tailwind.config = {
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">クラウド同期</p>
       </div>
       <div class="px-5 py-4 space-y-4">
-        <p class="text-[11px] text-on-surface-variant leading-relaxed" id="sync-status-text">読み込み中…</p>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-[11px] text-on-surface-variant leading-relaxed" id="sync-status-text">読み込み中…</p>
+          <span id="sync-state-badge" class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold bg-surface-container text-on-surface-variant">
+            <span class="w-1.5 h-1.5 rounded-full bg-on-surface-variant/50"></span>待機中
+          </span>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-[10px] text-on-surface-variant/80" id="sync-last-sync-at">最終同期: 未実行</p>
+          <button type="button" id="sync-retry-btn" class="hidden px-3 py-1.5 rounded-full text-[10px] font-bold bg-error/10 text-error">再試行</button>
+        </div>
         <div id="sync-logged-out" class="space-y-3">
           <button type="button" id="sync-google-btn" class="w-full flex items-center justify-center gap-2 py-3 rounded-full border border-surface-container-highest font-bold text-sm hover:bg-surface-container transition-colors">
             <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -818,6 +836,8 @@ tailwind.config = {
           <div class="flex flex-wrap gap-2">
             <button type="button" id="sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
             <button type="button" id="sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
+            <button type="button" id="sync-enable-webpush-btn" class="px-4 py-2 rounded-full bg-tertiary/10 text-tertiary font-bold text-xs">通知を有効化</button>
+            <button type="button" id="sync-test-webpush-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">通知テスト</button>
             <button type="button" id="sync-logout-btn" class="min-h-[44px] px-4 py-2.5 rounded-full text-error font-bold text-sm touch-manipulation">ログアウト</button>
           </div>
         </div>
@@ -900,6 +920,47 @@ tailwind.config = {
 
     <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden">
       <div class="px-5 py-3 bg-surface-container-low">
+        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">販路・発送方法・仕入先</p>
+      </div>
+      <div class="divide-y divide-surface-container">
+        <div class="px-5 py-4 space-y-3">
+          <p class="text-xs font-bold">販路（フリマサイト）</p>
+          <div class="flex gap-2">
+            <input id="settings-marketplace-name" type="text" placeholder="例: メルカリ"
+              class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+            <input id="settings-marketplace-fee" type="number" min="0" max="100" placeholder="手数料%"
+              class="w-24 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+            <button type="button" onclick="addMarketplaceOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+          </div>
+          <div id="settings-marketplace-list" class="space-y-2"></div>
+        </div>
+        <div class="px-5 py-4 space-y-3">
+          <p class="text-xs font-bold">発送方法・送料・梱包費</p>
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <input id="settings-shipping-name" type="text" placeholder="例: ネコポス"
+              class="sm:col-span-2 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+            <input id="settings-shipping-cost" type="number" min="0" placeholder="送料"
+              class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+            <input id="settings-packing-cost" type="number" min="0" placeholder="梱包費"
+              class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+            <button type="button" onclick="addShippingMethodOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+          </div>
+          <div id="settings-shipping-list" class="space-y-2"></div>
+        </div>
+        <div class="px-5 py-4 space-y-3">
+          <p class="text-xs font-bold">仕入先履歴</p>
+          <div class="flex gap-2">
+            <input id="settings-supplier-input" type="text" placeholder="例: 〇〇リサイクル"
+              class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+            <button type="button" onclick="registerSupplierFromSettings()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">登録</button>
+          </div>
+          <div id="settings-supplier-list" class="flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden">
+      <div class="px-5 py-3 bg-surface-container-low">
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">アプリについて</p>
       </div>
       <div class="divide-y divide-surface-container">
@@ -976,10 +1037,32 @@ tailwind.config = {
               </select>
             </div>
           </div>
+          <div class="grid grid-cols-1 gap-3">
+            <div>
+              <label class="text-xs font-semibold text-on-surface-variant">仕入先</label>
+              <div class="flex gap-2 mt-1">
+                <select id="ni-supplier-select" onchange="onNiSupplierSelect()" class="w-40 bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none">
+                  <option value="">履歴から選択</option>
+                </select>
+                <input id="ni-supplier" type="text" placeholder="例: ブックオフ渋谷店"
+                  class="flex-1 bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div>
-        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">価格・送料</p>
+        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">価格・経費</p>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="text-xs font-semibold text-on-surface-variant">販路</label>
+            <select id="ni-marketplace" onchange="onNiMarketplaceChange()" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"></select>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-on-surface-variant">発送方法</label>
+            <select id="ni-shipping-method" onchange="onNiShippingMethodChange()" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"></select>
+          </div>
+        </div>
         <div class="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label class="text-xs font-semibold text-on-surface-variant">仕入れ値</label>
@@ -1021,16 +1104,14 @@ tailwind.config = {
             </div>
           </div>
           <div>
-            <label class="text-xs font-semibold text-on-surface-variant">送料（出品者負担）</label>
-            <div class="flex gap-1.5 mt-1 flex-wrap items-center">
-              <button onclick="setShipping(0)" class="ni-ship-btn px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-primary text-white">なし</button>
-              <button onclick="setShipping(230)" class="ni-ship-btn px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-surface-container text-on-surface-variant">ネコポス¥230</button>
-              <button onclick="setShipping(385)" class="ni-ship-btn px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-surface-container text-on-surface-variant">ゆうゆう¥385</button>
-              <button onclick="setShipping(450)" class="ni-ship-btn px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-surface-container text-on-surface-variant">らくらく¥450</button>
-              <input id="ni-shipping" type="number" value="0" oninput="calcItemPrice()"
-                class="w-14 bg-surface-container border-none rounded-lg px-2 py-1.5 text-xs font-bold outline-none"/>
-              <span class="text-[11px] text-on-surface-variant">円</span>
+            <label class="text-xs font-semibold text-on-surface-variant">経費（送料+梱包費）</label>
+            <div class="flex items-center gap-2 mt-1">
+              <div class="relative flex-1"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">¥</span>
+                <input id="ni-shipping" type="number" value="0" oninput="calcItemPrice()"
+                  class="w-full bg-surface-container border-none rounded-xl py-2.5 pl-8 pr-3 text-sm font-bold outline-none"/>
+              </div>
             </div>
+            <p class="text-[10px] text-on-surface-variant mt-1">発送方法プルダウン選択で自動入力（必要なら手動調整可）</p>
           </div>
         </div>
         <div class="mt-3 bg-primary/5 rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
@@ -1117,7 +1198,7 @@ tailwind.config = {
       </div>
       <p id="ni-schedule-summary" class="text-[11px] text-on-surface font-medium bg-surface-container rounded-xl px-3 py-2"></p>
       <div id="ni-schedule-hint" class="bg-primary/5 rounded-xl p-4 text-[11px] text-on-surface-variant">
-        「価格」タブで<strong>最低価格</strong>を入力し、上記の<strong>出品開始日</strong>を設定すると、下に値下げカレンダーが表示されます（手数料・送料は価格タブの設定を使用）。
+        「価格」タブで<strong>最低価格</strong>を入力し、上記の<strong>出品開始日</strong>を設定すると、下に値下げカレンダーが表示されます（手数料・経費は価格タブの設定を使用）。
       </div>
       <div id="ni-schedule-table-wrap" class="hidden">
         <div class="flex items-center justify-between mb-2">
@@ -1317,7 +1398,16 @@ tailwind.config = {
         <span class="material-symbols-outlined text-lg">close</span>
       </button>
     </div>
-    <p class="text-[11px] text-on-surface-variant leading-relaxed mb-4" id="modal-sync-status-text">読み込み中…</p>
+    <div class="flex items-center justify-between gap-2 mb-2">
+      <p class="text-[11px] text-on-surface-variant leading-relaxed" id="modal-sync-status-text">読み込み中…</p>
+      <span id="modal-sync-state-badge" class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold bg-surface-container text-on-surface-variant">
+        <span class="w-1.5 h-1.5 rounded-full bg-on-surface-variant/50"></span>待機中
+      </span>
+    </div>
+    <div class="flex items-center justify-between gap-2 mb-4">
+      <p class="text-[10px] text-on-surface-variant/80" id="modal-sync-last-sync-at">最終同期: 未実行</p>
+      <button type="button" id="modal-sync-retry-btn" class="hidden px-3 py-1.5 rounded-full text-[10px] font-bold bg-error/10 text-error">再試行</button>
+    </div>
     <div id="modal-sync-logged-out" class="space-y-3">
       <button type="button" id="modal-sync-google-btn" class="w-full flex items-center justify-center gap-2 py-3 rounded-full border border-surface-container-highest font-bold text-sm hover:bg-surface-container transition-colors">
         <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -1336,6 +1426,8 @@ tailwind.config = {
       <div class="flex flex-wrap gap-2">
         <button type="button" id="modal-sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
         <button type="button" id="modal-sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
+        <button type="button" id="modal-sync-enable-webpush-btn" class="px-4 py-2 rounded-full bg-tertiary/10 text-tertiary font-bold text-xs">通知を有効化</button>
+        <button type="button" id="modal-sync-test-webpush-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">通知テスト</button>
         <button type="button" id="modal-sync-logout-btn" class="min-h-[44px] px-4 py-2.5 rounded-full text-error font-bold text-sm touch-manipulation">ログアウト</button>
       </div>
     </div>
@@ -1401,10 +1493,12 @@ const REMOTE_MERCARI_API_ORIGINS = [PRIMARY_WEB_ORIGIN, LEGACY_WEB_ORIGIN];
 const FURIMORA_SYNC_KEYS = [
   'furimora_alerts', 'furimora_activities', 'furimora_queue', 'furimora_schedule', 'furimora_notifications',
   'furimora_stats', 'furimora_items', 'furimora_profile', 'furimora_templates', 'furimora_drafts',
+  'furimora_marketplaces', 'furimora_shipping_methods', 'furimora_suppliers',
 ];
 let furimoraSupabaseClient = null;
 let furimoraSyncPushTimer = null;
 let furimoraSyncAfterLoginLastTs = 0;
+let furimoraWebPushVapidPublicKey = '';
 /** 最後にクラウドの版（updated_at）を取り込んだ／push で確定した時刻（ローカル編集時刻とは別。多段末同期の判定に使う） */
 const FURIMORA_SYNC_LAST_REMOTE_AT = 'furimora_sync_last_remote_at';
 
@@ -1506,6 +1600,20 @@ let itemUrlEditId = null;
 /** item-confirm-modal: 'sold' | 'delete' */
 let itemConfirmType = null;
 let itemConfirmId = null;
+let MARKETPLACE_OPTIONS = [];
+let SHIPPING_METHOD_OPTIONS = [];
+let SUPPLIER_HISTORY = [];
+
+const DEFAULT_MARKETPLACE_OPTIONS = [
+  { id: 'mk_mercari', name: 'メルカリ', fee: 10, isDefault: true },
+  { id: 'mk_paypay', name: 'PayPayフリマ', fee: 5, isDefault: false },
+];
+const DEFAULT_SHIPPING_METHOD_OPTIONS = [
+  { id: 'sm_none', name: '送料なし', shippingCost: 0, packingCost: 0, isDefault: true },
+  { id: 'sm_nekopos', name: 'ネコポス', shippingCost: 230, packingCost: 20, isDefault: false },
+  { id: 'sm_yuyu', name: 'ゆうゆう', shippingCost: 385, packingCost: 30, isDefault: false },
+  { id: 'sm_rakuraku', name: 'らくらく', shippingCost: 450, packingCost: 30, isDefault: false },
+];
 
 const DEFAULT_TEMPLATE_BODY = `◆ 商品の状態\n丁寧に使用しておりましたが、素人検品のためご了承ください。\n\n◆ 発送について\n・ご購入確定後2〜3日以内に発送いたします\n・丁寧に梱包してお届けします\n・ご不明な点はお気軽にコメントください\n\n◆ その他\n・他でも出品中のため、売り切れの際はご容赦ください\n・値下げ交渉もお気軽にどうぞ`;
 
@@ -1526,6 +1634,206 @@ function loadTemplates() {
 function saveTemplatesData(templates) {
   localStorage.setItem('furimora_templates', JSON.stringify(templates));
   notifyLocalDataChanged();
+}
+
+function safeJsonArray(raw, fallback) {
+  try {
+    const v = JSON.parse(raw || '[]');
+    return Array.isArray(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getDefaultMarketplace() {
+  return MARKETPLACE_OPTIONS.find((x) => x.isDefault) || MARKETPLACE_OPTIONS[0] || null;
+}
+
+function getDefaultShippingMethod() {
+  return SHIPPING_METHOD_OPTIONS.find((x) => x.isDefault) || SHIPPING_METHOD_OPTIONS[0] || null;
+}
+
+function loadCommerceSettings() {
+  const m = safeJsonArray(localStorage.getItem('furimora_marketplaces'), []);
+  const s = safeJsonArray(localStorage.getItem('furimora_shipping_methods'), []);
+  const sup = safeJsonArray(localStorage.getItem('furimora_suppliers'), []);
+  MARKETPLACE_OPTIONS = m.length ? m : DEFAULT_MARKETPLACE_OPTIONS.map((x) => ({ ...x }));
+  SHIPPING_METHOD_OPTIONS = (s.length ? s : DEFAULT_SHIPPING_METHOD_OPTIONS).map((x) => {
+    const shippingCost = Number(x.shippingCost != null ? x.shippingCost : x.cost || 0);
+    const packingCost = Number(x.packingCost || 0);
+    return { ...x, shippingCost, packingCost };
+  });
+  SUPPLIER_HISTORY = sup.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 80);
+  if (!MARKETPLACE_OPTIONS.some((x) => x.isDefault) && MARKETPLACE_OPTIONS[0]) MARKETPLACE_OPTIONS[0].isDefault = true;
+  if (!SHIPPING_METHOD_OPTIONS.some((x) => x.isDefault) && SHIPPING_METHOD_OPTIONS[0]) SHIPPING_METHOD_OPTIONS[0].isDefault = true;
+}
+
+function saveCommerceSettings() {
+  localStorage.setItem('furimora_marketplaces', JSON.stringify(MARKETPLACE_OPTIONS));
+  localStorage.setItem('furimora_shipping_methods', JSON.stringify(SHIPPING_METHOD_OPTIONS));
+  localStorage.setItem('furimora_suppliers', JSON.stringify(SUPPLIER_HISTORY));
+  notifyLocalDataChanged();
+}
+
+function populateNiMarketplaceSelect(selectedId = '') {
+  const sel = document.getElementById('ni-marketplace');
+  if (!sel) return;
+  sel.innerHTML = MARKETPLACE_OPTIONS.map((x) => `<option value="${x.id}">${x.name}（手数料${Number(x.fee || 0)}%）</option>`).join('');
+  const def = getDefaultMarketplace();
+  sel.value = selectedId || def?.id || '';
+}
+
+function populateNiShippingSelect(selectedId = '') {
+  const sel = document.getElementById('ni-shipping-method');
+  if (!sel) return;
+  sel.innerHTML = SHIPPING_METHOD_OPTIONS.map((x) => {
+    const ship = Number(x.shippingCost || 0);
+    const pack = Number(x.packingCost || 0);
+    const total = ship + pack;
+    return `<option value="${x.id}">${x.name}（送料¥${ship.toLocaleString()} + 梱包¥${pack.toLocaleString()} = 経費¥${total.toLocaleString()}）</option>`;
+  }).join('');
+  const def = getDefaultShippingMethod();
+  sel.value = selectedId || def?.id || '';
+}
+
+function populateNiSupplierSelect(selectedName = '') {
+  const sel = document.getElementById('ni-supplier-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">履歴から選択</option>' + SUPPLIER_HISTORY.map((x) => `<option value="${x}">${x}</option>`).join('');
+  if (selectedName && SUPPLIER_HISTORY.includes(selectedName)) sel.value = selectedName;
+  else sel.value = '';
+}
+
+function renderCommerceSettings() {
+  const mEl = document.getElementById('settings-marketplace-list');
+  const sEl = document.getElementById('settings-shipping-list');
+  const supEl = document.getElementById('settings-supplier-list');
+  if (mEl) {
+    mEl.innerHTML = MARKETPLACE_OPTIONS.map((x) => `
+      <div class="flex items-center gap-2 bg-surface-container rounded-xl px-3 py-2">
+        <button type="button" onclick="setDefaultMarketplace('${x.id}')" class="w-6 h-6 rounded-full border ${x.isDefault ? 'bg-primary border-primary text-white' : 'border-outline text-on-surface-variant'} text-[10px] font-black">✓</button>
+        <div class="flex-1 min-w-0 text-xs"><span class="font-bold">${x.name}</span><span class="text-on-surface-variant ml-1">手数料${Number(x.fee || 0)}%</span></div>
+        <button type="button" onclick="removeMarketplaceOption('${x.id}')" class="text-[11px] font-bold text-error">削除</button>
+      </div>`).join('');
+  }
+  if (sEl) {
+    sEl.innerHTML = SHIPPING_METHOD_OPTIONS.map((x) => `
+      <div class="flex items-center gap-2 bg-surface-container rounded-xl px-3 py-2">
+        <button type="button" onclick="setDefaultShippingMethod('${x.id}')" class="w-6 h-6 rounded-full border ${x.isDefault ? 'bg-primary border-primary text-white' : 'border-outline text-on-surface-variant'} text-[10px] font-black">✓</button>
+        <div class="flex-1 min-w-0 text-xs"><span class="font-bold">${x.name}</span><span class="text-on-surface-variant ml-1">送料¥${Number(x.shippingCost || 0).toLocaleString()} + 梱包¥${Number(x.packingCost || 0).toLocaleString()} = 経費¥${Number((x.shippingCost || 0) + (x.packingCost || 0)).toLocaleString()}</span></div>
+        <button type="button" onclick="removeShippingMethodOption('${x.id}')" class="text-[11px] font-bold text-error">削除</button>
+      </div>`).join('');
+  }
+  if (supEl) {
+    if (!SUPPLIER_HISTORY.length) supEl.innerHTML = '<p class="text-[11px] text-on-surface-variant">履歴はまだありません</p>';
+    else supEl.innerHTML = SUPPLIER_HISTORY.map((x) => `<button type="button" onclick="useSupplierFromSettings('${x.replace(/'/g, "\\'")}')" class="px-3 py-1.5 rounded-full bg-surface-container text-xs font-bold">${x}</button>`).join('');
+  }
+  populateNiMarketplaceSelect();
+  populateNiShippingSelect();
+  populateNiSupplierSelect();
+}
+
+function addMarketplaceOption() {
+  const name = (document.getElementById('settings-marketplace-name')?.value || '').trim();
+  const fee = Math.max(0, Number(document.getElementById('settings-marketplace-fee')?.value || 0));
+  if (!name) return showToast('販路名を入力してください');
+  MARKETPLACE_OPTIONS.unshift({ id: 'mk_' + Date.now(), name, fee, isDefault: MARKETPLACE_OPTIONS.length === 0 });
+  if (document.getElementById('settings-marketplace-name')) document.getElementById('settings-marketplace-name').value = '';
+  if (document.getElementById('settings-marketplace-fee')) document.getElementById('settings-marketplace-fee').value = '';
+  saveCommerceSettings();
+  renderCommerceSettings();
+}
+
+function setDefaultMarketplace(id) {
+  MARKETPLACE_OPTIONS = MARKETPLACE_OPTIONS.map((x) => ({ ...x, isDefault: x.id === id }));
+  saveCommerceSettings();
+  renderCommerceSettings();
+}
+
+function removeMarketplaceOption(id) {
+  MARKETPLACE_OPTIONS = MARKETPLACE_OPTIONS.filter((x) => x.id !== id);
+  if (!MARKETPLACE_OPTIONS.length) MARKETPLACE_OPTIONS = DEFAULT_MARKETPLACE_OPTIONS.map((x) => ({ ...x }));
+  if (!MARKETPLACE_OPTIONS.some((x) => x.isDefault)) MARKETPLACE_OPTIONS[0].isDefault = true;
+  saveCommerceSettings();
+  renderCommerceSettings();
+}
+
+function addShippingMethodOption() {
+  const name = (document.getElementById('settings-shipping-name')?.value || '').trim();
+  const shippingCost = Math.max(0, Number(document.getElementById('settings-shipping-cost')?.value || 0));
+  const packingCost = Math.max(0, Number(document.getElementById('settings-packing-cost')?.value || 0));
+  if (!name) return showToast('発送方法名を入力してください');
+  SHIPPING_METHOD_OPTIONS.unshift({ id: 'sm_' + Date.now(), name, shippingCost, packingCost, isDefault: SHIPPING_METHOD_OPTIONS.length === 0 });
+  if (document.getElementById('settings-shipping-name')) document.getElementById('settings-shipping-name').value = '';
+  if (document.getElementById('settings-shipping-cost')) document.getElementById('settings-shipping-cost').value = '';
+  if (document.getElementById('settings-packing-cost')) document.getElementById('settings-packing-cost').value = '';
+  saveCommerceSettings();
+  renderCommerceSettings();
+}
+
+function setDefaultShippingMethod(id) {
+  SHIPPING_METHOD_OPTIONS = SHIPPING_METHOD_OPTIONS.map((x) => ({ ...x, isDefault: x.id === id }));
+  saveCommerceSettings();
+  renderCommerceSettings();
+}
+
+function removeShippingMethodOption(id) {
+  SHIPPING_METHOD_OPTIONS = SHIPPING_METHOD_OPTIONS.filter((x) => x.id !== id);
+  if (!SHIPPING_METHOD_OPTIONS.length) SHIPPING_METHOD_OPTIONS = DEFAULT_SHIPPING_METHOD_OPTIONS.map((x) => ({ ...x }));
+  if (!SHIPPING_METHOD_OPTIONS.some((x) => x.isDefault)) SHIPPING_METHOD_OPTIONS[0].isDefault = true;
+  saveCommerceSettings();
+  renderCommerceSettings();
+}
+
+function registerSupplierName(nameRaw) {
+  const name = String(nameRaw || '').trim();
+  if (!name) return;
+  SUPPLIER_HISTORY = [name, ...SUPPLIER_HISTORY.filter((x) => x !== name)].slice(0, 80);
+  saveCommerceSettings();
+  renderCommerceSettings();
+}
+
+function registerSupplierFromSettings() {
+  const input = document.getElementById('settings-supplier-input');
+  const name = (input?.value || '').trim();
+  if (!name) return showToast('仕入先を入力してください');
+  registerSupplierName(name);
+  if (input) input.value = '';
+  showToast('仕入先を登録しました');
+}
+
+function useSupplierFromSettings(name) {
+  const input = document.getElementById('settings-supplier-input');
+  if (input) input.value = name;
+  registerSupplierName(name);
+  showToast('仕入先をセットしました');
+}
+
+function onNiSupplierSelect() {
+  const sel = document.getElementById('ni-supplier-select');
+  const inp = document.getElementById('ni-supplier');
+  if (!sel || !inp) return;
+  if (sel.value) inp.value = sel.value;
+}
+
+function onNiMarketplaceChange() {
+  const sel = document.getElementById('ni-marketplace');
+  if (!sel) return;
+  const opt = MARKETPLACE_OPTIONS.find((x) => x.id === sel.value);
+  if (!opt) return;
+  const feeEl = document.getElementById('ni-fee');
+  if (feeEl) feeEl.value = String(Math.max(0, Number(opt.fee || 0)));
+  calcItemPrice();
+}
+
+function onNiShippingMethodChange() {
+  const sel = document.getElementById('ni-shipping-method');
+  if (!sel) return;
+  const opt = SHIPPING_METHOD_OPTIONS.find((x) => x.id === sel.value);
+  if (!opt) return;
+  const shipEl = document.getElementById('ni-shipping');
+  if (shipEl) shipEl.value = String(Math.max(0, Number(opt.shippingCost || 0) + Number(opt.packingCost || 0)));
+  calcItemPrice();
 }
 
 function renderTemplatesList() {
@@ -1868,13 +2176,17 @@ function openRelistItemModal(id) {
   document.getElementById('ni-minprice').value = minP || 800;
   setBuffer(buf);
   document.getElementById('ni-fee').value = item.fee ?? 10;
-  setShipping(Number(item.shippingCost) || 0);
+  document.getElementById('ni-shipping').value = Number(item.shippingCost) || 0;
   document.getElementById('ni-listed-at').value = new Date().toISOString().slice(0, 10);
   document.getElementById('ni-discount-start').value = item.discountStartDays ?? 7;
   document.getElementById('ni-discount-amount').value = item.discountAmount ?? 100;
   document.getElementById('ni-discount-freq').value = item.discountFreqDays ?? 1;
   document.getElementById('ni-desc-title').value = item.title || '';
   document.getElementById('ni-ai-text').value = item.description || '';
+  document.getElementById('ni-supplier').value = item.supplierName || '';
+  populateNiSupplierSelect(item.supplierName || '');
+  populateNiMarketplaceSelect(item.marketplaceId || '');
+  populateNiShippingSelect(item.shippingMethodId || '');
   populateTemplateSelect();
   applyNiCategoryToBoth(item.category);
   const condSel = document.getElementById('ni-condition');
@@ -1889,6 +2201,8 @@ function openRelistItemModal(id) {
     nm.dataset.mercariUrl = (item.mercariUrl || item.url || '').trim();
     nm.dataset.mercariItemId = item.mercariItemId != null ? String(item.mercariItemId) : (item.itemId != null ? String(item.itemId) : '');
   }
+  if (!item.marketplaceId) onNiMarketplaceChange();
+  if (!item.shippingMethodId) onNiShippingMethodChange();
   switchItemTab('price');
   calcItemPrice();
   document.getElementById('new-item-modal').classList.add('open');
@@ -2158,6 +2472,7 @@ function openNewItemModal(draftData) {
   document.getElementById('ni-buffer').value = 400;
   document.getElementById('ni-fee').value = 10;
   document.getElementById('ni-shipping').value = 0;
+  document.getElementById('ni-supplier').value = '';
   document.getElementById('ni-listed-at').value = new Date().toISOString().slice(0,10);
   document.getElementById('ni-discount-start').value = 7;
   document.getElementById('ni-discount-amount').value = 100;
@@ -2165,6 +2480,9 @@ function openNewItemModal(draftData) {
   document.getElementById('ni-desc-title').value = draftData?.title || '';
   document.getElementById('ni-ai-text').value = draftData?.description || '';
   populateTemplateSelect();
+  populateNiSupplierSelect('');
+  populateNiMarketplaceSelect('');
+  populateNiShippingSelect('');
   applyNiCategoryToBoth(draftData?.category);
   if (draftData?.condition) {
     const sel = document.getElementById('ni-condition');
@@ -2177,7 +2495,8 @@ function openNewItemModal(draftData) {
     nm.dataset.mercariItemId = draftData?.itemId != null ? String(draftData.itemId) : '';
   }
   setBuffer(400);
-  setShipping(0);
+  onNiMarketplaceChange();
+  onNiShippingMethodChange();
   switchItemTab('price'); calcItemPrice();
   document.getElementById('new-item-modal').classList.add('open');
 }
@@ -2200,17 +2519,6 @@ function setBuffer(amount) {
   document.getElementById('ni-buffer').value = amount;
   document.querySelectorAll('.ni-buf-btn').forEach(b => {
     const on = b.textContent.trim() === '+'+amount+'円';
-    b.classList.toggle('bg-primary',on); b.classList.toggle('text-white',on);
-    b.classList.toggle('bg-surface-container',!on); b.classList.toggle('text-on-surface-variant',!on);
-  });
-  calcItemPrice();
-}
-
-function setShipping(amount) {
-  document.getElementById('ni-shipping').value = amount;
-  document.querySelectorAll('.ni-ship-btn').forEach(b => {
-    const val = b.textContent.includes('¥') ? parseInt(b.textContent.split('¥')[1]) : 0;
-    const on = val === amount;
     b.classList.toggle('bg-primary',on); b.classList.toggle('text-white',on);
     b.classList.toggle('bg-surface-container',!on); b.classList.toggle('text-on-surface-variant',!on);
   });
@@ -2258,7 +2566,7 @@ function updateNiScheduleTab() {
   const tbody = document.getElementById('ni-schedule-tbody');
 
   if (sumEl) {
-    sumEl.textContent = `出品開始 ¥${startPrice.toLocaleString()}　最低 ¥${minP.toLocaleString()}　手数料 ${feePct}%　送料 ¥${ship.toLocaleString()}${cost > 0 ? `　仕入れ ¥${cost.toLocaleString()}` : ''}`;
+    sumEl.textContent = `出品開始 ¥${startPrice.toLocaleString()}　最低 ¥${minP.toLocaleString()}　手数料 ${feePct}%　経費 ¥${ship.toLocaleString()}${cost > 0 ? `　仕入れ ¥${cost.toLocaleString()}` : ''}`;
   }
 
   if (!tbody || !hint || !wrap) return;
@@ -2341,7 +2649,7 @@ function copyNiSchedule() {
   const startDate = new Date(startDateStr + 'T12:00:00');
   const lines = [
     `値下げスケジュール（${startDateStr} 出品開始）`,
-    `出品開始: ¥${startPrice.toLocaleString()}　最低: ¥${minP.toLocaleString()}　手数料: ${feePct}%　送料: ¥${ship.toLocaleString()}`,
+    `出品開始: ¥${startPrice.toLocaleString()}　最低: ¥${minP.toLocaleString()}　手数料: ${feePct}%　経費: ¥${ship.toLocaleString()}`,
     cost > 0 ? `仕入れ: ¥${cost.toLocaleString()}` : '',
     '',
     '日付\t出品日数\t価格\t手数料後受取\t利益',
@@ -2494,6 +2802,11 @@ function saveNewItem() {
   const nmEl = document.getElementById('new-item-modal');
   const mercariUrl = (nmEl?.dataset?.mercariUrl || '').trim() || prev?.mercariUrl || '';
   const mercariItemId = (nmEl?.dataset?.mercariItemId || '').trim() || prev?.mercariItemId || '';
+  const supplierName = (document.getElementById('ni-supplier')?.value || '').trim();
+  const marketplaceId = (document.getElementById('ni-marketplace')?.value || '').trim();
+  const shippingMethodId = (document.getElementById('ni-shipping-method')?.value || '').trim();
+  const marketplace = MARKETPLACE_OPTIONS.find((x) => x.id === marketplaceId) || null;
+  const shippingMethod = SHIPPING_METHOD_OPTIONS.find((x) => x.id === shippingMethodId) || null;
   const item = {
     id: niEditId || Date.now(),
     title, images,
@@ -2503,6 +2816,8 @@ function saveNewItem() {
     costPrice: parseInt(document.getElementById('ni-cost').value)||0,
     fee: parseInt(document.getElementById('ni-fee').value)||10,
     shippingCost: parseInt(document.getElementById('ni-shipping').value)||0,
+    shippingBaseCost: shippingMethod ? Number(shippingMethod.shippingCost || 0) : undefined,
+    packingCost: shippingMethod ? Number(shippingMethod.packingCost || 0) : undefined,
     description: document.getElementById('ni-ai-text').value,
     status: 'active',
     listedAt: listedAtStr,
@@ -2511,6 +2826,11 @@ function saveNewItem() {
     discountFreqDays: parseInt(document.getElementById('ni-discount-freq').value)||1,
     relistCount, createdAt,
     priceHistory,
+    supplierName: supplierName || undefined,
+    marketplaceId: marketplaceId || undefined,
+    marketplaceName: marketplace?.name || undefined,
+    shippingMethodId: shippingMethodId || undefined,
+    shippingMethodName: shippingMethod?.name || undefined,
     mercariUrl: mercariUrl || undefined,
     mercariItemId: mercariItemId || undefined,
   };
@@ -2519,6 +2839,7 @@ function saveNewItem() {
   saveItems();
   upsertScheduleFromItem(item);
   saveStorageData();
+  if (supplierName) registerSupplierName(supplierName);
   const s = JSON.parse(localStorage.getItem('furimora_stats')||'{}');
   if (!niEditId) s.total = (s.total||0)+1;
   localStorage.setItem('furimora_stats', JSON.stringify(s)); loadStats();
@@ -2540,7 +2861,7 @@ function saveNewItem() {
 function exportItemsCSV() {
   loadItems();
   if (!ITEMS.length) { showToast('エクスポートするデータがありません'); return; }
-  const hd = ['ID','タイトル','カテゴリ','状態','現在価格','最低価格','仕入れ値','送料','手数料%','出品日','経過日数','ステータス'];
+  const hd = ['ID','タイトル','カテゴリ','状態','現在価格','最低価格','仕入れ値','経費(送料+梱包費)','手数料%','出品日','経過日数','ステータス'];
   const rows = ITEMS.map(i=>[i.id,i.title,i.category,i.condition,i.currentPrice,i.minPrice,i.costPrice,i.shippingCost,i.fee,i.listedAt,getDaysSinceListed(i.listedAt),i.status]);
   const csv = [hd,...rows].map(r=>r.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
@@ -2673,7 +2994,7 @@ function navigate(page, navOpts = {}) {
   }
   if (page === 'relist') renderItems();
   if (page === 'listing') renderListingDrafts();
-  if (page === 'settings') renderTemplatesList();
+  if (page === 'settings') { renderTemplatesList(); renderCommerceSettings(); }
   if (page === 'home') {
     renderAlerts();
     renderActivities();
@@ -2876,10 +3197,62 @@ function scheduleEventsForHome(limit = 4) {
   return events.slice(0, limit);
 }
 
+function discountAlertsFromSchedule(limit = 6) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const out = [];
+  const mapById = new Map((ITEMS || []).map((i) => [String(i.id), i]));
+  for (const [key, rows] of Object.entries(SCHEDULE_DATA || {})) {
+    const day = parseScheduleDateKey(key);
+    if (!day || day > today || !Array.isArray(rows) || !rows.length) continue;
+    for (const row of rows) {
+      const type = String(row?.type || '');
+      if (!type.includes('値下げ')) continue;
+      const itemId = row?.itemId != null ? String(row.itemId) : '';
+      const item = itemId ? mapById.get(itemId) : null;
+      if (item && item.status && item.status !== 'active') continue;
+      out.push({
+        itemId: itemId || null,
+        name: String(row?.name || item?.title || '商品'),
+        dateKey: key,
+        time: String(row?.time || '09:00'),
+        type,
+        icon: 'trending-down',
+        discount: Math.max(1, Number(item?.discountAmount || 100)),
+      });
+    }
+  }
+  out.sort((a, b) => {
+    const ak = `${a.dateKey} ${a.time}`;
+    const bk = `${b.dateKey} ${b.time}`;
+    if (ak < bk) return -1;
+    if (ak > bk) return 1;
+    return 0;
+  });
+  return out.slice(0, limit);
+}
+
 // ── Render Alerts ──
 function renderAlerts() {
   const el = document.getElementById('alert-list');
   if (!el) return;
+  const dueDiscounts = discountAlertsFromSchedule(6);
+  if (dueDiscounts.length) {
+    el.innerHTML = dueDiscounts.map((a) => `
+    <div class="bg-error-container/15 p-4 rounded-lg flex gap-3 items-center">
+      ${lucideBadge(a.icon || a.name)}
+      <div class="flex-1 min-w-0">
+        <h4 class="text-sm font-bold truncate">${a.name}</h4>
+        <p class="text-[10px] text-on-surface-variant mt-0.5">${a.dateKey} ${a.time} • ${a.type}</p>
+      </div>
+      <button onclick="applyDiscount(this,'${a.name.replace(/'/g, "\\'")}',${Number(a.discount || 5)},'${String(a.itemId || '')}')"
+        class="bg-surface-container-lowest text-primary text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm hover:bg-white transition-colors flex-shrink-0">
+        調整
+      </button>
+    </div>`).join('');
+    refreshLucideIcons();
+    return;
+  }
   if (!ALERTS.length) {
     const upcoming = scheduleEventsForHome(4);
     if (!upcoming.length) {
@@ -2907,19 +3280,32 @@ function renderAlerts() {
         <h4 class="text-sm font-bold truncate">${a.name}</h4>
         <p class="text-[10px] text-on-surface-variant mt-0.5">閲覧: ${a.views ?? '—'} • いいね: ${a.likes ?? '—'}</p>
       </div>
-      <button onclick="applyDiscount(this,'${a.name}',${a.discount})"
+      <button onclick="applyDiscount(this,'${String(a.name || '').replace(/'/g, "\\'")}',${Number(a.discount || 5)},'${String(a.itemId || '')}')"
         class="bg-surface-container-lowest text-primary text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm hover:bg-white transition-colors flex-shrink-0">
-        ${a.discount}%OFF
+        調整
       </button>
     </div>`).join('');
   refreshLucideIcons();
 }
 
-function applyDiscount(btn, name, pct) {
-  btn.textContent = '✓ 適用';
-  btn.disabled = true;
-  btn.className = btn.className.replace('text-primary', 'text-tertiary');
-  showToast(`${name} を ${pct}%値下げしました`);
+function applyDiscount(btn, name, pct, itemId = '') {
+  loadItems();
+  let target = null;
+  if (itemId) target = ITEMS.find((i) => String(i.id) === String(itemId));
+  if (!target) target = ITEMS.find((i) => i.title === name && i.status === 'active');
+  if (!target) {
+    navigate('relist');
+    showToast('対象の商品が見つかりません。出品一覧から調整してください');
+    return;
+  }
+  openDiscountItemModal(target.id);
+  const inp = document.getElementById('discount-modal-input');
+  if (inp && pct != null && Number.isFinite(Number(pct))) {
+    setDiscountInputMode('yen');
+    inp.value = String(Math.max(0, Math.round(Number(target.discountAmount || pct || 100))));
+    updateDiscountModalPreview();
+  }
+  if (btn) btn.blur();
 }
 
 // ── Render Activities ──
@@ -3905,6 +4291,7 @@ function furimoraReloadAllFromStorage() {
 
 async function furimoraPushToCloud() {
   if (!furimoraSupabaseClient) return;
+  furimoraSyncSetBadge('syncing', '同期中');
   const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
   if (!session) return;
   const payload = furimoraCollectSyncPayload();
@@ -3918,10 +4305,17 @@ async function furimoraPushToCloud() {
     .maybeSingle();
   if (error) {
     console.error('[sync push]', error);
+    furimoraSyncSetBadge('error', '失敗');
     showToast('同期に失敗しました: ' + (error.message || String(error)));
     return;
   }
-  if (data?.updated_at) setLastRemoteAt(data.updated_at);
+  if (data?.updated_at) {
+    setLastRemoteAt(data.updated_at);
+    furimoraSetLastSyncAt(data.updated_at);
+  } else {
+    furimoraSetLastSyncAt(new Date().toISOString());
+  }
+  furimoraSyncSetBadge('ok', '同期済み');
 }
 
 async function furimoraSyncAfterLogin() {
@@ -3939,6 +4333,7 @@ async function furimoraSyncAfterLogin() {
     .maybeSingle();
   if (error) {
     console.error('[sync pull]', error);
+    furimoraSyncSetBadge('error', '失敗');
     showToast('同期データの取得に失敗しました: ' + (error.message || ''));
     return;
   }
@@ -3956,8 +4351,11 @@ async function furimoraSyncAfterLogin() {
   const remoteT = new Date(data.updated_at).getTime();
   // ローカル最終編集時刻ではなく「最後に取り込んだクラウドの updated_at」と比較（端末で保存すると常にローカルが新しくなる問題を防ぐ）
   if (remoteT > lastMerged) {
+    furimoraSyncSetBadge('syncing', '同期中');
     furimoraApplySyncPayload(data.payload);
     setLastRemoteAt(data.updated_at);
+    furimoraSetLastSyncAt(data.updated_at);
+    furimoraSyncSetBadge('ok', '同期済み');
     showToast('クラウドのデータを読み込みました');
   } else {
     await furimoraPushToCloud();
@@ -3966,6 +4364,7 @@ async function furimoraSyncAfterLogin() {
 
 async function furimoraForcePullFromCloud() {
   if (!furimoraSupabaseClient) return;
+  furimoraSyncSetBadge('syncing', '同期中');
   const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
   if (!session) { showToast('ログインしてください'); return; }
   const { data, error } = await furimoraSupabaseClient
@@ -3974,11 +4373,14 @@ async function furimoraForcePullFromCloud() {
     .eq('user_id', session.user.id)
     .maybeSingle();
   if (error || !data || !data.payload || !data.payload.keys) {
+    furimoraSyncSetBadge('error', '失敗');
     showToast('クラウドにデータがありません');
     return;
   }
   furimoraApplySyncPayload(data.payload);
   setLastRemoteAt(data.updated_at);
+  furimoraSetLastSyncAt(data.updated_at);
+  furimoraSyncSetBadge('ok', '同期済み');
   showToast('クラウドのデータを反映しました');
 }
 
@@ -3989,6 +4391,39 @@ function furimoraSyncSetStatus(msg) {
 function furimoraSyncSetStatusText(id, msg) {
   const el = document.getElementById(id);
   if (el) el.textContent = msg;
+}
+function furimoraFormatSyncTime(iso) {
+  if (!iso) return '未実行';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '未実行';
+  return d.toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+function furimoraSetLastSyncAt(iso) {
+  const txt = '最終同期: ' + furimoraFormatSyncTime(iso);
+  furimoraSyncSetStatusText('sync-last-sync-at', txt);
+  furimoraSyncSetStatusText('modal-sync-last-sync-at', txt);
+}
+function furimoraToggleRetry(show) {
+  ['sync-retry-btn','modal-sync-retry-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('hidden', !show);
+  });
+}
+function furimoraSyncSetBadge(kind, label) {
+  const ids = ['sync-state-badge', 'modal-sync-state-badge'];
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let klass = 'bg-surface-container text-on-surface-variant';
+    let dot = 'bg-on-surface-variant/50';
+    if (kind === 'syncing') { klass = 'bg-tertiary/10 text-tertiary'; dot = 'bg-tertiary'; }
+    else if (kind === 'ok') { klass = 'bg-emerald-500/10 text-emerald-600'; dot = 'bg-emerald-500'; }
+    else if (kind === 'error') { klass = 'bg-error/10 text-error'; dot = 'bg-error'; }
+    el.className = 'inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ' + klass;
+    el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full ' + dot + '"></span>' + label;
+  });
+  furimoraToggleRetry(kind === 'error');
 }
 
 function furimoraUpdateHeaderAccount(session) {
@@ -4085,20 +4520,92 @@ function furimoraSyncUpdateUI(session) {
   }
 }
 
+function furimoraUrlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function furimoraEnsureWebPushSubscription(showToastOnSuccess = true) {
+  if (!furimoraSupabaseClient) throw new Error('not ready');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('unsupported');
+  if (!('Notification' in window)) throw new Error('notification unsupported');
+  if (!furimoraWebPushVapidPublicKey) throw new Error('missing vapid key');
+
+  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
+  if (!session?.user?.id) throw new Error('not signed in');
+
+  const permission = Notification.permission === 'granted'
+    ? 'granted'
+    : await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('permission denied');
+
+  const reg = await navigator.serviceWorker.ready;
+  let subscription = await reg.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: furimoraUrlBase64ToUint8Array(furimoraWebPushVapidPublicKey),
+    });
+  }
+
+  const payload = subscription.toJSON ? subscription.toJSON() : subscription;
+  const endpoint = payload?.endpoint || subscription.endpoint;
+  if (!endpoint) throw new Error('invalid subscription');
+
+  const { error } = await furimoraSupabaseClient
+    .from('user_push_subscriptions')
+    .upsert({
+      user_id: session.user.id,
+      endpoint,
+      subscription: payload,
+      user_agent: navigator.userAgent || '',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,endpoint' });
+  if (error) throw error;
+
+  if (showToastOnSuccess) showToast('この端末で通知を有効化しました');
+  return subscription;
+}
+
+async function furimoraSendWebPushTest() {
+  const subscription = await furimoraEnsureWebPushSubscription(false);
+  const res = await fetch('/api/push-send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription: subscription.toJSON ? subscription.toJSON() : subscription,
+      title: 'フリモーラ',
+      body: 'Web Push テスト通知です',
+      url: '/',
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.ok) {
+    throw new Error(body?.error || 'push send failed');
+  }
+}
+
 async function furimoraInitSupabase() {
   try {
     const r = await fetch('/api/public-config');
     const cfg = await r.json();
     if (!cfg || !cfg.configured) {
       furimoraSyncSetStatus('未設定（ホストに SUPABASE_URL / SUPABASE_ANON_KEY を設定してください）');
+      furimoraSyncSetBadge('error', '未設定');
       return;
     }
     const sb = typeof supabase !== 'undefined' ? supabase : window.supabase;
     const createClient = sb && sb.createClient ? sb.createClient.bind(sb) : null;
     if (!createClient) {
       furimoraSyncSetStatus('Supabase SDK が読み込めませんでした');
+      furimoraSyncSetBadge('error', '失敗');
       return;
     }
+    furimoraWebPushVapidPublicKey = cfg.webPushVapidPublicKey || '';
     furimoraSupabaseClient = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
       auth: {
         flowType: 'pkce',
@@ -4114,10 +4621,13 @@ async function furimoraInitSupabase() {
     });
     const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
     furimoraSyncUpdateUI(session);
+    furimoraSyncSetBadge('idle', '待機中');
+    furimoraSetLastSyncAt(localStorage.getItem(FURIMORA_SYNC_LAST_REMOTE_AT) || '');
     if (session) await furimoraSyncAfterLogin();
   } catch (e) {
     console.error(e);
     furimoraSyncSetStatus('同期設定の読み込みに失敗しました');
+    furimoraSyncSetBadge('error', '失敗');
   }
 }
 
@@ -4175,6 +4685,23 @@ function furimoraWireSyncButtons() {
     showToast('クラウドに保存しました');
   });
   document.getElementById('sync-pull-btn')?.addEventListener('click', () => furimoraForcePullFromCloud().catch((e) => console.error(e)));
+  document.getElementById('sync-enable-webpush-btn')?.addEventListener('click', async () => {
+    try {
+      await furimoraEnsureWebPushSubscription(true);
+    } catch (e) {
+      console.error(e);
+      showToast('通知の有効化に失敗しました: ' + (e?.message || e));
+    }
+  });
+  document.getElementById('sync-test-webpush-btn')?.addEventListener('click', async () => {
+    try {
+      await furimoraSendWebPushTest();
+      showToast('テスト通知を送信しました');
+    } catch (e) {
+      console.error(e);
+      showToast('テスト通知に失敗しました: ' + (e?.message || e));
+    }
+  });
   document.getElementById('sync-logout-btn')?.addEventListener('click', () => {
     furimoraPerformFullLogout().catch((e) => console.error(e));
   });
@@ -4225,9 +4752,39 @@ function furimoraWireSyncButtons() {
     showToast('クラウドに保存しました');
   });
   document.getElementById('modal-sync-pull-btn')?.addEventListener('click', () => furimoraForcePullFromCloud().catch((e) => console.error(e)));
+  document.getElementById('modal-sync-enable-webpush-btn')?.addEventListener('click', async () => {
+    try {
+      await furimoraEnsureWebPushSubscription(true);
+    } catch (e) {
+      console.error(e);
+      showToast('通知の有効化に失敗しました: ' + (e?.message || e));
+    }
+  });
+  document.getElementById('modal-sync-test-webpush-btn')?.addEventListener('click', async () => {
+    try {
+      await furimoraSendWebPushTest();
+      showToast('テスト通知を送信しました');
+    } catch (e) {
+      console.error(e);
+      showToast('テスト通知に失敗しました: ' + (e?.message || e));
+    }
+  });
   document.getElementById('modal-sync-logout-btn')?.addEventListener('click', () => {
     furimoraPerformFullLogout().catch((e) => console.error(e));
   });
+
+  const retry = async () => {
+    try {
+      await furimoraPushToCloud();
+      showToast('同期を再試行しました');
+    } catch (e) {
+      console.error(e);
+      furimoraSyncSetBadge('error', '失敗');
+      showToast('再試行に失敗しました');
+    }
+  };
+  document.getElementById('sync-retry-btn')?.addEventListener('click', retry);
+  document.getElementById('modal-sync-retry-btn')?.addEventListener('click', retry);
 }
 
 // ── PWA ──
@@ -4242,9 +4799,51 @@ function installPWA() {
   }
 }
 
+// ── Quick numeric input (tap to clear) ──
+function enableTapClearNumberInputs(modalId) {
+  const root = document.getElementById(modalId);
+  if (!root) return;
+  root.addEventListener('pointerdown', (e) => {
+    const input = e.target.closest('input[type="number"]');
+    if (!input || input.readOnly || input.disabled) return;
+    input.dataset.tapToClearPrevValue = input.value;
+    input.dataset.tapToClearArmed = '1';
+  });
+  root.addEventListener('focusin', (e) => {
+    const input = e.target.closest('input[type="number"]');
+    if (!input || input.readOnly || input.disabled) return;
+    if (input.dataset.tapToClearArmed === '1') {
+      input.dataset.tapToClearArmed = '0';
+      if (input.value !== '') {
+        input.value = '';
+        input.dataset.tapToClearCleared = '1';
+        // 既存 oninput ロジック（利益計算など）を再評価
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+  });
+  root.addEventListener('input', (e) => {
+    const input = e.target.closest('input[type="number"]');
+    if (!input) return;
+    if ((input.value || '').trim() !== '') input.dataset.tapToClearCleared = '0';
+  });
+  root.addEventListener('focusout', (e) => {
+    const input = e.target.closest('input[type="number"]');
+    if (!input) return;
+    if (input.dataset.tapToClearCleared === '1' && (input.value || '').trim() === '') {
+      input.value = input.dataset.tapToClearPrevValue || '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    input.dataset.tapToClearArmed = '0';
+    input.dataset.tapToClearCleared = '0';
+    input.dataset.tapToClearPrevValue = '';
+  });
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   if (isIOSDevice()) document.documentElement.classList.add('ios-touch-lock');
+  loadCommerceSettings();
   loadStorageData();
   loadStats();
   renderAlerts();
@@ -4252,7 +4851,10 @@ document.addEventListener('DOMContentLoaded', () => {
   renderQueue();
   renderDrafts();
   renderCalendar();
+  renderCommerceSettings();
   calcStartPrice();
+  enableTapClearNumberInputs('new-item-modal');
+  enableTapClearNumberInputs('discount-item-modal');
   navigate('home');
   // 未読通知バッジ
   if (NOTIFICATIONS.length > 0) {
