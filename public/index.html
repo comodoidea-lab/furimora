@@ -799,7 +799,16 @@ tailwind.config = {
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">クラウド同期</p>
       </div>
       <div class="px-5 py-4 space-y-4">
-        <p class="text-[11px] text-on-surface-variant leading-relaxed" id="sync-status-text">読み込み中…</p>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-[11px] text-on-surface-variant leading-relaxed" id="sync-status-text">読み込み中…</p>
+          <span id="sync-state-badge" class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold bg-surface-container text-on-surface-variant">
+            <span class="w-1.5 h-1.5 rounded-full bg-on-surface-variant/50"></span>待機中
+          </span>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-[10px] text-on-surface-variant/80" id="sync-last-sync-at">最終同期: 未実行</p>
+          <button type="button" id="sync-retry-btn" class="hidden px-3 py-1.5 rounded-full text-[10px] font-bold bg-error/10 text-error">再試行</button>
+        </div>
         <div id="sync-logged-out" class="space-y-3">
           <button type="button" id="sync-google-btn" class="w-full flex items-center justify-center gap-2 py-3 rounded-full border border-surface-container-highest font-bold text-sm hover:bg-surface-container transition-colors">
             <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -1317,7 +1326,16 @@ tailwind.config = {
         <span class="material-symbols-outlined text-lg">close</span>
       </button>
     </div>
-    <p class="text-[11px] text-on-surface-variant leading-relaxed mb-4" id="modal-sync-status-text">読み込み中…</p>
+    <div class="flex items-center justify-between gap-2 mb-2">
+      <p class="text-[11px] text-on-surface-variant leading-relaxed" id="modal-sync-status-text">読み込み中…</p>
+      <span id="modal-sync-state-badge" class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold bg-surface-container text-on-surface-variant">
+        <span class="w-1.5 h-1.5 rounded-full bg-on-surface-variant/50"></span>待機中
+      </span>
+    </div>
+    <div class="flex items-center justify-between gap-2 mb-4">
+      <p class="text-[10px] text-on-surface-variant/80" id="modal-sync-last-sync-at">最終同期: 未実行</p>
+      <button type="button" id="modal-sync-retry-btn" class="hidden px-3 py-1.5 rounded-full text-[10px] font-bold bg-error/10 text-error">再試行</button>
+    </div>
     <div id="modal-sync-logged-out" class="space-y-3">
       <button type="button" id="modal-sync-google-btn" class="w-full flex items-center justify-center gap-2 py-3 rounded-full border border-surface-container-highest font-bold text-sm hover:bg-surface-container transition-colors">
         <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -3905,6 +3923,7 @@ function furimoraReloadAllFromStorage() {
 
 async function furimoraPushToCloud() {
   if (!furimoraSupabaseClient) return;
+  furimoraSyncSetBadge('syncing', '同期中');
   const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
   if (!session) return;
   const payload = furimoraCollectSyncPayload();
@@ -3918,10 +3937,17 @@ async function furimoraPushToCloud() {
     .maybeSingle();
   if (error) {
     console.error('[sync push]', error);
+    furimoraSyncSetBadge('error', '失敗');
     showToast('同期に失敗しました: ' + (error.message || String(error)));
     return;
   }
-  if (data?.updated_at) setLastRemoteAt(data.updated_at);
+  if (data?.updated_at) {
+    setLastRemoteAt(data.updated_at);
+    furimoraSetLastSyncAt(data.updated_at);
+  } else {
+    furimoraSetLastSyncAt(new Date().toISOString());
+  }
+  furimoraSyncSetBadge('ok', '同期済み');
 }
 
 async function furimoraSyncAfterLogin() {
@@ -3939,6 +3965,7 @@ async function furimoraSyncAfterLogin() {
     .maybeSingle();
   if (error) {
     console.error('[sync pull]', error);
+    furimoraSyncSetBadge('error', '失敗');
     showToast('同期データの取得に失敗しました: ' + (error.message || ''));
     return;
   }
@@ -3956,8 +3983,11 @@ async function furimoraSyncAfterLogin() {
   const remoteT = new Date(data.updated_at).getTime();
   // ローカル最終編集時刻ではなく「最後に取り込んだクラウドの updated_at」と比較（端末で保存すると常にローカルが新しくなる問題を防ぐ）
   if (remoteT > lastMerged) {
+    furimoraSyncSetBadge('syncing', '同期中');
     furimoraApplySyncPayload(data.payload);
     setLastRemoteAt(data.updated_at);
+    furimoraSetLastSyncAt(data.updated_at);
+    furimoraSyncSetBadge('ok', '同期済み');
     showToast('クラウドのデータを読み込みました');
   } else {
     await furimoraPushToCloud();
@@ -3966,6 +3996,7 @@ async function furimoraSyncAfterLogin() {
 
 async function furimoraForcePullFromCloud() {
   if (!furimoraSupabaseClient) return;
+  furimoraSyncSetBadge('syncing', '同期中');
   const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
   if (!session) { showToast('ログインしてください'); return; }
   const { data, error } = await furimoraSupabaseClient
@@ -3974,11 +4005,14 @@ async function furimoraForcePullFromCloud() {
     .eq('user_id', session.user.id)
     .maybeSingle();
   if (error || !data || !data.payload || !data.payload.keys) {
+    furimoraSyncSetBadge('error', '失敗');
     showToast('クラウドにデータがありません');
     return;
   }
   furimoraApplySyncPayload(data.payload);
   setLastRemoteAt(data.updated_at);
+  furimoraSetLastSyncAt(data.updated_at);
+  furimoraSyncSetBadge('ok', '同期済み');
   showToast('クラウドのデータを反映しました');
 }
 
@@ -3989,6 +4023,39 @@ function furimoraSyncSetStatus(msg) {
 function furimoraSyncSetStatusText(id, msg) {
   const el = document.getElementById(id);
   if (el) el.textContent = msg;
+}
+function furimoraFormatSyncTime(iso) {
+  if (!iso) return '未実行';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '未実行';
+  return d.toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+function furimoraSetLastSyncAt(iso) {
+  const txt = '最終同期: ' + furimoraFormatSyncTime(iso);
+  furimoraSyncSetStatusText('sync-last-sync-at', txt);
+  furimoraSyncSetStatusText('modal-sync-last-sync-at', txt);
+}
+function furimoraToggleRetry(show) {
+  ['sync-retry-btn','modal-sync-retry-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('hidden', !show);
+  });
+}
+function furimoraSyncSetBadge(kind, label) {
+  const ids = ['sync-state-badge', 'modal-sync-state-badge'];
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let klass = 'bg-surface-container text-on-surface-variant';
+    let dot = 'bg-on-surface-variant/50';
+    if (kind === 'syncing') { klass = 'bg-tertiary/10 text-tertiary'; dot = 'bg-tertiary'; }
+    else if (kind === 'ok') { klass = 'bg-emerald-500/10 text-emerald-600'; dot = 'bg-emerald-500'; }
+    else if (kind === 'error') { klass = 'bg-error/10 text-error'; dot = 'bg-error'; }
+    el.className = 'inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ' + klass;
+    el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full ' + dot + '"></span>' + label;
+  });
+  furimoraToggleRetry(kind === 'error');
 }
 
 function furimoraUpdateHeaderAccount(session) {
@@ -4091,12 +4158,14 @@ async function furimoraInitSupabase() {
     const cfg = await r.json();
     if (!cfg || !cfg.configured) {
       furimoraSyncSetStatus('未設定（ホストに SUPABASE_URL / SUPABASE_ANON_KEY を設定してください）');
+      furimoraSyncSetBadge('error', '未設定');
       return;
     }
     const sb = typeof supabase !== 'undefined' ? supabase : window.supabase;
     const createClient = sb && sb.createClient ? sb.createClient.bind(sb) : null;
     if (!createClient) {
       furimoraSyncSetStatus('Supabase SDK が読み込めませんでした');
+      furimoraSyncSetBadge('error', '失敗');
       return;
     }
     furimoraSupabaseClient = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
@@ -4114,10 +4183,13 @@ async function furimoraInitSupabase() {
     });
     const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
     furimoraSyncUpdateUI(session);
+    furimoraSyncSetBadge('idle', '待機中');
+    furimoraSetLastSyncAt(localStorage.getItem(FURIMORA_SYNC_LAST_REMOTE_AT) || '');
     if (session) await furimoraSyncAfterLogin();
   } catch (e) {
     console.error(e);
     furimoraSyncSetStatus('同期設定の読み込みに失敗しました');
+    furimoraSyncSetBadge('error', '失敗');
   }
 }
 
@@ -4228,6 +4300,19 @@ function furimoraWireSyncButtons() {
   document.getElementById('modal-sync-logout-btn')?.addEventListener('click', () => {
     furimoraPerformFullLogout().catch((e) => console.error(e));
   });
+
+  const retry = async () => {
+    try {
+      await furimoraPushToCloud();
+      showToast('同期を再試行しました');
+    } catch (e) {
+      console.error(e);
+      furimoraSyncSetBadge('error', '失敗');
+      showToast('再試行に失敗しました');
+    }
+  };
+  document.getElementById('sync-retry-btn')?.addEventListener('click', retry);
+  document.getElementById('modal-sync-retry-btn')?.addEventListener('click', retry);
 }
 
 // ── PWA ──
