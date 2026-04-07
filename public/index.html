@@ -232,6 +232,10 @@ tailwind.config = {
     </div>
   </div>
   <div class="flex items-center gap-4 ml-auto">
+    <button type="button" onclick="openAccountModal()" id="header-account-btn" class="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold bg-primary/10 text-primary hover:bg-primary/15 transition-colors">
+      <span class="material-symbols-outlined text-lg" id="header-account-icon">login</span>
+      <span id="header-account-label">ログイン</span>
+    </button>
     <button onclick="showNotifications()" class="relative text-on-surface-variant hover:text-primary transition-colors p-2 rounded-full hover:bg-surface-container">
       <span class="material-symbols-outlined">notifications</span>
       <span class="notif-badge absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full hidden"></span>
@@ -254,7 +258,11 @@ tailwind.config = {
     </div>
     <h1 class="font-headline font-black text-base text-primary tracking-tight">フリモーラ</h1>
   </div>
-  <div class="flex items-center gap-2">
+  <div class="flex items-center gap-1.5">
+    <button type="button" onclick="openAccountModal()" class="flex items-center gap-0.5 px-2 py-1.5 rounded-full bg-primary/10 text-primary max-w-[100px]">
+      <span class="material-symbols-outlined text-lg shrink-0" id="mobile-account-icon">login</span>
+      <span id="mobile-account-label" class="text-[10px] font-bold truncate">ログイン</span>
+    </button>
     <button onclick="showNotifications()" class="relative text-on-surface-variant p-2 rounded-full active:bg-surface-container transition-colors">
       <span class="material-symbols-outlined text-xl">notifications</span>
       <span class="notif-badge absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full hidden"></span>
@@ -810,7 +818,7 @@ tailwind.config = {
           <div class="flex flex-wrap gap-2">
             <button type="button" id="sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
             <button type="button" id="sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
-            <button type="button" id="sync-logout-btn" class="px-4 py-2 rounded-full text-error font-bold text-xs">ログアウト</button>
+            <button type="button" id="sync-logout-btn" class="min-h-[44px] px-4 py-2.5 rounded-full text-error font-bold text-sm touch-manipulation">ログアウト</button>
           </div>
         </div>
         <p class="text-[10px] text-on-surface-variant/80 leading-relaxed">※ 出品一覧・下書き・スケジュールなどを同期します。ダウンロード先フォルダの許可は端末ごとです。Gemini 等の API キーは同期しません。</p>
@@ -1300,6 +1308,41 @@ tailwind.config = {
   </div>
 </div>
 
+<!-- アカウント・ログイン（全画面から開く） -->
+<div id="account-modal" class="modal-overlay z-[110]" onclick="if(event.target===this)closeModal('account-modal')">
+  <div class="modal-sheet max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-headline font-bold text-lg">ログイン・ログアウト</h3>
+      <button type="button" onclick="closeModal('account-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container" aria-label="閉じる">
+        <span class="material-symbols-outlined text-lg">close</span>
+      </button>
+    </div>
+    <p class="text-[11px] text-on-surface-variant leading-relaxed mb-4" id="modal-sync-status-text">読み込み中…</p>
+    <div id="modal-sync-logged-out" class="space-y-3">
+      <button type="button" id="modal-sync-google-btn" class="w-full flex items-center justify-center gap-2 py-3 rounded-full border border-surface-container-highest font-bold text-sm hover:bg-surface-container transition-colors">
+        <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Google でログイン
+      </button>
+      <input type="email" id="modal-sync-email-input" autocomplete="email" placeholder="メールアドレス" class="w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
+      <input type="password" id="modal-sync-password-input" autocomplete="current-password" placeholder="パスワード（新規登録・ログイン用）" class="w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <button type="button" id="modal-sync-email-signin-btn" class="flex-1 py-3 rounded-full bg-surface-container font-bold text-sm">メールでログイン</button>
+        <button type="button" id="modal-sync-email-signup-btn" class="flex-1 py-3 rounded-full bg-primary/10 text-primary font-bold text-sm">メールで新規登録</button>
+      </div>
+      <button type="button" id="modal-sync-magic-link-btn" class="w-full py-3 rounded-full border border-primary/30 text-primary font-bold text-sm">マジックリンクを送信（パスワード不要）</button>
+    </div>
+    <div id="modal-sync-logged-in" class="hidden space-y-3">
+      <p class="text-xs font-semibold text-on-surface break-all" id="modal-sync-user-email"></p>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" id="modal-sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
+        <button type="button" id="modal-sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
+        <button type="button" id="modal-sync-logout-btn" class="min-h-[44px] px-4 py-2.5 rounded-full text-error font-bold text-sm touch-manipulation">ログアウト</button>
+      </div>
+    </div>
+    <p class="text-[10px] text-on-surface-variant/80 leading-relaxed mt-4">※ 設定ページの「クラウド同期」でも同じ操作ができます。</p>
+  </div>
+</div>
+
 <!-- MOBILE BOTTOM NAV -->
 <nav id="bottom-nav" class="fixed bottom-0 left-0 w-full z-40 glass border-t border-surface-container flex justify-around items-center h-[68px] pb-safe px-2 shadow-[0_-4px_16px_rgba(0,0,0,0.04)]">
   <button onclick="navigate('home')" data-nav="home" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
@@ -1362,17 +1405,27 @@ const FURIMORA_SYNC_KEYS = [
 let furimoraSupabaseClient = null;
 let furimoraSyncPushTimer = null;
 let furimoraSyncAfterLoginLastTs = 0;
+/** 最後にクラウドの版（updated_at）を取り込んだ／push で確定した時刻（ローカル編集時刻とは別。多段末同期の判定に使う） */
+const FURIMORA_SYNC_LAST_REMOTE_AT = 'furimora_sync_last_remote_at';
 
-function touchLocalSyncMtime() {
-  try { localStorage.setItem('furimora_sync_local_mtime', String(Date.now())); } catch (e) { /* quota */ }
+function getLastRemoteMergeMs() {
+  const s = localStorage.getItem(FURIMORA_SYNC_LAST_REMOTE_AT);
+  if (!s) return 0;
+  const t = new Date(s).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+function setLastRemoteAt(iso) {
+  if (!iso) return;
+  try { localStorage.setItem(FURIMORA_SYNC_LAST_REMOTE_AT, iso); } catch (e) { /* quota */ }
 }
 function scheduleSyncPush() {
   if (!furimoraSupabaseClient) return;
   clearTimeout(furimoraSyncPushTimer);
-  furimoraSyncPushTimer = setTimeout(() => { furimoraPushToCloud().catch(() => {}); }, 2800);
+  furimoraSyncPushTimer = setTimeout(() => {
+    furimoraPushToCloud().catch((err) => console.error('[sync push]', err));
+  }, 2800);
 }
 function notifyLocalDataChanged() {
-  touchLocalSyncMtime();
   scheduleSyncPush();
 }
 
@@ -2638,6 +2691,7 @@ if (typeof window !== 'undefined' && isIOSDevice()) {
     if (e.touches && e.touches.length > 1) e.preventDefault();
   }, { passive: false });
   document.addEventListener('touchend', (e) => {
+    if (e.target.closest('button, a, [role="button"], input, textarea, select, label, .modal-overlay, .modal-sheet')) return;
     const now = Date.now();
     if (now - __lastTouchEnd <= 280) e.preventDefault();
     __lastTouchEnd = now;
@@ -3825,7 +3879,10 @@ function furimoraApplySyncPayload(payload) {
   const ks = Object.keys(payload.keys);
   for (let i = 0; i < ks.length; i++) {
     const k = ks[i];
-    if (FURIMORA_SYNC_KEYS.indexOf(k) !== -1) localStorage.setItem(k, payload.keys[k]);
+    if (FURIMORA_SYNC_KEYS.indexOf(k) === -1) continue;
+    let v = payload.keys[k];
+    if (v != null && typeof v !== 'string') v = JSON.stringify(v);
+    localStorage.setItem(k, v);
   }
   furimoraReloadAllFromStorage();
 }
@@ -3851,16 +3908,20 @@ async function furimoraPushToCloud() {
   const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
   if (!session) return;
   const payload = furimoraCollectSyncPayload();
-  const { error } = await furimoraSupabaseClient.from('user_app_state').upsert(
-    { user_id: session.user.id, payload, updated_at: new Date().toISOString() },
-    { onConflict: 'user_id' }
-  );
+  const { data, error } = await furimoraSupabaseClient
+    .from('user_app_state')
+    .upsert(
+      { user_id: session.user.id, payload, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    )
+    .select('updated_at')
+    .maybeSingle();
   if (error) {
     console.error('[sync push]', error);
-    showToast('同期に失敗しました');
+    showToast('同期に失敗しました: ' + (error.message || String(error)));
     return;
   }
-  touchLocalSyncMtime();
+  if (data?.updated_at) setLastRemoteAt(data.updated_at);
 }
 
 async function furimoraSyncAfterLogin() {
@@ -3870,7 +3931,7 @@ async function furimoraSyncAfterLogin() {
   if (!furimoraSupabaseClient) return;
   const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
   if (!session) return;
-  const localM = parseInt(localStorage.getItem('furimora_sync_local_mtime') || '0', 10);
+  const lastMerged = getLastRemoteMergeMs();
   const { data, error } = await furimoraSupabaseClient
     .from('user_app_state')
     .select('payload, updated_at')
@@ -3878,7 +3939,7 @@ async function furimoraSyncAfterLogin() {
     .maybeSingle();
   if (error) {
     console.error('[sync pull]', error);
-    showToast('同期データの取得に失敗しました');
+    showToast('同期データの取得に失敗しました: ' + (error.message || ''));
     return;
   }
   if (!data) {
@@ -3893,9 +3954,10 @@ async function furimoraSyncAfterLogin() {
     return;
   }
   const remoteT = new Date(data.updated_at).getTime();
-  if (remoteT > localM) {
+  // ローカル最終編集時刻ではなく「最後に取り込んだクラウドの updated_at」と比較（端末で保存すると常にローカルが新しくなる問題を防ぐ）
+  if (remoteT > lastMerged) {
     furimoraApplySyncPayload(data.payload);
-    localStorage.setItem('furimora_sync_local_mtime', String(remoteT));
+    setLastRemoteAt(data.updated_at);
     showToast('クラウドのデータを読み込みました');
   } else {
     await furimoraPushToCloud();
@@ -3916,40 +3978,125 @@ async function furimoraForcePullFromCloud() {
     return;
   }
   furimoraApplySyncPayload(data.payload);
-  localStorage.setItem('furimora_sync_local_mtime', String(new Date(data.updated_at).getTime()));
+  setLastRemoteAt(data.updated_at);
   showToast('クラウドのデータを反映しました');
+}
+
+function furimoraSyncSetStatus(msg) {
+  furimoraSyncSetStatusText('sync-status-text', msg);
+  furimoraSyncSetStatusText('modal-sync-status-text', msg);
+}
+function furimoraSyncSetStatusText(id, msg) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = msg;
+}
+
+function furimoraUpdateHeaderAccount(session) {
+  const lab = document.getElementById('header-account-label');
+  const mlab = document.getElementById('mobile-account-label');
+  const hIcon = document.getElementById('header-account-icon');
+  const mIcon = document.getElementById('mobile-account-icon');
+  const email = session && session.user ? (session.user.email || '') : '';
+  const short = email ? (email.length > 20 ? email.slice(0, 18) + '…' : email) : '';
+  const labelText = session ? (short || 'ログイン済み') : 'ログイン';
+  if (lab) lab.textContent = labelText;
+  if (mlab) mlab.textContent = labelText;
+  if (hIcon) hIcon.textContent = session ? 'account_circle' : 'login';
+  if (mIcon) mIcon.textContent = session ? 'account_circle' : 'login';
+}
+
+function openAccountModal() {
+  const el = document.getElementById('account-modal');
+  if (el) el.classList.add('open');
+}
+
+/** セッション解除＋この端末の furimora データ・Supabase ストレージ・DL フォルダ IDB を消去し、ログインモーダルを開く */
+async function furimoraPerformFullLogout() {
+  document.querySelectorAll('.modal-overlay.open').forEach((el) => el.classList.remove('open'));
+  try {
+    if (furimoraSupabaseClient) await furimoraSupabaseClient.auth.signOut({ scope: 'local' });
+  } catch (e) {
+    console.error(e);
+  }
+  const removeKeys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && (k.startsWith('furimora_') || k.startsWith('sb-'))) removeKeys.push(k);
+  }
+  removeKeys.forEach((key) => {
+    try { localStorage.removeItem(key); } catch (err) { /* quota */ }
+  });
+  await new Promise((resolve) => {
+    try {
+      const r = indexedDB.deleteDatabase('furimora_db');
+      r.onsuccess = () => resolve();
+      r.onerror = () => resolve();
+      r.onblocked = () => resolve();
+    } catch (e) {
+      resolve();
+    }
+  });
+  downloadDirHandle = null;
+  updateDownloadFolderDisplay('');
+  clonedData = {};
+  loadStorageData();
+  loadItems();
+  loadStats();
+  renderAlerts();
+  renderActivities();
+  renderQueue();
+  renderDrafts();
+  renderListingDrafts();
+  renderCalendar();
+  renderTemplatesList();
+  populateTemplateSelect();
+  renderItems();
+  document.querySelectorAll('.notif-badge').forEach((b) => b.classList.add('hidden'));
+  furimoraSyncUpdateUI(null);
+  navigate('home');
+  window.scrollTo(0, 0);
+  openAccountModal();
+  showToast('ログアウトしました。端末のデータを消去しました。');
 }
 
 function furimoraSyncUpdateUI(session) {
   const out = document.getElementById('sync-logged-out');
   const inn = document.getElementById('sync-logged-in');
+  const mout = document.getElementById('modal-sync-logged-out');
+  const minn = document.getElementById('modal-sync-logged-in');
   const emailEl = document.getElementById('sync-user-email');
-  const st = document.getElementById('sync-status-text');
+  const memailEl = document.getElementById('modal-sync-user-email');
   if (session) {
     if (out) out.classList.add('hidden');
     if (inn) inn.classList.remove('hidden');
+    if (mout) mout.classList.add('hidden');
+    if (minn) minn.classList.remove('hidden');
     if (emailEl) emailEl.textContent = session.user.email || session.user.id;
-    if (st && furimoraSupabaseClient) st.textContent = 'ログイン中 — 変更は数秒後に自動同期されます';
+    if (memailEl) memailEl.textContent = session.user.email || session.user.id;
+    if (furimoraSupabaseClient) furimoraSyncSetStatus('ログイン中 — 変更は数秒後に自動同期されます');
+    furimoraUpdateHeaderAccount(session);
   } else {
     if (out) out.classList.remove('hidden');
     if (inn) inn.classList.add('hidden');
-    if (st && furimoraSupabaseClient) st.textContent = '未ログイン — ログインすると端末間でデータを同期できます';
+    if (mout) mout.classList.remove('hidden');
+    if (minn) minn.classList.add('hidden');
+    if (furimoraSupabaseClient) furimoraSyncSetStatus('未ログイン — ログインすると端末間でデータを同期できます');
+    furimoraUpdateHeaderAccount(null);
   }
 }
 
 async function furimoraInitSupabase() {
-  const st = document.getElementById('sync-status-text');
   try {
     const r = await fetch('/api/public-config');
     const cfg = await r.json();
     if (!cfg || !cfg.configured) {
-      if (st) st.textContent = '未設定（ホストに SUPABASE_URL / SUPABASE_ANON_KEY を設定してください）';
+      furimoraSyncSetStatus('未設定（ホストに SUPABASE_URL / SUPABASE_ANON_KEY を設定してください）');
       return;
     }
     const sb = typeof supabase !== 'undefined' ? supabase : window.supabase;
     const createClient = sb && sb.createClient ? sb.createClient.bind(sb) : null;
     if (!createClient) {
-      if (st) st.textContent = 'Supabase SDK が読み込めませんでした';
+      furimoraSyncSetStatus('Supabase SDK が読み込めませんでした');
       return;
     }
     furimoraSupabaseClient = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
@@ -3970,7 +4117,7 @@ async function furimoraInitSupabase() {
     if (session) await furimoraSyncAfterLogin();
   } catch (e) {
     console.error(e);
-    if (st) st.textContent = '同期設定の読み込みに失敗しました';
+    furimoraSyncSetStatus('同期設定の読み込みに失敗しました');
   }
 }
 
@@ -4028,10 +4175,58 @@ function furimoraWireSyncButtons() {
     showToast('クラウドに保存しました');
   });
   document.getElementById('sync-pull-btn')?.addEventListener('click', () => furimoraForcePullFromCloud().catch((e) => console.error(e)));
-  document.getElementById('sync-logout-btn')?.addEventListener('click', async () => {
+  document.getElementById('sync-logout-btn')?.addEventListener('click', () => {
+    furimoraPerformFullLogout().catch((e) => console.error(e));
+  });
+
+  document.getElementById('modal-sync-google-btn')?.addEventListener('click', async () => {
     if (!furimoraSupabaseClient) return;
-    await furimoraSupabaseClient.auth.signOut();
-    showToast('ログアウトしました');
+    const { error } = await furimoraSupabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: origin + path },
+    });
+    if (error) showToast(error.message || 'Google ログインに失敗しました');
+  });
+  document.getElementById('modal-sync-email-signin-btn')?.addEventListener('click', async () => {
+    if (!furimoraSupabaseClient) return;
+    const email = (document.getElementById('modal-sync-email-input')?.value || '').trim();
+    const password = document.getElementById('modal-sync-password-input')?.value || '';
+    if (!email || !password) { showToast('メールとパスワードを入力してください'); return; }
+    const { error } = await furimoraSupabaseClient.auth.signInWithPassword({ email, password });
+    if (error) showToast(error.message || 'ログインに失敗しました');
+    else { showToast('ログインしました'); closeModal('account-modal'); }
+  });
+  document.getElementById('modal-sync-email-signup-btn')?.addEventListener('click', async () => {
+    if (!furimoraSupabaseClient) return;
+    const email = (document.getElementById('modal-sync-email-input')?.value || '').trim();
+    const password = document.getElementById('modal-sync-password-input')?.value || '';
+    if (!email || password.length < 8) { showToast('メールと8文字以上のパスワードを入力してください'); return; }
+    const { error } = await furimoraSupabaseClient.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: origin + path },
+    });
+    if (error) showToast(error.message || '登録に失敗しました');
+    else showToast('確認メールを送信しました。メール内のリンクを開いてください');
+  });
+  document.getElementById('modal-sync-magic-link-btn')?.addEventListener('click', async () => {
+    if (!furimoraSupabaseClient) return;
+    const email = (document.getElementById('modal-sync-email-input')?.value || '').trim();
+    if (!email) { showToast('メールアドレスを入力してください'); return; }
+    const { error } = await furimoraSupabaseClient.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: origin + path },
+    });
+    if (error) showToast(error.message || '送信に失敗しました');
+    else showToast('ログイン用リンクをメールに送信しました');
+  });
+  document.getElementById('modal-sync-push-btn')?.addEventListener('click', async () => {
+    await furimoraPushToCloud();
+    showToast('クラウドに保存しました');
+  });
+  document.getElementById('modal-sync-pull-btn')?.addEventListener('click', () => furimoraForcePullFromCloud().catch((e) => console.error(e)));
+  document.getElementById('modal-sync-logout-btn')?.addEventListener('click', () => {
+    furimoraPerformFullLogout().catch((e) => console.error(e));
   });
 }
 
