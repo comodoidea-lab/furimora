@@ -2894,10 +2894,62 @@ function scheduleEventsForHome(limit = 4) {
   return events.slice(0, limit);
 }
 
+function discountAlertsFromSchedule(limit = 6) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const out = [];
+  const mapById = new Map((ITEMS || []).map((i) => [String(i.id), i]));
+  for (const [key, rows] of Object.entries(SCHEDULE_DATA || {})) {
+    const day = parseScheduleDateKey(key);
+    if (!day || day > today || !Array.isArray(rows) || !rows.length) continue;
+    for (const row of rows) {
+      const type = String(row?.type || '');
+      if (!type.includes('値下げ')) continue;
+      const itemId = row?.itemId != null ? String(row.itemId) : '';
+      const item = itemId ? mapById.get(itemId) : null;
+      if (item && item.status && item.status !== 'active') continue;
+      out.push({
+        itemId: itemId || null,
+        name: String(row?.name || item?.title || '商品'),
+        dateKey: key,
+        time: String(row?.time || '09:00'),
+        type,
+        icon: 'trending-down',
+        discount: Math.max(1, Number(item?.discountAmount || 100)),
+      });
+    }
+  }
+  out.sort((a, b) => {
+    const ak = `${a.dateKey} ${a.time}`;
+    const bk = `${b.dateKey} ${b.time}`;
+    if (ak < bk) return -1;
+    if (ak > bk) return 1;
+    return 0;
+  });
+  return out.slice(0, limit);
+}
+
 // ── Render Alerts ──
 function renderAlerts() {
   const el = document.getElementById('alert-list');
   if (!el) return;
+  const dueDiscounts = discountAlertsFromSchedule(6);
+  if (dueDiscounts.length) {
+    el.innerHTML = dueDiscounts.map((a) => `
+    <div class="bg-error-container/15 p-4 rounded-lg flex gap-3 items-center">
+      ${lucideBadge(a.icon || a.name)}
+      <div class="flex-1 min-w-0">
+        <h4 class="text-sm font-bold truncate">${a.name}</h4>
+        <p class="text-[10px] text-on-surface-variant mt-0.5">${a.dateKey} ${a.time} • ${a.type}</p>
+      </div>
+      <button onclick="applyDiscount(this,'${a.name.replace(/'/g, "\\'")}',${Number(a.discount || 5)},'${String(a.itemId || '')}')"
+        class="bg-surface-container-lowest text-primary text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm hover:bg-white transition-colors flex-shrink-0">
+        調整
+      </button>
+    </div>`).join('');
+    refreshLucideIcons();
+    return;
+  }
   if (!ALERTS.length) {
     const upcoming = scheduleEventsForHome(4);
     if (!upcoming.length) {
@@ -2925,19 +2977,32 @@ function renderAlerts() {
         <h4 class="text-sm font-bold truncate">${a.name}</h4>
         <p class="text-[10px] text-on-surface-variant mt-0.5">閲覧: ${a.views ?? '—'} • いいね: ${a.likes ?? '—'}</p>
       </div>
-      <button onclick="applyDiscount(this,'${a.name}',${a.discount})"
+      <button onclick="applyDiscount(this,'${String(a.name || '').replace(/'/g, "\\'")}',${Number(a.discount || 5)},'${String(a.itemId || '')}')"
         class="bg-surface-container-lowest text-primary text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm hover:bg-white transition-colors flex-shrink-0">
-        ${a.discount}%OFF
+        調整
       </button>
     </div>`).join('');
   refreshLucideIcons();
 }
 
-function applyDiscount(btn, name, pct) {
-  btn.textContent = '✓ 適用';
-  btn.disabled = true;
-  btn.className = btn.className.replace('text-primary', 'text-tertiary');
-  showToast(`${name} を ${pct}%値下げしました`);
+function applyDiscount(btn, name, pct, itemId = '') {
+  loadItems();
+  let target = null;
+  if (itemId) target = ITEMS.find((i) => String(i.id) === String(itemId));
+  if (!target) target = ITEMS.find((i) => i.title === name && i.status === 'active');
+  if (!target) {
+    navigate('relist');
+    showToast('対象の商品が見つかりません。出品一覧から調整してください');
+    return;
+  }
+  openDiscountItemModal(target.id);
+  const inp = document.getElementById('discount-modal-input');
+  if (inp && pct != null && Number.isFinite(Number(pct))) {
+    setDiscountInputMode('yen');
+    inp.value = String(Math.max(0, Math.round(Number(target.discountAmount || pct || 100))));
+    updateDiscountModalPreview();
+  }
+  if (btn) btn.blur();
 }
 
 // ── Render Activities ──
