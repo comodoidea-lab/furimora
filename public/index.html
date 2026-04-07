@@ -1854,8 +1854,15 @@ function furimoraMarkItemDeleted(itemId, deletedAtIso) {
 }
 function furimoraClearItemTombstone(itemId) {
   const tombstones = furimoraLoadItemTombstones();
-  if (!Object.prototype.hasOwnProperty.call(tombstones, String(itemId))) return;
-  delete tombstones[String(itemId)];
+  const key = String(itemId);
+  if (!Object.prototype.hasOwnProperty.call(tombstones, key)) return;
+  const tombMs = new Date(tombstones[key]).getTime();
+  const item = ITEMS.find(i => String(i.id) === key);
+  if (item?.updatedAt) {
+    const itemMs = new Date(item.updatedAt).getTime();
+    if (Number.isFinite(tombMs) && Number.isFinite(itemMs) && itemMs <= tombMs) return;
+  }
+  delete tombstones[key];
   furimoraSaveItemTombstones(tombstones);
 }
 function furimoraTouchItem(item, atIso) {
@@ -4939,7 +4946,7 @@ function furimoraReloadAllFromStorage() {
 async function furimoraPushToCloud(source = 'manual') {
   // sync_coordinator: furimoraSyncAfterLogin 内部からの push（この時は InProgress なので除外しない）
   const fromCoordinator = source === 'sync_coordinator';
-  if (!fromCoordinator && source !== 'manual' && furimoraSyncInProgress) {
+  if (!fromCoordinator && furimoraSyncInProgress) {
     return { ok: false, reason: 'sync_busy' };
   }
   if (!furimoraSupabaseClient) return { ok: false, reason: 'not_ready' };
@@ -5084,6 +5091,7 @@ async function furimoraSyncAfterLogin() {
 
 async function furimoraForcePullFromCloud() {
   if (!furimoraSupabaseClient) return;
+  if (furimoraSyncInProgress) { showToast('同期中です。しばらくお待ちください'); return; }
   furimoraSyncSetBadge('syncing', '同期中');
   const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
   if (!session) { showToast('ログインしてください'); return; }
@@ -5110,6 +5118,9 @@ async function furimoraForcePullFromCloud() {
     await furimoraPullItemsFromCloud(session.user.id, true);
   } catch (e) {
     console.error('[sync items pull]', e);
+    furimoraSyncSetBadge('error', '失敗');
+    showToast('アイテム同期に失敗しました');
+    return;
   }
   setLastRemoteAt(data.updated_at);
   furimoraSetLastSyncAt(data.updated_at);
@@ -5771,6 +5782,7 @@ function furimoraWireSyncButtons() {
     const result = await furimoraPushToCloud();
     if (result?.ok) showToast('クラウドに保存しました');
     else if (result?.reason === 'not_logged_in') showToast('ログイン後に同期できます');
+    else if (result?.reason === 'sync_busy') showToast('同期中です。しばらくお待ちください');
   });
   document.getElementById('sync-pull-btn')?.addEventListener('click', () => furimoraForcePullFromCloud().catch((e) => console.error(e)));
   document.getElementById('sync-enable-webpush-btn')?.addEventListener('click', async () => {
@@ -5830,6 +5842,7 @@ function furimoraWireSyncButtons() {
     const result = await furimoraPushToCloud();
     if (result?.ok) showToast('クラウドに保存しました');
     else if (result?.reason === 'not_logged_in') showToast('ログイン後に同期できます');
+    else if (result?.reason === 'sync_busy') showToast('同期中です。しばらくお待ちください');
   });
   document.getElementById('modal-sync-pull-btn')?.addEventListener('click', () => furimoraForcePullFromCloud().catch((e) => console.error(e)));
   document.getElementById('modal-sync-enable-webpush-btn')?.addEventListener('click', async () => {
@@ -5848,6 +5861,7 @@ function furimoraWireSyncButtons() {
     try {
       const result = await furimoraPushToCloud();
       if (result?.ok) showToast('同期を再試行しました');
+      else if (result?.reason === 'sync_busy') showToast('同期中です。しばらくお待ちください');
       else showToast('再試行に失敗しました');
     } catch (e) {
       console.error(e);
