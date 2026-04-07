@@ -2049,6 +2049,37 @@ function isIOSDevice() {
   return /iP(hone|ad|od)/.test(ua) || touchMac;
 }
 
+/** 出品1件の粗利（現在価格 − 手数料 − 送料・梱包相当 − 仕入）。新規出品モーダルの計算と整合 */
+function furimoraComputeItemNetProfit(item) {
+  if (!item || typeof item !== 'object') return 0;
+  const price = Number(item.currentPrice) || 0;
+  const feePct = Number(item.fee) || 10;
+  const ship = Number(item.shippingCost) || 0;
+  const cost = Number(item.costPrice) || 0;
+  const fee = Math.round((price * feePct) / 100);
+  return price - fee - ship - cost;
+}
+
+/** 今月（ローカル日付）に売却済みとなった商品の粗利合計 */
+function furimoraMonthProfitFromItems(items) {
+  if (!Array.isArray(items)) return 0;
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = now.getMonth();
+  let sum = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item || item.status !== 'sold') continue;
+    const saleIso = item.soldAt || item.updatedAt;
+    if (!saleIso) continue;
+    const d = new Date(saleIso);
+    if (Number.isNaN(d.getTime())) continue;
+    if (d.getFullYear() !== y || d.getMonth() !== mo) continue;
+    sum += furimoraComputeItemNetProfit(item);
+  }
+  return Math.round(sum);
+}
+
 function loadStats() {
   try {
     const s = JSON.parse(localStorage.getItem('furimora_stats') || '{}');
@@ -2058,7 +2089,8 @@ function loadStats() {
     set('stat-total', String(totalListed));
     set('stat-discount', s.discount != null ? String(s.discount) : '0');
     set('stat-relist',   s.relist   != null ? String(s.relist)   : '0');
-    set('stat-profit',   s.profit   != null ? '¥' + Number(s.profit).toLocaleString() : '¥0');
+    const monthProfit = furimoraMonthProfitFromItems(listedItems);
+    set('stat-profit', '¥' + monthProfit.toLocaleString());
     const profile = JSON.parse(localStorage.getItem('furimora_profile') || '{}');
     const name = profile.name || 'ゲスト';
     const plan = profile.plan || '無料プラン';
@@ -3005,9 +3037,11 @@ function executeItemConfirm() {
     const item = ITEMS.find((i) => i.id === id);
     if (item) {
       item.status = 'sold';
+      item.soldAt = new Date().toISOString();
       furimoraTouchItem(item);
       saveItems();
       renderItems();
+      loadStats();
       showToast('売却済みにしました');
     }
   } else if (itemConfirmType === 'delete') {
