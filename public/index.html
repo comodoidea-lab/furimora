@@ -837,8 +837,6 @@ tailwind.config = {
             <button type="button" id="sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
             <button type="button" id="sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
             <button type="button" id="sync-enable-webpush-btn" class="px-4 py-2 rounded-full bg-tertiary/10 text-tertiary font-bold text-xs">通知を有効化</button>
-            <button type="button" id="sync-local-notify-test-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">端末通知テスト</button>
-            <button type="button" id="sync-test-webpush-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">通知テスト</button>
             <button type="button" id="sync-logout-btn" class="min-h-[44px] px-4 py-2.5 rounded-full text-error font-bold text-sm touch-manipulation">ログアウト</button>
           </div>
         </div>
@@ -1442,8 +1440,6 @@ tailwind.config = {
         <button type="button" id="modal-sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
         <button type="button" id="modal-sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
         <button type="button" id="modal-sync-enable-webpush-btn" class="px-4 py-2 rounded-full bg-tertiary/10 text-tertiary font-bold text-xs">通知を有効化</button>
-        <button type="button" id="modal-sync-local-notify-test-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">端末通知テスト</button>
-        <button type="button" id="modal-sync-test-webpush-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">通知テスト</button>
         <button type="button" id="modal-sync-logout-btn" class="min-h-[44px] px-4 py-2.5 rounded-full text-error font-bold text-sm touch-manipulation">ログアウト</button>
       </div>
     </div>
@@ -1573,9 +1569,6 @@ function furimoraInitAutomationToggles() {
       latest[key] = !Boolean(latest[key]);
       const saved = furimoraSaveAutomationSettings(latest);
       furimoraToggleTrackSetState(el, saved[key]);
-      if (id === 'settings-push-enabled-toggle' || id === 'settings-push-discount-toggle' || id === 'settings-push-relist-toggle') {
-        showToast(`通知設定を更新しました（値下げ:${saved.pushDiscountEnabled ? 'ON' : 'OFF'} / 再出品:${saved.pushRelistEnabled ? 'ON' : 'OFF'}）`);
-      }
     };
   });
 }
@@ -2788,7 +2781,10 @@ function combineDesc() {
 }
 
 function scheduleKeyFromDate(d) {
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function parseItemListedDate(item) {
@@ -3240,8 +3236,11 @@ function refreshLucideIcons() {
 }
 
 function parseScheduleDateKey(key) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(key || ''))) return null;
-  const d = new Date(`${key}T00:00:00`);
+  const raw = String(key || '').trim();
+  const m = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (!m) return null;
+  const normalized = `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  const d = new Date(`${normalized}T00:00:00`);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -4700,28 +4699,6 @@ async function furimoraEnsureWebPushSubscription(showToastOnSuccess = true) {
   return subscription;
 }
 
-async function furimoraSendWebPushTest() {
-  const subscription = await furimoraEnsureWebPushSubscription(false);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
-  const res = await fetch('/api/push-send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: controller.signal,
-    body: JSON.stringify({
-      subscription: subscription.toJSON ? subscription.toJSON() : subscription,
-      title: 'フリモーラ',
-      body: 'Web Push テスト通知です',
-      url: '/',
-    }),
-  }).finally(() => clearTimeout(timeout));
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || !body?.ok) {
-    const msg = body?.error || body?.details || 'push send failed';
-    throw new Error(`HTTP ${res.status}: ${msg}`);
-  }
-}
-
 function furimoraAlertPushId(alert) {
   return [
     String(alert?.itemId || ''),
@@ -4877,21 +4854,6 @@ async function furimoraAutoPushDueRelists(dueRelists) {
   }
 }
 
-async function furimoraRunLocalNotificationTest() {
-  if (!('Notification' in window)) throw new Error('notification unsupported');
-  const permission = Notification.permission === 'granted'
-    ? 'granted'
-    : await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('permission denied');
-  const reg = await navigator.serviceWorker.ready;
-  await reg.showNotification('フリモーラ', {
-    body: '端末通知テストです（配信サーバーを使わない）',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
-    data: { url: '/' },
-  });
-}
-
 async function furimoraInitSupabase() {
   try {
     const r = await fetch('/api/public-config');
@@ -4996,28 +4958,6 @@ function furimoraWireSyncButtons() {
       showToast('通知の有効化に失敗しました: ' + (e?.message || e));
     }
   });
-  document.getElementById('sync-local-notify-test-btn')?.addEventListener('click', async () => {
-    try {
-      await furimoraRunLocalNotificationTest();
-      showToast('端末通知テストを表示しました');
-    } catch (e) {
-      console.error(e);
-      showToast('端末通知テスト失敗: ' + (e?.message || e));
-    }
-  });
-  document.getElementById('sync-test-webpush-btn')?.addEventListener('click', async () => {
-    try {
-      showToast('通知テスト送信中…');
-      await furimoraSendWebPushTest();
-      showToast('テスト通知を送信しました（数秒待っても出ない場合は失敗です）');
-    } catch (e) {
-      console.error(e);
-      const msg = (e?.name === 'AbortError')
-        ? 'テスト通知に失敗しました: タイムアウト（/api/push-send 応答なし）'
-        : 'テスト通知に失敗しました: ' + (e?.message || e);
-      showToast(msg);
-    }
-  });
   document.getElementById('sync-logout-btn')?.addEventListener('click', () => {
     furimoraPerformFullLogout().catch((e) => console.error(e));
   });
@@ -5074,28 +5014,6 @@ function furimoraWireSyncButtons() {
     } catch (e) {
       console.error(e);
       showToast('通知の有効化に失敗しました: ' + (e?.message || e));
-    }
-  });
-  document.getElementById('modal-sync-local-notify-test-btn')?.addEventListener('click', async () => {
-    try {
-      await furimoraRunLocalNotificationTest();
-      showToast('端末通知テストを表示しました');
-    } catch (e) {
-      console.error(e);
-      showToast('端末通知テスト失敗: ' + (e?.message || e));
-    }
-  });
-  document.getElementById('modal-sync-test-webpush-btn')?.addEventListener('click', async () => {
-    try {
-      showToast('通知テスト送信中…');
-      await furimoraSendWebPushTest();
-      showToast('テスト通知を送信しました（数秒待っても出ない場合は失敗です）');
-    } catch (e) {
-      console.error(e);
-      const msg = (e?.name === 'AbortError')
-        ? 'テスト通知に失敗しました: タイムアウト（/api/push-send 応答なし）'
-        : 'テスト通知に失敗しました: ' + (e?.message || e);
-      showToast(msg);
     }
   });
   document.getElementById('modal-sync-logout-btn')?.addEventListener('click', () => {
