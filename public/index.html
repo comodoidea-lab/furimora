@@ -831,11 +831,34 @@ tailwind.config = {
       </div>
     </div>
 
-    <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden" id="sync-settings-card">
+    <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden" id="backup-settings-card">
       <div class="px-5 py-3 bg-surface-container-low">
-        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">クラウド同期</p>
+        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">バックアップ・復元（推奨）</p>
       </div>
       <div class="px-5 py-4 space-y-4">
+        <p class="text-[11px] text-on-surface-variant leading-relaxed">データの退避は<strong>暗号化ファイル</strong>で行います。Googleドライブへは、このファイルを手動でアップロードしてください（同じファイルを別端末で取得して復元できます）。</p>
+        <div class="space-y-1.5">
+          <label class="text-[10px] font-bold text-on-surface-variant" for="backup-export-pwd">エクスポート用パスワード</label>
+          <input type="password" id="backup-export-pwd" autocomplete="new-password" placeholder="8文字以上" class="w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
+        </div>
+        <button type="button" id="backup-export-btn" class="w-full py-3 rounded-full bg-signature-gradient text-white font-bold text-sm shadow-lg active:scale-[0.98] transition-transform">暗号化してダウンロード</button>
+        <div class="border-t border-surface-container pt-4 space-y-3">
+          <p class="text-[10px] font-bold text-on-surface-variant">復元</p>
+          <input type="file" id="backup-import-file" accept=".json,application/json" class="hidden"/>
+          <button type="button" id="backup-import-pick-btn" class="w-full py-2.5 rounded-full border border-surface-container-highest font-bold text-sm">ファイルを選択</button>
+          <p class="text-[10px] text-on-surface-variant" id="backup-import-filename">未選択</p>
+          <input type="password" id="backup-import-pwd" autocomplete="new-password" placeholder="復元用パスワード" class="w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
+          <button type="button" id="backup-import-btn" class="w-full py-3 rounded-full bg-primary/10 text-primary font-bold text-sm active:scale-[0.98] transition-transform">復元を実行</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden" id="sync-settings-card">
+      <div class="px-5 py-3 bg-surface-container-low">
+        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">クラウド同期（Supabase・実験的）</p>
+      </div>
+      <div class="px-5 py-4 space-y-4">
+        <p class="text-[10px] text-amber-800/90 dark:text-amber-200/90 bg-amber-500/10 rounded-xl px-3 py-2 leading-relaxed">端末間の同期は競合し得ます。本番データの退避は上の<strong>バックアップ</strong>を優先してください。手動の「今すぐ同期／クラウドから取得」も取り扱いに注意してください。</p>
         <div class="flex items-center justify-between gap-2">
           <p class="text-[11px] text-on-surface-variant leading-relaxed" id="sync-status-text">読み込み中…</p>
           <span id="sync-state-badge" class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold bg-surface-container text-on-surface-variant">
@@ -861,6 +884,13 @@ tailwind.config = {
         </div>
         <div id="sync-logged-in" class="hidden space-y-3">
           <p class="text-xs font-semibold text-on-surface break-all" id="sync-user-email"></p>
+          <div class="flex items-center justify-between gap-3 py-2 border-y border-surface-container">
+            <div class="min-w-0">
+              <p class="text-sm font-bold">Supabase 自動同期</p>
+              <p class="text-[10px] text-on-surface-variant mt-0.5">OFF推奨。ONでバックグラウンド同期</p>
+            </div>
+            <div class="toggle-track flex-shrink-0" id="settings-supabase-auto-sync-toggle" role="switch" aria-checked="false"><div class="toggle-thumb"></div></div>
+          </div>
           <div class="flex flex-wrap gap-2">
             <button type="button" id="sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
             <button type="button" id="sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
@@ -868,7 +898,7 @@ tailwind.config = {
           </div>
           <button type="button" id="sync-logout-btn" class="text-error font-bold text-xs underline underline-offset-2 touch-manipulation">ログアウト</button>
         </div>
-        <p class="text-[10px] text-on-surface-variant/80 leading-relaxed">※ 出品一覧・下書き・スケジュール等を同期します（端末ごとの権限やAPIキーは同期対象外）。</p>
+        <p class="text-[10px] text-on-surface-variant/80 leading-relaxed">※ ログイン中の手動ボタンは利用可能です。自動同期OFF時はバックグラウンドでは動きません。</p>
       </div>
     </div>
 
@@ -1501,7 +1531,7 @@ tailwind.config = {
       </div>
       <button type="button" id="modal-sync-logout-btn" class="text-error font-bold text-xs underline underline-offset-2 touch-manipulation">ログアウト</button>
     </div>
-    <p class="text-[10px] text-on-surface-variant/80 leading-relaxed mt-4">※ 設定ページの「クラウド同期」でも同じ操作ができます。</p>
+    <p class="text-[10px] text-on-surface-variant/80 leading-relaxed mt-4">※ 設定ページの「クラウド同期」でも同じ操作ができます。暗号化バックアップは設定の「バックアップ・復元」から行えます。</p>
   </div>
 </div>
 
@@ -1660,6 +1690,10 @@ const FURIMORA_SYNC_LOCAL_CHANGED_AT = 'furimora_sync_local_changed_at';
 const FURIMORA_SYNC_LAST_PUSH_AT = 'furimora_sync_last_push_at';
 const FURIMORA_SYNC_LOCAL_BACKUP = 'furimora_sync_local_backup_v1';
 const FURIMORA_ITEMS_TOMBSTONES_KEY = 'furimora_items_tombstones';
+/** Supabase のバックグラウンド同期（push / ポーリング）。既定は OFF（バックアップ優先） */
+const FURIMORA_SUPABASE_AUTO_SYNC_KEY = 'furimora_supabase_auto_sync';
+const FURIMORA_BACKUP_FORMAT = 'furimora_backup_v1';
+let furimoraBackupImportFile = null;
 const FURIMORA_PUSH_SENT_ALERT_IDS = 'furimora_push_sent_alert_ids';
 const FURIMORA_AUTOMATION_SETTINGS_KEY = 'furimora_automation_settings';
 const FURIMORA_DEFAULT_AUTOMATION_SETTINGS = {
@@ -1721,6 +1755,100 @@ function furimoraGetAutomationSettings() {
     };
   } catch {
     return { ...FURIMORA_DEFAULT_AUTOMATION_SETTINGS };
+  }
+}
+
+function furimoraGetSupabaseAutoSync() {
+  return localStorage.getItem(FURIMORA_SUPABASE_AUTO_SYNC_KEY) === '1';
+}
+function furimoraSetSupabaseAutoSync(on) {
+  try {
+    localStorage.setItem(FURIMORA_SUPABASE_AUTO_SYNC_KEY, on ? '1' : '0');
+  } catch (e) { /* quota */ }
+}
+
+function furimoraBufToB64(buf) {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+function furimoraB64ToBuf(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+async function furimoraDeriveBackupKey(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits', 'deriveKey'],
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: 210000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+async function furimoraEncryptBackupJson(obj, password) {
+  const enc = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const aesKey = await furimoraDeriveBackupKey(password, salt);
+  const plaintext = enc.encode(JSON.stringify(obj));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
+  return {
+    format: FURIMORA_BACKUP_FORMAT,
+    v: 1,
+    salt: furimoraBufToB64(salt),
+    iv: furimoraBufToB64(iv),
+    ciphertext: furimoraBufToB64(new Uint8Array(ciphertext)),
+  };
+}
+async function furimoraDecryptBackupJson(blob, password) {
+  if (!blob || blob.format !== FURIMORA_BACKUP_FORMAT || typeof blob.ciphertext !== 'string') {
+    throw new Error('invalid backup file');
+  }
+  const salt = furimoraB64ToBuf(blob.salt);
+  const iv = furimoraB64ToBuf(blob.iv);
+  const ct = furimoraB64ToBuf(blob.ciphertext);
+  const aesKey = await furimoraDeriveBackupKey(password, salt);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+  const dec = new TextDecoder();
+  return JSON.parse(dec.decode(pt));
+}
+function furimoraCollectBackupPayload() {
+  const keys = [...new Set([...FURIMORA_SYNC_KEYS, ...FURIMORA_LEGACY_SYNC_WRITE_KEYS, FURIMORA_ITEMS_TOMBSTONES_KEY])];
+  const data = {};
+  for (let i = 0; i < keys.length; i += 1) {
+    const k = keys[i];
+    const v = localStorage.getItem(k);
+    if (v != null) data[k] = v;
+  }
+  return { format: FURIMORA_BACKUP_FORMAT, v: 1, exportedAt: new Date().toISOString(), data };
+}
+function furimoraApplyBackupPayload(backupRoot) {
+  const data = backupRoot?.data;
+  if (!data || typeof data !== 'object') throw new Error('invalid backup payload');
+  const allowed = new Set([...FURIMORA_SYNC_KEYS, ...FURIMORA_LEGACY_SYNC_WRITE_KEYS, FURIMORA_ITEMS_TOMBSTONES_KEY]);
+  const ks = Object.keys(data);
+  for (let i = 0; i < ks.length; i += 1) {
+    const k = ks[i];
+    if (!allowed.has(k)) continue;
+    let v = data[k];
+    if (v != null && typeof v !== 'string') v = JSON.stringify(v);
+    if (typeof v === 'string') localStorage.setItem(k, v);
   }
 }
 
@@ -1993,6 +2121,7 @@ async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
 }
 function scheduleSyncPush() {
   if (!furimoraSupabaseClient) return;
+  if (!furimoraGetSupabaseAutoSync()) return;
   clearTimeout(furimoraSyncPushTimer);
   furimoraSyncPushTimer = setTimeout(() => {
     furimoraPushToCloud('auto').catch((err) => console.error('[sync push]', err));
@@ -2012,6 +2141,7 @@ function furimoraStartSyncPolling() {
   furimoraStopSyncPolling();
   if (!furimoraSupabaseClient) return;
   furimoraSyncPollTimer = setInterval(() => {
+    if (!furimoraGetSupabaseAutoSync()) return;
     if (document.visibilityState !== 'visible') return;
     // 念のため差分監視（notify 漏れや別タブ更新を拾う）
     furimoraRefreshSyncSignature();
@@ -2020,6 +2150,7 @@ function furimoraStartSyncPolling() {
 }
 function furimoraSyncOnVisible() {
   if (document.visibilityState !== 'visible') return;
+  if (!furimoraGetSupabaseAutoSync()) return;
   furimoraRefreshSyncSignature();
   furimoraSyncAfterLogin().catch((e) => console.error('[sync visible]', e));
 }
@@ -5487,8 +5618,21 @@ function furimoraSyncUpdateUI(session) {
     if (minn) minn.classList.remove('hidden');
     if (emailEl) emailEl.textContent = session.user.email || session.user.id;
     if (memailEl) memailEl.textContent = session.user.email || session.user.id;
-    if (furimoraSupabaseClient) furimoraSyncSetStatus('ログイン中 — 変更は数秒後に自動同期されます');
-    furimoraStartSyncPolling();
+    const auto = furimoraGetSupabaseAutoSync();
+    if (furimoraSupabaseClient) {
+      furimoraSyncSetStatus(
+        auto
+          ? 'ログイン中 — 自動同期ON。変更は数秒後にクラウドへ送られます'
+          : 'ログイン中 — 自動同期はOFFです。バックアップまたは手動の「今すぐ同期」でクラウドとやり取りできます。',
+      );
+    }
+    const autoToggle = document.getElementById('settings-supabase-auto-sync-toggle');
+    if (autoToggle) {
+      furimoraToggleTrackSetState(autoToggle, auto);
+      autoToggle.setAttribute('aria-checked', auto ? 'true' : 'false');
+    }
+    if (auto) furimoraStartSyncPolling();
+    else furimoraStopSyncPolling();
     furimoraUpdateHeaderAccount(session);
   } else {
     if (out) out.classList.remove('hidden');
@@ -5749,18 +5893,82 @@ async function furimoraInitSupabase() {
     });
     furimoraSupabaseClient.auth.onAuthStateChange((event, session) => {
       furimoraSyncUpdateUI(session);
-      if (event === 'SIGNED_IN' && session) furimoraSyncAfterLogin().catch((e) => console.error(e));
+      if (event === 'SIGNED_IN' && session && furimoraGetSupabaseAutoSync()) {
+        furimoraSyncAfterLogin().catch((e) => console.error(e));
+      }
     });
     const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
     furimoraSyncUpdateUI(session);
     furimoraSyncSetBadge('idle', '待機中');
     furimoraSetLastSyncAt(localStorage.getItem(FURIMORA_SYNC_LAST_REMOTE_AT) || '');
-    if (session) await furimoraSyncAfterLogin();
+    if (session && furimoraGetSupabaseAutoSync()) await furimoraSyncAfterLogin();
   } catch (e) {
     console.error(e);
     furimoraSyncSetStatus('同期設定の読み込みに失敗しました');
     furimoraSyncSetBadge('error', '失敗');
   }
+}
+
+function furimoraWireBackupButtons() {
+  const pickBtn = document.getElementById('backup-import-pick-btn');
+  const fileInput = document.getElementById('backup-import-file');
+  const fname = document.getElementById('backup-import-filename');
+  pickBtn?.addEventListener('click', () => fileInput?.click());
+  fileInput?.addEventListener('change', () => {
+    const f = fileInput.files?.[0];
+    furimoraBackupImportFile = f || null;
+    if (fname) fname.textContent = f ? f.name : '未選択';
+  });
+
+  document.getElementById('backup-export-btn')?.addEventListener('click', async () => {
+    const pwd = (document.getElementById('backup-export-pwd')?.value || '').trim();
+    if (pwd.length < 8) { showToast('パスワードは8文字以上にしてください'); return; }
+    if (!window.crypto?.subtle) {
+      showToast('この環境では暗号化に対応していません（HTTPSで開いてください）');
+      return;
+    }
+    try {
+      const inner = furimoraCollectBackupPayload();
+      const encrypted = await furimoraEncryptBackupJson(inner, pwd);
+      const blob = new Blob([JSON.stringify(encrypted)], { type: 'application/json' });
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = URL.createObjectURL(blob);
+      a.download = `furimora-backup-${stamp}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast('ダウンロードを開始しました');
+    } catch (e) {
+      console.error(e);
+      showToast('エクスポートに失敗しました');
+    }
+  });
+
+  document.getElementById('backup-import-btn')?.addEventListener('click', async () => {
+    const pwd = (document.getElementById('backup-import-pwd')?.value || '').trim();
+    if (!furimoraBackupImportFile) { showToast('ファイルを選択してください'); return; }
+    if (!pwd) { showToast('復元用パスワードを入力してください'); return; }
+    if (!window.crypto?.subtle) {
+      showToast('この環境では復元に対応していません');
+      return;
+    }
+    const ok = confirm('現在の端末のデータを、バックアップの内容で上書きします。よろしいですか？');
+    if (!ok) return;
+    try {
+      const text = await furimoraBackupImportFile.text();
+      const outer = JSON.parse(text);
+      const inner = await furimoraDecryptBackupJson(outer, pwd);
+      if (inner?.format !== FURIMORA_BACKUP_FORMAT || !inner?.data) throw new Error('invalid backup');
+      furimoraApplyBackupPayload(inner);
+      furimoraReloadAllFromStorage();
+      furimoraResetSyncSignature();
+      notifyLocalDataChanged();
+      showToast('復元しました');
+    } catch (e) {
+      console.error(e);
+      showToast('復元に失敗しました（パスワードまたはファイル形式を確認してください）');
+    }
+  });
 }
 
 function furimoraWireSyncButtons() {
@@ -5905,6 +6113,27 @@ function furimoraWireSyncButtons() {
   };
   document.getElementById('sync-retry-btn')?.addEventListener('click', retry);
   document.getElementById('modal-sync-retry-btn')?.addEventListener('click', retry);
+
+  const autoToggle = document.getElementById('settings-supabase-auto-sync-toggle');
+  autoToggle?.addEventListener('click', async () => {
+    if (!furimoraSupabaseClient) return;
+    const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
+    if (!session) { showToast('ログインしてください'); return; }
+    const next = !furimoraGetSupabaseAutoSync();
+    furimoraSetSupabaseAutoSync(next);
+    furimoraToggleTrackSetState(autoToggle, next);
+    autoToggle.setAttribute('aria-checked', next ? 'true' : 'false');
+    if (next) {
+      furimoraStartSyncPolling();
+      furimoraSyncSetStatus('ログイン中 — 自動同期ON。変更は数秒後にクラウドへ送られます');
+      furimoraSyncAfterLogin().catch((e) => console.error(e));
+    } else {
+      furimoraStopSyncPolling();
+      clearTimeout(furimoraSyncPushTimer);
+      furimoraSyncPushTimer = null;
+      furimoraSyncSetStatus('ログイン中 — 自動同期はOFFです。バックアップまたは手動の「今すぐ同期」でクラウドとやり取りできます。');
+    }
+  });
 }
 
 // ── PWA ──
@@ -5985,7 +6214,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-  furimoraInitSupabase().then(() => { furimoraWireSyncButtons(); });
+  furimoraInitSupabase().then(() => {
+    furimoraWireSyncButtons();
+    furimoraWireBackupButtons();
+  });
   if (!localStorage.getItem(FURIMORA_ONBOARDING_DONE_KEY)) {
     setTimeout(() => furimoraOpenOnboarding(), 250);
   } else if (!localStorage.getItem(FURIMORA_COACHMARK_DONE_KEY)) {
