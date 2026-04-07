@@ -205,7 +205,7 @@ tailwind.config = {
   }
   .coach-highlight {
     position: relative;
-    z-index: 121;
+    z-index: 130;
     box-shadow: 0 0 0 3px rgba(0, 98, 140, 0.45);
     border-radius: 12px;
     animation: coachPulse 1s ease infinite;
@@ -214,6 +214,12 @@ tailwind.config = {
     0% { box-shadow: 0 0 0 2px rgba(0, 98, 140, 0.28); }
     70% { box-shadow: 0 0 0 6px rgba(0, 98, 140, 0.0); }
     100% { box-shadow: 0 0 0 2px rgba(0, 98, 140, 0.28); }
+  }
+  /* コーチマークは背景を見せる（導線を見失わないため） */
+  #coachmark-modal {
+    background: rgba(15, 23, 42, 0.14);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 </style>
 </head>
@@ -1529,6 +1535,7 @@ tailwind.config = {
       <button type="button" onclick="furimoraSkipCoachmark()" class="text-xs font-bold text-on-surface-variant hover:text-on-surface">スキップ</button>
     </div>
     <p class="text-sm text-on-surface-variant leading-relaxed min-h-[72px]" id="coachmark-body"></p>
+    <p class="text-[11px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2 mt-2" id="coachmark-target-hint"></p>
     <div class="flex gap-3 mt-4">
       <button type="button" id="coachmark-prev-btn" onclick="furimoraPrevCoachmark()" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">戻る</button>
       <button type="button" id="coachmark-next-btn" onclick="furimoraNextCoachmark()" class="flex-1 py-3 rounded-full font-bold text-sm text-white bg-tertiary shadow-lg">次へ</button>
@@ -1675,18 +1682,21 @@ const FURIMORA_COACHMARK_STEPS = [
   {
     page: 'home',
     targetId: null,
+    targetHint: 'ホーム画面の「新規出品」カード',
     title: '新規出品から始める',
     body: 'ホームの「新規出品」カードから、最初の1件を登録してみましょう。',
   },
   {
     page: 'settings',
     targetId: 'sync-enable-webpush-btn',
+    targetHint: '設定 > クラウド同期 > 「通知を有効化」',
     title: '通知を有効化',
     body: '同期カードの「通知を有効化」で、この端末への通知受信をONにします。',
   },
   {
     page: 'settings',
     targetId: 'settings-push-enabled-toggle',
+    targetHint: '設定 > 自動化 > 「プッシュ通知」トグル',
     title: '自動通知の親設定',
     body: '「プッシュ通知」トグルをONにすると、値下げ・再出品の通知カテゴリ設定が使えます。',
   },
@@ -4892,11 +4902,13 @@ function furimoraRenderCoachmark() {
   const stepLabel = document.getElementById('coachmark-step-label');
   const titleEl = document.getElementById('coachmark-title');
   const bodyEl = document.getElementById('coachmark-body');
+  const hintEl = document.getElementById('coachmark-target-hint');
   const prevBtn = document.getElementById('coachmark-prev-btn');
   const nextBtn = document.getElementById('coachmark-next-btn');
   if (stepLabel) stepLabel.textContent = `GUIDE ${idx + 1} / ${total}`;
   if (titleEl) titleEl.textContent = step.title;
   if (bodyEl) bodyEl.textContent = step.body;
+  if (hintEl) hintEl.textContent = `対象: ${step.targetHint || '画面の案内に沿って操作してください'}`;
   if (prevBtn) {
     prevBtn.disabled = idx === 0;
     prevBtn.classList.toggle('opacity-40', idx === 0);
