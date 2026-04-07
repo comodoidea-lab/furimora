@@ -5,6 +5,8 @@
 // 参考: take-kun/mercapi（Python）と同様に ES256 + uuid を payload に含める。
 
 import { SignJWT } from 'jose';
+import { corsHeaders } from './lib/cors.js';
+import { jsonResponse } from './lib/json.js';
 
 export const config = { runtime: 'edge' };
 
@@ -724,17 +726,3 @@ function decodeHtmlEntities(str) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
 }
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
-}
-
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders() },
-  });
-}

@@ -14,8 +14,43 @@ const publicDir = path.resolve(root, 'public');
 const port = Number(process.env.PORT) || 3000;
 const host = process.env.HOST || '127.0.0.1';
 
-const mercariHandler = (await import(path.join(root, 'api/mercari.js'))).default;
-const imageProxyHandler = (await import(path.join(root, 'api/image-proxy.js'))).default;
+async function loadDotEnv() {
+  try {
+    const raw = await fs.readFile(path.join(root, '.env'), 'utf8');
+    for (const line of raw.split('\n')) {
+      const s = line.trim();
+      if (!s || s.startsWith('#')) continue;
+      const eq = s.indexOf('=');
+      if (eq < 1) continue;
+      const key = s.slice(0, eq).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+      let val = s.slice(eq + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+      if (process.env[key] === undefined) process.env[key] = val;
+    }
+  } catch {
+    /* .env なし */
+  }
+}
+await loadDotEnv();
+
+/** api/<name>.js の default export をキャッシュして再利用 */
+const apiHandlerCache = new Map();
+
+async function loadApiHandler(name) {
+  if (apiHandlerCache.has(name)) return apiHandlerCache.get(name);
+  if (!/^[a-z0-9_-]+$/i.test(name)) return null;
+  try {
+    const mod = await import(path.join(root, 'api', `${name}.js`));
+    const h = mod.default;
+    if (typeof h !== 'function') return null;
+    apiHandlerCache.set(name, h);
+    return h;
+  } catch (e) {
+    console.error('[preview] api load failed:', name, e);
+    return null;
+  }
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -48,29 +83,23 @@ async function sendWebResponse(nodeRes, webRes) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
-  if (url.pathname.startsWith('/api/mercari')) {
-    try {
-      const webReq = new Request(url.href, { method: req.method, headers: req.headers });
-      const webRes = await mercariHandler(webReq);
-      await sendWebResponse(res, webRes);
-    } catch (err) {
-      console.error(err);
-      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Internal Server Error');
+  const apiSeg = url.pathname.match(/^\/api\/([^/?]+)/);
+  if (apiSeg) {
+    const handler = await loadApiHandler(apiSeg[1]);
+    if (handler) {
+      try {
+        const webReq = new Request(url.href, { method: req.method, headers: req.headers });
+        const webRes = await handler(webReq);
+        await sendWebResponse(res, webRes);
+      } catch (err) {
+        console.error(err);
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Internal Server Error');
+      }
+      return;
     }
-    return;
-  }
-
-  if (url.pathname.startsWith('/api/image-proxy')) {
-    try {
-      const webReq = new Request(url.href, { method: req.method, headers: req.headers });
-      const webRes = await imageProxyHandler(webReq);
-      await sendWebResponse(res, webRes);
-    } catch (err) {
-      console.error(err);
-      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Internal Server Error');
-    }
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('API not found');
     return;
   }
 

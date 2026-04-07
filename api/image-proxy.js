@@ -1,4 +1,6 @@
 // api/image-proxy.js — mercdnの画像をプロキシしてCORSを回避
+import { corsHeaders } from './lib/cors.js';
+
 export const config = { runtime: 'edge' };
 
 function parseAllowedImageUrl(raw) {
@@ -56,10 +58,3 @@ export default async function handler(req) {
   }
 }
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
-}
