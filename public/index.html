@@ -1646,6 +1646,7 @@ let furimoraSupabaseClient = null;
 let furimoraSyncPushTimer = null;
 let furimoraSyncPollTimer = null;
 let furimoraSyncAfterLoginLastTs = 0;
+let furimoraLastSyncSignature = '';
 let furimoraWebPushVapidPublicKey = '';
 let furimoraAutoPushDiscountRunning = false;
 let furimoraAutoPushRelistRunning = false;
@@ -1793,6 +1794,29 @@ function hasUnsyncedLocalChanges() {
   const pushedAt = getSyncMs(FURIMORA_SYNC_LAST_PUSH_AT);
   return changedAt > pushedAt;
 }
+function furimoraComputeSyncSignature() {
+  try {
+    return FURIMORA_SYNC_KEYS.map((k) => `${k}:${localStorage.getItem(k) || ''}`).join('\u241f');
+  } catch (e) {
+    return '';
+  }
+}
+function furimoraResetSyncSignature() {
+  furimoraLastSyncSignature = furimoraComputeSyncSignature();
+}
+function furimoraRefreshSyncSignature() {
+  const next = furimoraComputeSyncSignature();
+  if (!furimoraLastSyncSignature) {
+    furimoraLastSyncSignature = next;
+    return false;
+  }
+  if (next !== furimoraLastSyncSignature) {
+    furimoraLastSyncSignature = next;
+    setSyncIsoNow(FURIMORA_SYNC_LOCAL_CHANGED_AT);
+    return true;
+  }
+  return false;
+}
 function backupLocalSyncPayload() {
   try {
     const payload = furimoraCollectSyncPayload();
@@ -1812,6 +1836,7 @@ function scheduleSyncPush() {
   }, 2800);
 }
 function notifyLocalDataChanged() {
+  furimoraRefreshSyncSignature();
   setSyncIsoNow(FURIMORA_SYNC_LOCAL_CHANGED_AT);
   scheduleSyncPush();
 }
@@ -1825,11 +1850,14 @@ function furimoraStartSyncPolling() {
   if (!furimoraSupabaseClient) return;
   furimoraSyncPollTimer = setInterval(() => {
     if (document.visibilityState !== 'visible') return;
+    // 念のため差分監視（notify 漏れや別タブ更新を拾う）
+    furimoraRefreshSyncSignature();
     furimoraSyncAfterLogin().catch((e) => console.error('[sync poll]', e));
   }, FURIMORA_SYNC_POLL_MS);
 }
 function furimoraSyncOnVisible() {
   if (document.visibilityState !== 'visible') return;
+  furimoraRefreshSyncSignature();
   furimoraSyncAfterLogin().catch((e) => console.error('[sync visible]', e));
 }
 
@@ -4741,6 +4769,7 @@ async function furimoraPushToCloud() {
   }
   setSyncIsoNow(FURIMORA_SYNC_LAST_PUSH_AT);
   clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
+  furimoraResetSyncSignature();
   furimoraSyncSetBadge('ok', '同期済み');
   return { ok: true, updatedAt: data?.updated_at || null };
 }
@@ -4801,6 +4830,7 @@ async function furimoraSyncAfterLogin() {
     setLastRemoteAt(data.updated_at);
     furimoraSetLastSyncAt(data.updated_at);
     clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
+    furimoraResetSyncSignature();
     furimoraSyncSetBadge('ok', '同期済み');
     showToast('クラウドのデータを読み込みました');
   } else {
@@ -4841,6 +4871,7 @@ async function furimoraForcePullFromCloud() {
   setLastRemoteAt(data.updated_at);
   furimoraSetLastSyncAt(data.updated_at);
   clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
+  furimoraResetSyncSignature();
   furimoraSyncSetBadge('ok', '同期済み');
   showToast('クラウドのデータを反映しました');
 }
@@ -5655,6 +5686,7 @@ document.addEventListener('DOMContentLoaded', () => {
   calcStartPrice();
   enableTapClearNumberInputs('new-item-modal');
   enableTapClearNumberInputs('discount-item-modal');
+  furimoraResetSyncSignature();
   navigate('home');
   // 未読通知バッジ
   if (NOTIFICATIONS.length > 0) {
