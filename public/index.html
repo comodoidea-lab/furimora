@@ -195,6 +195,14 @@ tailwind.config = {
     from { opacity: 0.65; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  .ni-invalid-glow {
+    box-shadow: 0 0 0 2px rgba(186, 26, 26, 0.45);
+    animation: niInvalidPulse 0.65s ease;
+  }
+  @keyframes niInvalidPulse {
+    0% { box-shadow: 0 0 0 0 rgba(186, 26, 26, 0.55); }
+    100% { box-shadow: 0 0 0 2px rgba(186, 26, 26, 0.45); }
+  }
 </style>
 </head>
 <body>
@@ -937,41 +945,50 @@ tailwind.config = {
       <div class="px-5 py-3 bg-surface-container-low">
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">販路・発送方法・仕入先</p>
       </div>
-      <div class="divide-y divide-surface-container">
-        <div class="px-5 py-4 space-y-3">
-          <p class="text-xs font-bold">販路（フリマサイト）</p>
-          <div class="flex gap-2">
-            <input id="settings-marketplace-name" type="text" placeholder="例: メルカリ"
-              class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <input id="settings-marketplace-fee" type="number" min="0" max="100" placeholder="手数料%"
-              class="w-24 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <button type="button" onclick="addMarketplaceOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+      <details class="group">
+        <summary class="list-none cursor-pointer px-5 py-4 flex items-center justify-between hover:bg-surface-container/60 transition-colors">
+          <div>
+            <p class="text-sm font-bold">詳細設定を開く</p>
+            <p class="text-[11px] text-on-surface-variant">販路・発送方法・仕入先を管理</p>
           </div>
-          <div id="settings-marketplace-list" class="space-y-2"></div>
-        </div>
-        <div class="px-5 py-4 space-y-3">
-          <p class="text-xs font-bold">発送方法・送料・梱包費</p>
-          <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <input id="settings-shipping-name" type="text" placeholder="例: ネコポス"
-              class="sm:col-span-2 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <input id="settings-shipping-cost" type="number" min="0" placeholder="送料"
-              class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <input id="settings-packing-cost" type="number" min="0" placeholder="梱包費"
-              class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <button type="button" onclick="addShippingMethodOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+          <span class="material-symbols-outlined text-on-surface-variant transition-transform group-open:rotate-180">expand_more</span>
+        </summary>
+        <div class="divide-y divide-surface-container">
+          <div class="px-5 py-4 space-y-3">
+            <p class="text-xs font-bold">販路（フリマサイト）</p>
+            <div class="flex gap-2">
+              <input id="settings-marketplace-name" type="text" placeholder="例: メルカリ"
+                class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <input id="settings-marketplace-fee" type="number" min="0" max="100" placeholder="手数料%"
+                class="w-24 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <button type="button" onclick="addMarketplaceOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+            </div>
+            <div id="settings-marketplace-list" class="space-y-2"></div>
           </div>
-          <div id="settings-shipping-list" class="space-y-2"></div>
-        </div>
-        <div class="px-5 py-4 space-y-3">
-          <p class="text-xs font-bold">仕入先履歴</p>
-          <div class="flex gap-2">
-            <input id="settings-supplier-input" type="text" placeholder="例: 〇〇リサイクル"
-              class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <button type="button" onclick="registerSupplierFromSettings()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">登録</button>
+          <div class="px-5 py-4 space-y-3">
+            <p class="text-xs font-bold">発送方法・送料・梱包費</p>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <input id="settings-shipping-name" type="text" placeholder="例: ネコポス"
+                class="sm:col-span-2 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <input id="settings-shipping-cost" type="number" min="0" placeholder="送料"
+                class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <input id="settings-packing-cost" type="number" min="0" placeholder="梱包費"
+                class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <button type="button" onclick="addShippingMethodOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+            </div>
+            <div id="settings-shipping-list" class="space-y-2"></div>
           </div>
-          <div id="settings-supplier-list" class="flex flex-wrap gap-2"></div>
+          <div class="px-5 py-4 space-y-3">
+            <p class="text-xs font-bold">仕入先履歴</p>
+            <div class="flex gap-2">
+              <input id="settings-supplier-input" type="text" placeholder="例: 〇〇リサイクル"
+                class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <button type="button" onclick="registerSupplierFromSettings()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">登録</button>
+            </div>
+            <div id="settings-supplier-list" class="flex flex-wrap gap-2"></div>
+          </div>
         </div>
-      </div>
+      </details>
     </div>
 
     <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden">
@@ -1049,7 +1066,7 @@ tailwind.config = {
         <div class="space-y-3">
           <div>
             <label class="text-xs font-semibold text-on-surface-variant">商品タイトル</label>
-            <input id="ni-title" type="text" placeholder="例: ブランド名 商品名 サイズ"
+            <input id="ni-title" type="text" placeholder="例: ブランド名 商品名 サイズ" oninput="syncNiTitleFromMain()"
               class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
           </div>
           <div class="grid grid-cols-2 gap-3">
@@ -1167,7 +1184,7 @@ tailwind.config = {
         <div class="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label class="text-xs font-semibold text-on-surface-variant">商品タイトル</label>
-            <input id="ni-desc-title" type="text" placeholder="例: ブランド名 商品名 サイズ"
+            <input id="ni-desc-title" type="text" placeholder="例: ブランド名 商品名 サイズ" oninput="syncNiTitleFromDesc()"
               class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
           </div>
           <div>
@@ -2085,6 +2102,34 @@ function syncNiCategoryFromDesc() {
   if (m && d) m.value = d.value;
 }
 
+function syncNiTitleFromMain() {
+  const m = document.getElementById('ni-title');
+  const d = document.getElementById('ni-desc-title');
+  if (m && d) d.value = m.value;
+}
+
+function syncNiTitleFromDesc() {
+  const m = document.getElementById('ni-title');
+  const d = document.getElementById('ni-desc-title');
+  if (m && d) m.value = d.value;
+}
+
+function niShowValidation(message, tab = 'price', focusId = '') {
+  if (tab) switchItemTab(tab);
+  showToast(message);
+  if (!focusId) return;
+  const el = document.getElementById(focusId);
+  if (!el) return;
+  el.classList.remove('ni-invalid-glow');
+  // reflowで同一要素でもアニメ再生
+  void el.offsetWidth;
+  el.classList.add('ni-invalid-glow');
+  setTimeout(() => el.classList.remove('ni-invalid-glow'), 900);
+  setTimeout(() => {
+    try { el.focus(); } catch (e) { /* noop */ }
+  }, 60);
+}
+
 function parseMercariUrlInput(raw) {
   const s = (raw || '').trim();
   if (!s) return { clear: true };
@@ -2826,7 +2871,7 @@ function copyNiSchedule() {
 
 async function generateItemDesc(e) {
   const title = document.getElementById('ni-desc-title').value.trim();
-  if (!title) { showToast('タイトルを入力してください'); return; }
+  if (!title) { niShowValidation('商品タイトルを入力してください', 'desc', 'ni-desc-title'); return; }
   const btn = e.target.closest('button');
   const orig = btn.innerHTML;
   btn.innerHTML = '<span class="material-symbols-outlined text-sm" style="animation:spin .8s linear infinite">progress_activity</span>生成中...';
@@ -2841,12 +2886,12 @@ async function generateItemDesc(e) {
 
 function combineDesc() {
   const ai = document.getElementById('ni-ai-text').value.trim();
-  if (!ai) { showToast('先に紹介文を生成してください'); return; }
+  if (!ai) { niShowValidation('先に紹介文を生成してください', 'desc', 'ni-ai-text'); return; }
   const selId = document.getElementById('ni-template-select')?.value;
-  if (!selId) { showToast('テンプレートを選択してください'); return; }
+  if (!selId) { niShowValidation('テンプレートを選択してください', 'desc', 'ni-template-select'); return; }
   const templates = loadTemplates();
   const t = templates.find(x => x.id === selId);
-  if (!t) { showToast('テンプレートが見つかりません'); return; }
+  if (!t) { niShowValidation('テンプレートが見つかりません', 'desc', 'ni-template-select'); return; }
   document.getElementById('ni-ai-text').value = ai + '\n\n' + t.body;
   showToast('テンプレートと結合しました');
 }
@@ -2927,11 +2972,12 @@ function upsertScheduleFromItem(item) {
 
 function saveNewItem() {
   const title = document.getElementById('ni-title').value.trim();
-  if (!title) { showToast('商品タイトルを入力してください'); switchItemTab('price'); return; }
+  if (!title) { niShowValidation('商品タイトルを入力してください', 'price', 'ni-title'); return; }
   const descTabEl = document.getElementById('item-tab-desc');
   if (descTabEl && !descTabEl.classList.contains('hidden')) syncNiCategoryFromDesc();
   else syncNiCategoryFromMain();
   const min = parseInt(document.getElementById('ni-minprice').value)||0;
+  if (min < 300) { niShowValidation('最低価格は300円以上で入力してください', 'price', 'ni-minprice'); return; }
   const buf = parseInt(document.getElementById('ni-buffer').value)||0;
   const startPrice = min + buf;
   const images = JSON.parse(document.getElementById('new-item-modal').dataset.images||'[]');
