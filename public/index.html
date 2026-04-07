@@ -179,6 +179,48 @@ tailwind.config = {
   }
   @media (min-width: 768px) { .modal-sheet { border-radius: 1.5rem; margin: 1rem; } }
   @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+  /* 新規出品モーダル: 押下感とステップ遷移の一貫した手触り */
+  #new-item-modal button {
+    transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.16s ease;
+  }
+  #new-item-modal button:active {
+    transform: scale(0.985);
+    filter: brightness(0.98);
+  }
+  .ni-tab-enter {
+    animation: niTabFade 0.16s ease;
+  }
+  @keyframes niTabFade {
+    from { opacity: 0.65; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .ni-invalid-glow {
+    box-shadow: 0 0 0 2px rgba(186, 26, 26, 0.45);
+    animation: niInvalidPulse 0.65s ease;
+  }
+  @keyframes niInvalidPulse {
+    0% { box-shadow: 0 0 0 0 rgba(186, 26, 26, 0.55); }
+    100% { box-shadow: 0 0 0 2px rgba(186, 26, 26, 0.45); }
+  }
+  .coach-highlight {
+    position: relative;
+    z-index: 130;
+    box-shadow: 0 0 0 3px rgba(0, 98, 140, 0.45);
+    border-radius: 12px;
+    animation: coachPulse 1s ease infinite;
+  }
+  @keyframes coachPulse {
+    0% { box-shadow: 0 0 0 2px rgba(0, 98, 140, 0.28); }
+    70% { box-shadow: 0 0 0 6px rgba(0, 98, 140, 0.0); }
+    100% { box-shadow: 0 0 0 2px rgba(0, 98, 140, 0.28); }
+  }
+  /* コーチマークは背景を見せる（導線を見失わないため） */
+  #coachmark-modal {
+    background: rgba(15, 23, 42, 0.14);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 </style>
 </head>
 <body>
@@ -921,41 +963,50 @@ tailwind.config = {
       <div class="px-5 py-3 bg-surface-container-low">
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">販路・発送方法・仕入先</p>
       </div>
-      <div class="divide-y divide-surface-container">
-        <div class="px-5 py-4 space-y-3">
-          <p class="text-xs font-bold">販路（フリマサイト）</p>
-          <div class="flex gap-2">
-            <input id="settings-marketplace-name" type="text" placeholder="例: メルカリ"
-              class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <input id="settings-marketplace-fee" type="number" min="0" max="100" placeholder="手数料%"
-              class="w-24 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <button type="button" onclick="addMarketplaceOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+      <details class="group">
+        <summary class="list-none cursor-pointer px-5 py-4 flex items-center justify-between hover:bg-surface-container/60 transition-colors">
+          <div>
+            <p class="text-sm font-bold">詳細設定を開く</p>
+            <p class="text-[11px] text-on-surface-variant">販路・発送方法・仕入先を管理</p>
           </div>
-          <div id="settings-marketplace-list" class="space-y-2"></div>
-        </div>
-        <div class="px-5 py-4 space-y-3">
-          <p class="text-xs font-bold">発送方法・送料・梱包費</p>
-          <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <input id="settings-shipping-name" type="text" placeholder="例: ネコポス"
-              class="sm:col-span-2 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <input id="settings-shipping-cost" type="number" min="0" placeholder="送料"
-              class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <input id="settings-packing-cost" type="number" min="0" placeholder="梱包費"
-              class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <button type="button" onclick="addShippingMethodOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+          <span class="material-symbols-outlined text-on-surface-variant transition-transform group-open:rotate-180">expand_more</span>
+        </summary>
+        <div class="divide-y divide-surface-container">
+          <div class="px-5 py-4 space-y-3">
+            <p class="text-xs font-bold">販路（フリマサイト）</p>
+            <div class="flex gap-2">
+              <input id="settings-marketplace-name" type="text" placeholder="例: メルカリ"
+                class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <input id="settings-marketplace-fee" type="number" min="0" max="100" placeholder="手数料%"
+                class="w-24 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <button type="button" onclick="addMarketplaceOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+            </div>
+            <div id="settings-marketplace-list" class="space-y-2"></div>
           </div>
-          <div id="settings-shipping-list" class="space-y-2"></div>
-        </div>
-        <div class="px-5 py-4 space-y-3">
-          <p class="text-xs font-bold">仕入先履歴</p>
-          <div class="flex gap-2">
-            <input id="settings-supplier-input" type="text" placeholder="例: 〇〇リサイクル"
-              class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
-            <button type="button" onclick="registerSupplierFromSettings()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">登録</button>
+          <div class="px-5 py-4 space-y-3">
+            <p class="text-xs font-bold">発送方法・送料・梱包費</p>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <input id="settings-shipping-name" type="text" placeholder="例: ネコポス"
+                class="sm:col-span-2 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <input id="settings-shipping-cost" type="number" min="0" placeholder="送料"
+                class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <input id="settings-packing-cost" type="number" min="0" placeholder="梱包費"
+                class="bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <button type="button" onclick="addShippingMethodOption()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">追加</button>
+            </div>
+            <div id="settings-shipping-list" class="space-y-2"></div>
           </div>
-          <div id="settings-supplier-list" class="flex flex-wrap gap-2"></div>
+          <div class="px-5 py-4 space-y-3">
+            <p class="text-xs font-bold">仕入先履歴</p>
+            <div class="flex gap-2">
+              <input id="settings-supplier-input" type="text" placeholder="例: 〇〇リサイクル"
+                class="flex-1 bg-surface-container border-none rounded-xl px-3 py-2 text-sm outline-none"/>
+              <button type="button" onclick="registerSupplierFromSettings()" class="px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold">登録</button>
+            </div>
+            <div id="settings-supplier-list" class="flex flex-wrap gap-2"></div>
+          </div>
         </div>
-      </div>
+      </details>
     </div>
 
     <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden">
@@ -994,18 +1045,36 @@ tailwind.config = {
 
 <!-- 新規出品アシスタント Modal -->
 <div id="new-item-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('new-item-modal')">
-  <div class="modal-sheet max-h-[92vh] overflow-y-auto w-full" style="max-width:480px">
+  <div class="modal-sheet max-h-[92vh] overflow-y-auto w-full pb-24" style="max-width:480px">
     <div class="flex items-center justify-between mb-3">
       <h3 class="font-headline font-bold text-lg" id="ni-modal-title">新規出品</h3>
       <button onclick="closeModal('new-item-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container">
         <span class="material-symbols-outlined text-lg">close</span>
       </button>
     </div>
-    <!-- Tab nav -->
-    <div class="flex border-b border-surface-container mb-4">
-      <button onclick="switchItemTab('price')" id="tab-price" class="item-tab-btn px-4 py-2.5 text-sm font-bold border-b-2 border-primary text-primary">価格</button>
-      <button onclick="switchItemTab('desc')" id="tab-desc" class="item-tab-btn px-4 py-2.5 text-sm font-bold border-b-2 border-transparent text-on-surface-variant">説明文</button>
-      <button onclick="switchItemTab('schedule')" id="tab-schedule" class="item-tab-btn px-4 py-2.5 text-sm font-bold border-b-2 border-transparent text-on-surface-variant">スケジュール</button>
+    <!-- Step nav -->
+    <div class="mb-4 space-y-3">
+      <div class="grid grid-cols-3 gap-2">
+        <button onclick="switchItemTab('price')" id="tab-price" class="item-tab-btn rounded-xl border border-primary bg-primary/10 px-2 py-2 text-left">
+          <p class="text-[10px] font-black text-primary">STEP 1</p>
+          <p class="text-xs font-bold text-primary">価格</p>
+        </button>
+        <button onclick="switchItemTab('desc')" id="tab-desc" class="item-tab-btn rounded-xl border border-surface-container-highest bg-surface-container-low px-2 py-2 text-left">
+          <p class="text-[10px] font-black text-on-surface-variant">STEP 2</p>
+          <p class="text-xs font-bold text-on-surface-variant">説明文</p>
+        </button>
+        <button onclick="switchItemTab('schedule')" id="tab-schedule" class="item-tab-btn rounded-xl border border-surface-container-highest bg-surface-container-low px-2 py-2 text-left">
+          <p class="text-[10px] font-black text-on-surface-variant">STEP 3</p>
+          <p class="text-xs font-bold text-on-surface-variant">スケジュール</p>
+        </button>
+      </div>
+      <div class="flex items-center justify-between">
+        <p id="ni-step-hint" class="text-[11px] text-on-surface-variant font-medium">まず価格と利益を決めます</p>
+        <div class="flex items-center gap-2">
+          <button type="button" id="ni-step-prev-btn" onclick="switchItemTab('price')" class="px-3 py-1.5 rounded-full text-[11px] font-bold bg-surface-container text-on-surface-variant">戻る</button>
+          <button type="button" id="ni-step-next-btn" onclick="switchItemTab('desc')" class="px-3 py-1.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary">次へ</button>
+        </div>
+      </div>
     </div>
 
     <!-- Tab: 価格 -->
@@ -1015,7 +1084,7 @@ tailwind.config = {
         <div class="space-y-3">
           <div>
             <label class="text-xs font-semibold text-on-surface-variant">商品タイトル</label>
-            <input id="ni-title" type="text" placeholder="例: ブランド名 商品名 サイズ"
+            <input id="ni-title" type="text" placeholder="例: ブランド名 商品名 サイズ" oninput="syncNiTitleFromMain()"
               class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
           </div>
           <div class="grid grid-cols-2 gap-3">
@@ -1036,32 +1105,10 @@ tailwind.config = {
               </select>
             </div>
           </div>
-          <div class="grid grid-cols-1 gap-3">
-            <div>
-              <label class="text-xs font-semibold text-on-surface-variant">仕入先</label>
-              <div class="flex gap-2 mt-1">
-                <select id="ni-supplier-select" onchange="onNiSupplierSelect()" class="w-40 bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none">
-                  <option value="">履歴から選択</option>
-                </select>
-                <input id="ni-supplier" type="text" placeholder="例: ブックオフ渋谷店"
-                  class="flex-1 bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
       <div>
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">価格・経費</p>
-        <div class="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label class="text-xs font-semibold text-on-surface-variant">販路</label>
-            <select id="ni-marketplace" onchange="onNiMarketplaceChange()" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"></select>
-          </div>
-          <div>
-            <label class="text-xs font-semibold text-on-surface-variant">発送方法</label>
-            <select id="ni-shipping-method" onchange="onNiShippingMethodChange()" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"></select>
-          </div>
-        </div>
         <div class="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label class="text-xs font-semibold text-on-surface-variant">仕入れ値</label>
@@ -1120,6 +1167,31 @@ tailwind.config = {
         </div>
         <p class="text-[10px] text-on-surface-variant mt-2 text-center">値下げ後・最低価格<span id="ni-minprice-hint">¥800</span>で売れた場合の利益: <span class="font-bold text-tertiary" id="ni-profit-min">¥720</span></p>
       </div>
+      <details class="bg-surface-container-low rounded-xl px-3 py-2.5">
+        <summary class="cursor-pointer text-xs font-bold text-on-surface-variant">詳細設定（販路・発送・仕入先）</summary>
+        <div class="space-y-3 mt-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs font-semibold text-on-surface-variant">販路</label>
+              <select id="ni-marketplace" onchange="onNiMarketplaceChange()" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"></select>
+            </div>
+            <div>
+              <label class="text-xs font-semibold text-on-surface-variant">発送方法</label>
+              <select id="ni-shipping-method" onchange="onNiShippingMethodChange()" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"></select>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-on-surface-variant">仕入先</label>
+            <div class="flex gap-2 mt-1">
+              <select id="ni-supplier-select" onchange="onNiSupplierSelect()" class="w-40 bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none">
+                <option value="">履歴から選択</option>
+              </select>
+              <input id="ni-supplier" type="text" placeholder="例: ブックオフ渋谷店"
+                class="flex-1 bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
 
     <!-- Tab: 説明文 -->
@@ -1130,7 +1202,7 @@ tailwind.config = {
         <div class="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label class="text-xs font-semibold text-on-surface-variant">商品タイトル</label>
-            <input id="ni-desc-title" type="text" placeholder="例: ブランド名 商品名 サイズ"
+            <input id="ni-desc-title" type="text" placeholder="例: ブランド名 商品名 サイズ" oninput="syncNiTitleFromDesc()"
               class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none"/>
           </div>
           <div>
@@ -1222,7 +1294,7 @@ tailwind.config = {
     </div>
 
     <!-- Footer -->
-    <div class="flex gap-3 mt-6 pt-4 border-t border-surface-container">
+    <div class="sticky bottom-0 left-0 right-0 z-10 -mx-6 px-6 py-3 mt-6 border-t border-surface-container bg-surface/95 backdrop-blur-sm flex gap-3">
       <button onclick="closeModal('new-item-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
       <button onclick="saveNewItem()" class="flex-1 bg-signature-gradient text-white py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2">
         <span class="material-symbols-outlined text-lg" id="ni-save-btn-icon">playlist_add</span><span id="ni-save-btn-label">出品一覧に追加</span>
@@ -1433,6 +1505,83 @@ tailwind.config = {
   </div>
 </div>
 
+<!-- 初回オンボーディング -->
+<div id="onboarding-modal" class="modal-overlay z-[120]">
+  <div class="modal-sheet w-full" style="max-width:460px" onclick="event.stopPropagation()">
+    <div class="flex items-start justify-between gap-3 mb-2">
+      <div>
+        <p class="text-[11px] font-black text-primary uppercase tracking-wider" id="onboarding-step-label">STEP 1 / 3</p>
+        <h3 class="font-headline font-black text-xl leading-tight mt-1" id="onboarding-title">ようこそフリモーラへ</h3>
+      </div>
+      <button type="button" onclick="furimoraSkipOnboarding()" class="text-xs font-bold text-on-surface-variant hover:text-on-surface">スキップ</button>
+    </div>
+    <p class="text-sm text-on-surface-variant leading-relaxed min-h-[72px]" id="onboarding-body"></p>
+    <div class="flex items-center gap-1.5 mt-3 mb-5" id="onboarding-dots"></div>
+    <div class="flex gap-3">
+      <button type="button" id="onboarding-prev-btn" onclick="furimoraPrevOnboarding()" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">戻る</button>
+      <button type="button" id="onboarding-next-btn" onclick="furimoraNextOnboarding()" class="flex-1 py-3 rounded-full font-bold text-sm text-white bg-signature-gradient shadow-lg">次へ</button>
+    </div>
+  </div>
+</div>
+
+<!-- 初回コーチマーク -->
+<div id="coachmark-modal" class="modal-overlay z-[122]">
+  <div class="modal-sheet w-full" style="max-width:460px" onclick="event.stopPropagation()">
+    <div class="flex items-start justify-between gap-3 mb-2">
+      <div>
+        <p class="text-[11px] font-black text-tertiary uppercase tracking-wider" id="coachmark-step-label">操作ガイド 1 / 3</p>
+        <h3 class="font-headline font-black text-xl leading-tight mt-1" id="coachmark-title">操作ガイド: 新規出品</h3>
+      </div>
+      <button type="button" onclick="furimoraSkipCoachmark()" class="text-xs font-bold text-on-surface-variant hover:text-on-surface">スキップ</button>
+    </div>
+    <p class="text-sm text-on-surface-variant leading-relaxed min-h-[72px]" id="coachmark-body"></p>
+    <p class="text-[11px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2 mt-2" id="coachmark-target-hint"></p>
+    <div class="flex gap-3 mt-4">
+      <button type="button" id="coachmark-prev-btn" onclick="furimoraPrevCoachmark()" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">戻る</button>
+      <button type="button" id="coachmark-next-btn" onclick="furimoraNextCoachmark()" class="flex-1 py-3 rounded-full font-bold text-sm text-white bg-tertiary shadow-lg">次へ</button>
+    </div>
+  </div>
+</div>
+
+<!-- 初期設定ミニウィザード -->
+<div id="initial-setup-modal" class="modal-overlay z-[123]">
+  <div class="modal-sheet w-full" style="max-width:460px" onclick="event.stopPropagation()">
+    <div class="flex items-start justify-between gap-3 mb-3">
+      <div>
+        <p class="text-[11px] font-black text-tertiary uppercase tracking-wider">INITIAL SETUP</p>
+        <h3 class="font-headline font-black text-xl leading-tight mt-1">最初の設定</h3>
+      </div>
+      <button type="button" onclick="furimoraSkipInitialSetup()" class="text-xs font-bold text-on-surface-variant hover:text-on-surface">スキップ</button>
+    </div>
+    <p class="text-sm text-on-surface-variant leading-relaxed mb-4">よく使う設定だけ先に選ぶと、出品登録がぐっと速くなります。</p>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-semibold text-on-surface-variant">デフォルト販路</label>
+        <select id="initial-setup-marketplace" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"></select>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-on-surface-variant">デフォルト発送方法</label>
+        <select id="initial-setup-shipping" class="mt-1 w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"></select>
+      </div>
+      <div class="bg-surface-container-low rounded-xl p-3 space-y-2">
+        <p class="text-xs font-bold text-on-surface-variant">通知カテゴリ</p>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" id="initial-setup-push-discount" class="rounded border-surface-container-highest"/>
+          値下げ通知を受け取る
+        </label>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" id="initial-setup-push-relist" class="rounded border-surface-container-highest"/>
+          再出品通知を受け取る
+        </label>
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button type="button" onclick="furimoraSkipInitialSetup()" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">あとで設定</button>
+      <button type="button" onclick="furimoraApplyInitialSetup()" class="flex-1 py-3 rounded-full font-bold text-sm text-white bg-signature-gradient shadow-lg">保存して開始</button>
+    </div>
+  </div>
+</div>
+
 <!-- MOBILE BOTTOM NAV -->
 <nav id="bottom-nav" class="fixed bottom-0 left-0 w-full z-40 glass border-t border-surface-container flex justify-around items-center h-[68px] pb-safe px-2 shadow-[0_-4px_16px_rgba(0,0,0,0.04)]">
   <button onclick="navigate('home')" data-nav="home" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
@@ -1509,6 +1658,49 @@ const FURIMORA_DEFAULT_AUTOMATION_SETTINGS = {
   pushDiscountEnabled: true,
   pushRelistEnabled: true,
 };
+const FURIMORA_ONBOARDING_DONE_KEY = 'furimora_onboarding_done_v1';
+const FURIMORA_COACHMARK_DONE_KEY = 'furimora_coachmark_done_v1';
+const FURIMORA_INITIAL_SETUP_DONE_KEY = 'furimora_initial_setup_done_v1';
+let furimoraOnboardingStep = 0;
+let furimoraCoachmarkStep = 0;
+let furimoraCoachmarkHighlightedEl = null;
+const FURIMORA_ONBOARDING_STEPS = [
+  {
+    title: 'ようこそフリモーラへ',
+    body: 'フリモーラは、フリマ運用に必要な管理をひとつにまとめるためのアプリです。',
+  },
+  {
+    title: '名前の由来は「フリマ管理を網羅」',
+    body: '「フリマ」と「網羅（モーラ）」を掛け合わせ、出品から管理まで迷わず続けられる体験を目指しています。',
+  },
+  {
+    title: '再出品の煩わしさを減らす',
+    body: '再出品タイミングを見逃さない通知とタスク化で、手間のかかる再出品ループをラクに回せます。',
+  },
+];
+const FURIMORA_COACHMARK_STEPS = [
+  {
+    page: 'home',
+    targetId: null,
+    targetHint: 'ホーム画面の「新規出品」カード',
+    title: '操作ガイド: 新規出品',
+    body: 'まずはホームの「新規出品」カードを開き、最初の1件を登録してみましょう。',
+  },
+  {
+    page: 'settings',
+    targetId: 'sync-enable-webpush-btn',
+    targetHint: '設定 > クラウド同期 > 「通知を有効化」',
+    title: '操作ガイド: 通知受信をON',
+    body: '設定のクラウド同期カードで「通知を有効化」を押し、この端末で通知を受け取れる状態にします。',
+  },
+  {
+    page: 'settings',
+    targetId: 'settings-push-enabled-toggle',
+    targetHint: '設定 > 自動化 > 「プッシュ通知」トグル',
+    title: '操作ガイド: 自動通知の設定',
+    body: '「プッシュ通知」トグルをONにすると、値下げ・再出品それぞれの通知設定を切り替えできます。',
+  },
+];
 
 function furimoraGetAutomationSettings() {
   try {
@@ -2048,6 +2240,34 @@ function syncNiCategoryFromDesc() {
   if (m && d) m.value = d.value;
 }
 
+function syncNiTitleFromMain() {
+  const m = document.getElementById('ni-title');
+  const d = document.getElementById('ni-desc-title');
+  if (m && d) d.value = m.value;
+}
+
+function syncNiTitleFromDesc() {
+  const m = document.getElementById('ni-title');
+  const d = document.getElementById('ni-desc-title');
+  if (m && d) m.value = d.value;
+}
+
+function niShowValidation(message, tab = 'price', focusId = '') {
+  if (tab) switchItemTab(tab);
+  showToast(message);
+  if (!focusId) return;
+  const el = document.getElementById(focusId);
+  if (!el) return;
+  el.classList.remove('ni-invalid-glow');
+  // reflowで同一要素でもアニメ再生
+  void el.offsetWidth;
+  el.classList.add('ni-invalid-glow');
+  setTimeout(() => el.classList.remove('ni-invalid-glow'), 900);
+  setTimeout(() => {
+    try { el.focus(); } catch (e) { /* noop */ }
+  }, 60);
+}
+
 function parseMercariUrlInput(raw) {
   const s = (raw || '').trim();
   if (!s) return { clear: true };
@@ -2568,14 +2788,53 @@ function openNewItemModal(draftData) {
 }
 
 function switchItemTab(tab) {
+  const order = ['price','desc','schedule'];
+  const currentIdx = order.indexOf(tab);
   ['price','desc','schedule'].forEach(t => {
-    document.getElementById('item-tab-'+t)?.classList.toggle('hidden', t !== tab);
+    const panel = document.getElementById('item-tab-'+t);
+    panel?.classList.toggle('hidden', t !== tab);
+    if (panel && t === tab) {
+      panel.classList.remove('ni-tab-enter');
+      // reflow でアニメ再実行
+      void panel.offsetWidth;
+      panel.classList.add('ni-tab-enter');
+    }
     const btn = document.getElementById('tab-'+t);
     if (btn) {
-      btn.classList.toggle('border-primary', t===tab); btn.classList.toggle('text-primary', t===tab);
-      btn.classList.toggle('border-transparent', t!==tab); btn.classList.toggle('text-on-surface-variant', t!==tab);
+      btn.classList.toggle('border-primary', t===tab);
+      btn.classList.toggle('bg-primary/10', t===tab);
+      btn.classList.toggle('border-surface-container-highest', t!==tab);
+      btn.classList.toggle('bg-surface-container-low', t!==tab);
+      btn.querySelectorAll('p').forEach((p) => {
+        p.classList.toggle('text-primary', t===tab);
+        p.classList.toggle('text-on-surface-variant', t!==tab);
+      });
     }
   });
+  const hintEl = document.getElementById('ni-step-hint');
+  const prevBtn = document.getElementById('ni-step-prev-btn');
+  const nextBtn = document.getElementById('ni-step-next-btn');
+  if (hintEl) {
+    if (tab === 'price') hintEl.textContent = 'まず価格と利益を決めます';
+    if (tab === 'desc') hintEl.textContent = '次に説明文を整えます';
+    if (tab === 'schedule') hintEl.textContent = '最後に値下げ予定を確認します';
+  }
+  if (prevBtn) {
+    prevBtn.disabled = currentIdx <= 0;
+    prevBtn.classList.toggle('opacity-40', currentIdx <= 0);
+    const prevTab = order[Math.max(0, currentIdx - 1)];
+    prevBtn.onclick = () => switchItemTab(prevTab);
+  }
+  if (nextBtn) {
+    const isLast = currentIdx >= order.length - 1;
+    nextBtn.disabled = isLast;
+    nextBtn.classList.toggle('opacity-40', isLast);
+    if (tab === 'price') nextBtn.textContent = '次へ: 説明文';
+    else if (tab === 'desc') nextBtn.textContent = '次へ: スケジュール';
+    else nextBtn.textContent = '保存へ';
+    const nextTab = order[Math.min(order.length - 1, currentIdx + 1)];
+    nextBtn.onclick = () => switchItemTab(nextTab);
+  }
   if (tab === 'desc') syncNiCategoryFromMain();
   else if (tab === 'price') syncNiCategoryFromDesc();
   if (tab === 'schedule') updateNiScheduleTab();
@@ -2750,7 +3009,7 @@ function copyNiSchedule() {
 
 async function generateItemDesc(e) {
   const title = document.getElementById('ni-desc-title').value.trim();
-  if (!title) { showToast('タイトルを入力してください'); return; }
+  if (!title) { niShowValidation('商品タイトルを入力してください', 'desc', 'ni-desc-title'); return; }
   const btn = e.target.closest('button');
   const orig = btn.innerHTML;
   btn.innerHTML = '<span class="material-symbols-outlined text-sm" style="animation:spin .8s linear infinite">progress_activity</span>生成中...';
@@ -2765,12 +3024,12 @@ async function generateItemDesc(e) {
 
 function combineDesc() {
   const ai = document.getElementById('ni-ai-text').value.trim();
-  if (!ai) { showToast('先に紹介文を生成してください'); return; }
+  if (!ai) { niShowValidation('先に紹介文を生成してください', 'desc', 'ni-ai-text'); return; }
   const selId = document.getElementById('ni-template-select')?.value;
-  if (!selId) { showToast('テンプレートを選択してください'); return; }
+  if (!selId) { niShowValidation('テンプレートを選択してください', 'desc', 'ni-template-select'); return; }
   const templates = loadTemplates();
   const t = templates.find(x => x.id === selId);
-  if (!t) { showToast('テンプレートが見つかりません'); return; }
+  if (!t) { niShowValidation('テンプレートが見つかりません', 'desc', 'ni-template-select'); return; }
   document.getElementById('ni-ai-text').value = ai + '\n\n' + t.body;
   showToast('テンプレートと結合しました');
 }
@@ -2851,11 +3110,12 @@ function upsertScheduleFromItem(item) {
 
 function saveNewItem() {
   const title = document.getElementById('ni-title').value.trim();
-  if (!title) { showToast('商品タイトルを入力してください'); switchItemTab('price'); return; }
+  if (!title) { niShowValidation('商品タイトルを入力してください', 'price', 'ni-title'); return; }
   const descTabEl = document.getElementById('item-tab-desc');
   if (descTabEl && !descTabEl.classList.contains('hidden')) syncNiCategoryFromDesc();
   else syncNiCategoryFromMain();
   const min = parseInt(document.getElementById('ni-minprice').value)||0;
+  if (min < 300) { niShowValidation('最低価格は300円以上で入力してください', 'price', 'ni-minprice'); return; }
   const buf = parseInt(document.getElementById('ni-buffer').value)||0;
   const startPrice = min + buf;
   const images = JSON.parse(document.getElementById('new-item-modal').dataset.images||'[]');
@@ -4554,6 +4814,205 @@ function openAccountModal() {
   if (el) el.classList.add('open');
 }
 
+function furimoraRenderOnboarding() {
+  const total = FURIMORA_ONBOARDING_STEPS.length;
+  const idx = Math.max(0, Math.min(total - 1, furimoraOnboardingStep));
+  const step = FURIMORA_ONBOARDING_STEPS[idx];
+  const stepLabel = document.getElementById('onboarding-step-label');
+  const titleEl = document.getElementById('onboarding-title');
+  const bodyEl = document.getElementById('onboarding-body');
+  const dots = document.getElementById('onboarding-dots');
+  const prevBtn = document.getElementById('onboarding-prev-btn');
+  const nextBtn = document.getElementById('onboarding-next-btn');
+  if (stepLabel) stepLabel.textContent = `STEP ${idx + 1} / ${total}`;
+  if (titleEl) titleEl.textContent = step.title;
+  if (bodyEl) bodyEl.textContent = step.body;
+  if (dots) {
+    dots.innerHTML = FURIMORA_ONBOARDING_STEPS.map((_, i) =>
+      `<span class="h-1.5 rounded-full transition-all ${i === idx ? 'w-6 bg-primary' : 'w-2 bg-surface-container-highest'}"></span>`
+    ).join('');
+  }
+  if (prevBtn) {
+    prevBtn.disabled = idx === 0;
+    prevBtn.classList.toggle('opacity-40', idx === 0);
+  }
+  if (nextBtn) nextBtn.textContent = idx === total - 1 ? 'はじめる' : '次へ';
+}
+
+function furimoraOpenOnboarding() {
+  const el = document.getElementById('onboarding-modal');
+  if (!el) return;
+  furimoraOnboardingStep = 0;
+  furimoraRenderOnboarding();
+  el.classList.add('open');
+}
+
+function furimoraFinishOnboarding() {
+  localStorage.setItem(FURIMORA_ONBOARDING_DONE_KEY, '1');
+  closeModal('onboarding-modal');
+  if (!localStorage.getItem(FURIMORA_COACHMARK_DONE_KEY)) {
+    setTimeout(() => furimoraOpenCoachmark(), 120);
+  }
+}
+
+function furimoraSkipOnboarding() {
+  furimoraFinishOnboarding();
+}
+
+function furimoraPrevOnboarding() {
+  if (furimoraOnboardingStep <= 0) return;
+  furimoraOnboardingStep -= 1;
+  furimoraRenderOnboarding();
+}
+
+function furimoraNextOnboarding() {
+  const total = FURIMORA_ONBOARDING_STEPS.length;
+  if (furimoraOnboardingStep >= total - 1) {
+    furimoraFinishOnboarding();
+    return;
+  }
+  furimoraOnboardingStep += 1;
+  furimoraRenderOnboarding();
+}
+
+function furimoraClearCoachmarkHighlight() {
+  if (!furimoraCoachmarkHighlightedEl) return;
+  furimoraCoachmarkHighlightedEl.classList.remove('coach-highlight');
+  furimoraCoachmarkHighlightedEl = null;
+}
+
+function furimoraApplyCoachmarkTarget(step) {
+  furimoraClearCoachmarkHighlight();
+  if (!step?.page) return;
+  navigate(step.page);
+  if (!step.targetId) return;
+  setTimeout(() => {
+    const el = document.getElementById(step.targetId);
+    if (!el) return;
+    furimoraCoachmarkHighlightedEl = el;
+    el.classList.add('coach-highlight');
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* noop */ }
+  }, 220);
+}
+
+function furimoraRenderCoachmark() {
+  const total = FURIMORA_COACHMARK_STEPS.length;
+  const idx = Math.max(0, Math.min(total - 1, furimoraCoachmarkStep));
+  const step = FURIMORA_COACHMARK_STEPS[idx];
+  const stepLabel = document.getElementById('coachmark-step-label');
+  const titleEl = document.getElementById('coachmark-title');
+  const bodyEl = document.getElementById('coachmark-body');
+  const hintEl = document.getElementById('coachmark-target-hint');
+  const prevBtn = document.getElementById('coachmark-prev-btn');
+  const nextBtn = document.getElementById('coachmark-next-btn');
+  if (stepLabel) stepLabel.textContent = `操作ガイド ${idx + 1} / ${total}`;
+  if (titleEl) titleEl.textContent = step.title;
+  if (bodyEl) bodyEl.textContent = step.body;
+  if (hintEl) hintEl.textContent = `対象: ${step.targetHint || '画面の案内に沿って操作してください'}`;
+  if (prevBtn) {
+    prevBtn.disabled = idx === 0;
+    prevBtn.classList.toggle('opacity-40', idx === 0);
+  }
+  if (nextBtn) nextBtn.textContent = idx === total - 1 ? '完了' : '次へ';
+  furimoraApplyCoachmarkTarget(step);
+}
+
+function furimoraOpenCoachmark() {
+  const el = document.getElementById('coachmark-modal');
+  if (!el) return;
+  furimoraCoachmarkStep = 0;
+  furimoraRenderCoachmark();
+  el.classList.add('open');
+}
+
+function furimoraFinishCoachmark() {
+  localStorage.setItem(FURIMORA_COACHMARK_DONE_KEY, '1');
+  furimoraClearCoachmarkHighlight();
+  closeModal('coachmark-modal');
+  if (!localStorage.getItem(FURIMORA_INITIAL_SETUP_DONE_KEY)) {
+    setTimeout(() => furimoraOpenInitialSetup(), 120);
+  }
+}
+
+function furimoraSkipCoachmark() {
+  furimoraFinishCoachmark();
+}
+
+function furimoraPrevCoachmark() {
+  if (furimoraCoachmarkStep <= 0) return;
+  furimoraCoachmarkStep -= 1;
+  furimoraRenderCoachmark();
+}
+
+function furimoraNextCoachmark() {
+  const total = FURIMORA_COACHMARK_STEPS.length;
+  if (furimoraCoachmarkStep >= total - 1) {
+    furimoraFinishCoachmark();
+    return;
+  }
+  furimoraCoachmarkStep += 1;
+  furimoraRenderCoachmark();
+}
+
+function furimoraOpenInitialSetup() {
+  const modal = document.getElementById('initial-setup-modal');
+  if (!modal) return;
+  const mkSel = document.getElementById('initial-setup-marketplace');
+  const shSel = document.getElementById('initial-setup-shipping');
+  const discountCb = document.getElementById('initial-setup-push-discount');
+  const relistCb = document.getElementById('initial-setup-push-relist');
+  if (mkSel) {
+    mkSel.innerHTML = MARKETPLACE_OPTIONS.map((x) => `<option value="${x.id}">${x.name}</option>`).join('');
+    const def = getDefaultMarketplace();
+    mkSel.value = def?.id || MARKETPLACE_OPTIONS[0]?.id || '';
+  }
+  if (shSel) {
+    shSel.innerHTML = SHIPPING_METHOD_OPTIONS.map((x) => `<option value="${x.id}">${x.name}</option>`).join('');
+    const def = getDefaultShippingMethod();
+    shSel.value = def?.id || SHIPPING_METHOD_OPTIONS[0]?.id || '';
+  }
+  const auto = furimoraGetAutomationSettings();
+  if (discountCb) discountCb.checked = Boolean(auto.pushDiscountEnabled);
+  if (relistCb) relistCb.checked = Boolean(auto.pushRelistEnabled);
+  modal.classList.add('open');
+}
+
+function furimoraFinishInitialSetup() {
+  localStorage.setItem(FURIMORA_INITIAL_SETUP_DONE_KEY, '1');
+  closeModal('initial-setup-modal');
+}
+
+function furimoraSkipInitialSetup() {
+  furimoraFinishInitialSetup();
+}
+
+function furimoraApplyInitialSetup() {
+  const mkSel = document.getElementById('initial-setup-marketplace');
+  const shSel = document.getElementById('initial-setup-shipping');
+  const discountCb = document.getElementById('initial-setup-push-discount');
+  const relistCb = document.getElementById('initial-setup-push-relist');
+  const mkId = mkSel?.value || '';
+  const shId = shSel?.value || '';
+  if (mkId) {
+    MARKETPLACE_OPTIONS = MARKETPLACE_OPTIONS.map((x) => ({ ...x, isDefault: x.id === mkId }));
+  }
+  if (shId) {
+    SHIPPING_METHOD_OPTIONS = SHIPPING_METHOD_OPTIONS.map((x) => ({ ...x, isDefault: x.id === shId }));
+  }
+  saveCommerceSettings();
+  renderCommerceSettings();
+  const latest = furimoraGetAutomationSettings();
+  furimoraSaveAutomationSettings({
+    ...latest,
+    pushEnabled: true,
+    pushDiscountEnabled: Boolean(discountCb?.checked),
+    pushRelistEnabled: Boolean(relistCb?.checked),
+  });
+  furimoraInitAutomationToggles();
+  furimoraFinishInitialSetup();
+  showToast('初期設定を保存しました');
+}
+
 /** セッション解除＋この端末の furimora データ・Supabase ストレージ・DL フォルダ IDB を消去し、ログインモーダルを開く */
 async function furimoraPerformFullLogout() {
   document.querySelectorAll('.modal-overlay.open').forEach((el) => el.classList.remove('open'));
@@ -5106,6 +5565,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
   furimoraInitSupabase().then(() => { furimoraWireSyncButtons(); });
+  if (!localStorage.getItem(FURIMORA_ONBOARDING_DONE_KEY)) {
+    setTimeout(() => furimoraOpenOnboarding(), 250);
+  } else if (!localStorage.getItem(FURIMORA_COACHMARK_DONE_KEY)) {
+    setTimeout(() => furimoraOpenCoachmark(), 300);
+  } else if (!localStorage.getItem(FURIMORA_INITIAL_SETUP_DONE_KEY)) {
+    setTimeout(() => furimoraOpenInitialSetup(), 350);
+  }
 
   // 前回選択したダウンロードフォルダを復元
   _loadHandleFromIDB().then(handle => {
