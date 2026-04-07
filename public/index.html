@@ -836,6 +836,8 @@ tailwind.config = {
           <div class="flex flex-wrap gap-2">
             <button type="button" id="sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
             <button type="button" id="sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
+            <button type="button" id="sync-enable-webpush-btn" class="px-4 py-2 rounded-full bg-tertiary/10 text-tertiary font-bold text-xs">通知を有効化</button>
+            <button type="button" id="sync-test-webpush-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">通知テスト</button>
             <button type="button" id="sync-logout-btn" class="min-h-[44px] px-4 py-2.5 rounded-full text-error font-bold text-sm touch-manipulation">ログアウト</button>
           </div>
         </div>
@@ -1424,6 +1426,8 @@ tailwind.config = {
       <div class="flex flex-wrap gap-2">
         <button type="button" id="modal-sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
         <button type="button" id="modal-sync-pull-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">クラウドから取得</button>
+        <button type="button" id="modal-sync-enable-webpush-btn" class="px-4 py-2 rounded-full bg-tertiary/10 text-tertiary font-bold text-xs">通知を有効化</button>
+        <button type="button" id="modal-sync-test-webpush-btn" class="px-4 py-2 rounded-full bg-surface-container font-bold text-xs">通知テスト</button>
         <button type="button" id="modal-sync-logout-btn" class="min-h-[44px] px-4 py-2.5 rounded-full text-error font-bold text-sm touch-manipulation">ログアウト</button>
       </div>
     </div>
@@ -1494,6 +1498,7 @@ const FURIMORA_SYNC_KEYS = [
 let furimoraSupabaseClient = null;
 let furimoraSyncPushTimer = null;
 let furimoraSyncAfterLoginLastTs = 0;
+let furimoraWebPushVapidPublicKey = '';
 /** 最後にクラウドの版（updated_at）を取り込んだ／push で確定した時刻（ローカル編集時刻とは別。多段末同期の判定に使う） */
 const FURIMORA_SYNC_LAST_REMOTE_AT = 'furimora_sync_last_remote_at';
 
@@ -4515,6 +4520,75 @@ function furimoraSyncUpdateUI(session) {
   }
 }
 
+function furimoraUrlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function furimoraEnsureWebPushSubscription(showToastOnSuccess = true) {
+  if (!furimoraSupabaseClient) throw new Error('not ready');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('unsupported');
+  if (!('Notification' in window)) throw new Error('notification unsupported');
+  if (!furimoraWebPushVapidPublicKey) throw new Error('missing vapid key');
+
+  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
+  if (!session?.user?.id) throw new Error('not signed in');
+
+  const permission = Notification.permission === 'granted'
+    ? 'granted'
+    : await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('permission denied');
+
+  const reg = await navigator.serviceWorker.ready;
+  let subscription = await reg.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: furimoraUrlBase64ToUint8Array(furimoraWebPushVapidPublicKey),
+    });
+  }
+
+  const payload = subscription.toJSON ? subscription.toJSON() : subscription;
+  const endpoint = payload?.endpoint || subscription.endpoint;
+  if (!endpoint) throw new Error('invalid subscription');
+
+  const { error } = await furimoraSupabaseClient
+    .from('user_push_subscriptions')
+    .upsert({
+      user_id: session.user.id,
+      endpoint,
+      subscription: payload,
+      user_agent: navigator.userAgent || '',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,endpoint' });
+  if (error) throw error;
+
+  if (showToastOnSuccess) showToast('この端末で通知を有効化しました');
+  return subscription;
+}
+
+async function furimoraSendWebPushTest() {
+  const subscription = await furimoraEnsureWebPushSubscription(false);
+  const res = await fetch('/api/push-send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription: subscription.toJSON ? subscription.toJSON() : subscription,
+      title: 'フリモーラ',
+      body: 'Web Push テスト通知です',
+      url: '/',
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.ok) {
+    throw new Error(body?.error || 'push send failed');
+  }
+}
+
 async function furimoraInitSupabase() {
   try {
     const r = await fetch('/api/public-config');
@@ -4531,6 +4605,7 @@ async function furimoraInitSupabase() {
       furimoraSyncSetBadge('error', '失敗');
       return;
     }
+    furimoraWebPushVapidPublicKey = cfg.webPushVapidPublicKey || '';
     furimoraSupabaseClient = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
       auth: {
         flowType: 'pkce',
@@ -4610,6 +4685,23 @@ function furimoraWireSyncButtons() {
     showToast('クラウドに保存しました');
   });
   document.getElementById('sync-pull-btn')?.addEventListener('click', () => furimoraForcePullFromCloud().catch((e) => console.error(e)));
+  document.getElementById('sync-enable-webpush-btn')?.addEventListener('click', async () => {
+    try {
+      await furimoraEnsureWebPushSubscription(true);
+    } catch (e) {
+      console.error(e);
+      showToast('通知の有効化に失敗しました: ' + (e?.message || e));
+    }
+  });
+  document.getElementById('sync-test-webpush-btn')?.addEventListener('click', async () => {
+    try {
+      await furimoraSendWebPushTest();
+      showToast('テスト通知を送信しました');
+    } catch (e) {
+      console.error(e);
+      showToast('テスト通知に失敗しました: ' + (e?.message || e));
+    }
+  });
   document.getElementById('sync-logout-btn')?.addEventListener('click', () => {
     furimoraPerformFullLogout().catch((e) => console.error(e));
   });
@@ -4660,6 +4752,23 @@ function furimoraWireSyncButtons() {
     showToast('クラウドに保存しました');
   });
   document.getElementById('modal-sync-pull-btn')?.addEventListener('click', () => furimoraForcePullFromCloud().catch((e) => console.error(e)));
+  document.getElementById('modal-sync-enable-webpush-btn')?.addEventListener('click', async () => {
+    try {
+      await furimoraEnsureWebPushSubscription(true);
+    } catch (e) {
+      console.error(e);
+      showToast('通知の有効化に失敗しました: ' + (e?.message || e));
+    }
+  });
+  document.getElementById('modal-sync-test-webpush-btn')?.addEventListener('click', async () => {
+    try {
+      await furimoraSendWebPushTest();
+      showToast('テスト通知を送信しました');
+    } catch (e) {
+      console.error(e);
+      showToast('テスト通知に失敗しました: ' + (e?.message || e));
+    }
+  });
   document.getElementById('modal-sync-logout-btn')?.addEventListener('click', () => {
     furimoraPerformFullLogout().catch((e) => console.error(e));
   });
