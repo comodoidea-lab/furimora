@@ -4697,6 +4697,7 @@ function enableTapClearNumberInputs(modalId) {
   root.addEventListener('pointerdown', (e) => {
     const input = e.target.closest('input[type="number"]');
     if (!input || input.readOnly || input.disabled) return;
+    input.dataset.tapToClearPrevValue = input.value;
     input.dataset.tapToClearArmed = '1';
   });
   root.addEventListener('focusin', (e) => {
@@ -4706,15 +4707,27 @@ function enableTapClearNumberInputs(modalId) {
       input.dataset.tapToClearArmed = '0';
       if (input.value !== '') {
         input.value = '';
+        input.dataset.tapToClearCleared = '1';
         // 既存 oninput ロジック（利益計算など）を再評価
         input.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }
   });
+  root.addEventListener('input', (e) => {
+    const input = e.target.closest('input[type="number"]');
+    if (!input) return;
+    if ((input.value || '').trim() !== '') input.dataset.tapToClearCleared = '0';
+  });
   root.addEventListener('focusout', (e) => {
     const input = e.target.closest('input[type="number"]');
     if (!input) return;
+    if (input.dataset.tapToClearCleared === '1' && (input.value || '').trim() === '') {
+      input.value = input.dataset.tapToClearPrevValue || '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     input.dataset.tapToClearArmed = '0';
+    input.dataset.tapToClearCleared = '0';
+    input.dataset.tapToClearPrevValue = '';
   });
 }
 
