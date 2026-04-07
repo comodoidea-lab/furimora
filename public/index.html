@@ -1642,6 +1642,8 @@ const FURIMORA_SYNC_KEYS = [
   'furimora_stats', 'furimora_profile', 'furimora_templates', 'furimora_drafts',
   'furimora_marketplaces', 'furimora_shipping_methods', 'furimora_suppliers', 'furimora_automation_settings',
 ];
+// 旧クライアント互換用（新クライアントでは基本的に取り込まない）
+const FURIMORA_LEGACY_SYNC_WRITE_KEYS = ['furimora_items'];
 let furimoraSupabaseClient = null;
 let furimoraSyncPushTimer = null;
 let furimoraSyncPollTimer = null;
@@ -4858,8 +4860,9 @@ function copyToClipboard(msg) {
 // ── Supabase クラウド同期 ──
 function furimoraCollectSyncPayload() {
   const keys = {};
-  for (let i = 0; i < FURIMORA_SYNC_KEYS.length; i++) {
-    const k = FURIMORA_SYNC_KEYS[i];
+  const writeKeys = [...FURIMORA_SYNC_KEYS, ...FURIMORA_LEGACY_SYNC_WRITE_KEYS];
+  for (let i = 0; i < writeKeys.length; i++) {
+    const k = writeKeys[i];
     const v = localStorage.getItem(k);
     if (v != null) keys[k] = v;
   }
@@ -4871,7 +4874,15 @@ function furimoraApplySyncPayload(payload) {
   const ks = Object.keys(payload.keys);
   for (let i = 0; i < ks.length; i++) {
     const k = ks[i];
-    if (FURIMORA_SYNC_KEYS.indexOf(k) === -1) continue;
+    if (k === 'furimora_items') {
+      // 新方式（user_items差分同期）への移行中:
+      // 旧スナップショットの items は、ローカルに items が空の時だけ初期移行として受け入れる
+      let curItems = [];
+      try { curItems = JSON.parse(localStorage.getItem('furimora_items') || '[]'); } catch { curItems = []; }
+      if (Array.isArray(curItems) && curItems.length > 0) continue;
+    } else if (FURIMORA_SYNC_KEYS.indexOf(k) === -1) {
+      continue;
+    }
     let v = payload.keys[k];
     if (v != null && typeof v !== 'string') v = JSON.stringify(v);
     localStorage.setItem(k, v);
