@@ -4689,7 +4689,7 @@ async function furimoraPushToCloud() {
   const { data, error } = await furimoraSupabaseClient
     .from('user_app_state')
     .upsert(
-      { user_id: session.user.id, payload, updated_at: new Date().toISOString() },
+      { user_id: session.user.id, payload },
       { onConflict: 'user_id' }
     )
     .select('updated_at')
