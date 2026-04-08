@@ -836,8 +836,12 @@ tailwind.config = {
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">バックアップ・復元（推奨）</p>
       </div>
       <div class="px-5 py-4 space-y-4">
-        <p class="text-[11px] text-on-surface-variant leading-relaxed">JSON ファイルとして保存します。Google ドライブ等へは手動でアップロードし、同じファイルを別端末で選んで復元できます（ファイルは平文のため、共有先には注意してください）。</p>
-        <button type="button" id="backup-export-btn" class="w-full py-3 rounded-full bg-signature-gradient text-white font-bold text-sm shadow-lg active:scale-[0.98] transition-transform">バックアップをダウンロード</button>
+        <p class="text-[11px] text-on-surface-variant leading-relaxed">JSON として保存します。端末にダウンロードするか、下の「Google ドライブに保存」でクラウドへ直接アップロードできます（ホスト側で Drive 連携を設定している場合のみ表示）。別端末では同じ JSON を「復元」で読み込めます（平文のため共有先には注意してください）。</p>
+        <div class="flex flex-col gap-2">
+          <button type="button" id="backup-export-btn" class="w-full py-3 rounded-full bg-signature-gradient text-white font-bold text-sm shadow-lg active:scale-[0.98] transition-transform">バックアップをダウンロード</button>
+          <button type="button" id="backup-export-drive-btn" class="hidden w-full py-3 rounded-full border border-surface-container-highest font-bold text-sm active:scale-[0.98] transition-transform">Google ドライブに保存</button>
+        </div>
+        <p class="text-[10px] text-on-surface-variant leading-relaxed hidden" id="backup-drive-hint">初回のみ Google アカウントの許可が求められます（このアプリが作成したファイルにのみアクセスします）。</p>
         <div class="border-t border-surface-container pt-4 space-y-3">
           <p class="text-[10px] font-bold text-on-surface-variant">復元</p>
           <input type="file" id="backup-import-file" accept=".json,application/json" class="hidden"/>
@@ -1689,6 +1693,9 @@ const FURIMORA_ITEMS_TOMBSTONES_KEY = 'furimora_items_tombstones';
 const FURIMORA_SUPABASE_AUTO_SYNC_KEY = 'furimora_supabase_auto_sync';
 const FURIMORA_BACKUP_FORMAT = 'furimora_backup_v1';
 let furimoraBackupImportFile = null;
+let furimoraGoogleDriveClientId = '';
+let furimoraGsiDriveTokenClient = null;
+let furimoraDriveTokenPending = null;
 const FURIMORA_PUSH_SENT_ALERT_IDS = 'furimora_push_sent_alert_ids';
 const FURIMORA_AUTOMATION_SETTINGS_KEY = 'furimora_automation_settings';
 const FURIMORA_DEFAULT_AUTOMATION_SETTINGS = {
@@ -1784,6 +1791,84 @@ function furimoraApplyBackupPayload(backupRoot) {
     if (v != null && typeof v !== 'string') v = JSON.stringify(v);
     if (typeof v === 'string') localStorage.setItem(k, v);
   }
+}
+
+function furimoraRefreshBackupDriveButton() {
+  const btn = document.getElementById('backup-export-drive-btn');
+  const hint = document.getElementById('backup-drive-hint');
+  if (btn) btn.classList.toggle('hidden', !furimoraGoogleDriveClientId);
+  if (hint) hint.classList.toggle('hidden', !furimoraGoogleDriveClientId);
+}
+
+function furimoraEnsureGsiScript() {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.defer = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Google サインインの読み込みに失敗しました'));
+    document.head.appendChild(s);
+  });
+}
+
+function furimoraRequestDriveAccessToken() {
+  return new Promise((resolve, reject) => {
+    if (!furimoraGoogleDriveClientId) {
+      reject(new Error('Google ドライブ連携が未設定です'));
+      return;
+    }
+    furimoraEnsureGsiScript()
+      .then(() => {
+        if (!furimoraGsiDriveTokenClient) {
+          furimoraGsiDriveTokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: furimoraGoogleDriveClientId,
+            scope: 'https://www.googleapis.com/auth/drive.file',
+            callback: (resp) => {
+              const p = furimoraDriveTokenPending;
+              furimoraDriveTokenPending = null;
+              if (!p) return;
+              if (resp.error) p.reject(new Error(resp.error));
+              else if (resp.access_token) p.resolve(resp.access_token);
+              else p.reject(new Error('アクセストークンを取得できませんでした'));
+            },
+          });
+        }
+        furimoraDriveTokenPending = { resolve, reject };
+        furimoraGsiDriveTokenClient.requestAccessToken({ prompt: '' });
+      })
+      .catch(reject);
+  });
+}
+
+async function furimoraUploadBackupToGoogleDrive(accessToken, fileName, jsonBody) {
+  const boundary = `furimoraDrive${Date.now()}`;
+  const meta = JSON.stringify({ name: fileName });
+  const body =
+    `--${boundary}\r\n` +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    meta +
+    `\r\n--${boundary}\r\n` +
+    'Content-Type: application/json\r\n\r\n' +
+    jsonBody +
+    `\r\n--${boundary}--`;
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body,
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = await res.text();
+    } catch (e) { /* ignore */ }
+    throw new Error(detail || res.statusText || String(res.status));
+  }
+  return res.json();
 }
 
 function furimoraSaveAutomationSettings(settings) {
@@ -5803,6 +5888,9 @@ async function furimoraInitSupabase() {
   try {
     const r = await fetch('/api/public-config');
     const cfg = await r.json();
+    furimoraGoogleDriveClientId = (cfg && cfg.googleDriveClientId) || '';
+    furimoraRefreshBackupDriveButton();
+
     if (!cfg || !cfg.configured) {
       furimoraSyncSetStatus('未設定（ホストに SUPABASE_URL / SUPABASE_ANON_KEY を設定してください）');
       furimoraSyncSetBadge('error', '未設定');
@@ -5838,6 +5926,8 @@ async function furimoraInitSupabase() {
     if (session && furimoraGetSupabaseAutoSync()) await furimoraSyncAfterLogin();
   } catch (e) {
     console.error(e);
+    furimoraGoogleDriveClientId = '';
+    furimoraRefreshBackupDriveButton();
     furimoraSyncSetStatus('同期設定の読み込みに失敗しました');
     furimoraSyncSetBadge('error', '失敗');
   }
@@ -5868,6 +5958,21 @@ function furimoraWireBackupButtons() {
     } catch (e) {
       console.error(e);
       showToast('エクスポートに失敗しました');
+    }
+  });
+
+  document.getElementById('backup-export-drive-btn')?.addEventListener('click', async () => {
+    if (!furimoraGoogleDriveClientId) return;
+    try {
+      const token = await furimoraRequestDriveAccessToken();
+      const payload = furimoraCollectBackupPayload();
+      const json = JSON.stringify(payload, null, 2);
+      const stamp = new Date().toISOString().slice(0, 10);
+      await furimoraUploadBackupToGoogleDrive(token, `furimora-backup-${stamp}.json`, json);
+      showToast('Google ドライブに保存しました');
+    } catch (e) {
+      console.error(e);
+      showToast('保存に失敗しました: ' + (e?.message || e));
     }
   });
 
