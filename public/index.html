@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <meta name="apple-mobile-web-app-title" content="フリモーラ"/>
 <meta name="description" content="メルカリ出品を自動化・最適化するアシスタントツール"/>
-<title>フリモーラ | 再出品・値下げ自動化</title>
+<title>フリモーラ | 在庫・出品管理</title>
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" type="image/png" href="icons/icon-48.png?v=4"/>
 <link rel="apple-touch-icon" href="icons/icon-192.png?v=4"/>
@@ -249,7 +249,7 @@ tailwind.config = {
       <span class="material-symbols-outlined text-xl">add_box</span>AI出品
     </button>
     <button onclick="navigate('relist')" data-nav="relist" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
-      <span class="material-symbols-outlined text-xl">autorenew</span>再出品・値下げ
+      <span class="material-symbols-outlined text-xl">autorenew</span>在庫・出品管理
     </button>
     <button onclick="navigate('schedule')" data-nav="schedule" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
       <span class="material-symbols-outlined text-xl">calendar_month</span>スケジュール
@@ -487,12 +487,9 @@ tailwind.config = {
     <!-- Step 2 -->
     <div id="clone-step-2" class="hidden space-y-4">
 
-      <!-- 使い方ガイド + いいね数 -->
-      <div class="flex items-center gap-3">
-        <div class="flex-1 bg-tertiary/8 border border-tertiary/20 rounded-xl px-4 py-3 text-xs text-tertiary font-medium leading-relaxed">
-          各フィールドの「コピー」ボタンでテキストをコピー → メルカリの出品フォームに貼り付けてください。
-        </div>
-        <div id="likes-count-badge" class="hidden flex-shrink-0 flex flex-col items-center justify-center bg-surface-container-lowest rounded-xl px-4 py-3 shadow-sm min-w-[72px]">
+      <!-- いいね数（データがあるときのみ表示） -->
+      <div id="likes-count-row" class="hidden justify-end">
+        <div id="likes-count-badge" class="flex flex-col items-center justify-center bg-surface-container-lowest rounded-xl px-4 py-3 shadow-sm min-w-[72px]">
           <span class="material-symbols-outlined text-xl text-rose-400 icon-filled">favorite</span>
           <span id="likes-count-value" class="font-headline font-black text-lg leading-none mt-0.5">0</span>
           <span class="text-[10px] text-on-surface-variant">いいね</span>
@@ -694,11 +691,21 @@ tailwind.config = {
         <button onclick="setItemFilter('relisted')" id="filter-relisted" class="item-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant">再出品済</button>
         <button onclick="setItemFilter('sold')" id="filter-sold" class="item-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant">売却済</button>
       </div>
-      <div class="flex gap-2">
-        <div class="flex-1 relative">
+      <div class="flex gap-2 items-center">
+        <div class="flex-1 relative min-w-0">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
           <input id="items-search" type="text" placeholder="タイトル検索..." oninput="renderItems()"
             class="w-full bg-surface-container-lowest border-none rounded-full py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none shadow-sm"/>
+        </div>
+        <div class="inline-flex rounded-xl border border-surface-container-high bg-surface-container-low p-0.5 flex-shrink-0" role="group" aria-label="表示切替">
+          <button type="button" id="items-view-list-btn" onclick="setItemsViewMode('list')" title="リスト表示"
+            class="p-2 rounded-lg transition-colors text-on-surface-variant hover:bg-surface-container" aria-pressed="true">
+            <span class="material-symbols-outlined text-xl leading-none">view_list</span>
+          </button>
+          <button type="button" id="items-view-grid-btn" onclick="setItemsViewMode('grid')" title="グリッド表示"
+            class="p-2 rounded-lg transition-colors text-on-surface-variant hover:bg-surface-container" aria-pressed="false">
+            <span class="material-symbols-outlined text-xl leading-none">grid_view</span>
+          </button>
         </div>
         <button onclick="exportItemsCSV()" class="px-4 py-2.5 bg-surface-container-lowest rounded-full text-xs font-bold shadow-sm hover:bg-surface-container flex items-center gap-1.5 flex-shrink-0">
           <span class="material-symbols-outlined text-sm">download</span>CSV
@@ -1073,11 +1080,14 @@ tailwind.config = {
 </main>
 
 <!-- 新規出品アシスタント Modal -->
-<div id="new-item-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('new-item-modal')">
-  <div class="modal-sheet max-h-[92vh] overflow-y-auto w-full pb-24" style="max-width:480px">
-    <div class="flex items-center justify-between mb-3">
-      <h3 class="font-headline font-bold text-lg" id="ni-modal-title">新規出品</h3>
-      <button onclick="closeModal('new-item-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container">
+<div id="new-item-modal" class="modal-overlay" data-ni-mode="new" onclick="if(event.target===this)closeModal('new-item-modal')">
+  <div class="modal-sheet max-h-[92vh] overflow-y-auto w-full pb-24 border-l-0 border-transparent" style="max-width:480px">
+    <div class="flex items-start justify-between gap-2 mb-2">
+      <div class="min-w-0">
+        <h3 class="font-headline font-bold text-lg" id="ni-modal-title">新規出品</h3>
+        <p class="text-[11px] text-on-surface-variant font-medium mt-0.5" id="ni-modal-subtitle">出品データを登録</p>
+      </div>
+      <button onclick="closeModal('new-item-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container shrink-0">
         <span class="material-symbols-outlined text-lg">close</span>
       </button>
     </div>
@@ -1090,7 +1100,7 @@ tailwind.config = {
         </button>
         <button onclick="switchItemTab('desc')" id="tab-desc" class="item-tab-btn rounded-xl border border-surface-container-highest bg-surface-container-low px-2 py-2 text-left">
           <p class="text-[10px] font-black text-on-surface-variant">STEP 2</p>
-          <p class="text-xs font-bold text-on-surface-variant">説明文</p>
+          <p class="text-xs font-bold text-on-surface-variant" id="tab-desc-sub">説明文</p>
         </button>
         <button onclick="switchItemTab('schedule')" id="tab-schedule" class="item-tab-btn rounded-xl border border-surface-container-highest bg-surface-container-low px-2 py-2 text-left">
           <p class="text-[10px] font-black text-on-surface-variant">STEP 3</p>
@@ -1135,6 +1145,18 @@ tailwind.config = {
             </div>
           </div>
         </div>
+      </div>
+      <div id="ni-local-images-section" class="rounded-xl border border-surface-container-high bg-surface-container-low/50 p-3 space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">商品画像（任意）</p>
+          <input type="file" id="ni-image-input" accept="image/*" multiple class="hidden" onchange="onNiLocalImagesSelected(event)"/>
+          <button type="button" onclick="document.getElementById('ni-image-input').click()"
+            class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full flex items-center gap-1 hover:bg-primary/15 transition-colors">
+            <span class="material-symbols-outlined text-sm">add_photo_alternate</span>追加
+          </button>
+        </div>
+        <p class="text-[10px] text-on-surface-variant leading-relaxed">クローン作成なしでも写真を登録できます。端末の保存容量にご注意ください。</p>
+        <div id="ni-image-previews" class="grid grid-cols-4 gap-2 min-h-0"></div>
       </div>
       <div>
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">価格・経費</p>
@@ -1225,6 +1247,54 @@ tailwind.config = {
 
     <!-- Tab: 説明文 -->
     <div id="item-tab-desc" class="hidden space-y-4">
+      <!-- 再出品: メルカリ貼り付け用 -->
+      <div id="ni-relist-mercari-block" class="hidden space-y-4 pb-4 border-b border-surface-container">
+        <div class="bg-tertiary-container/35 border border-tertiary/25 rounded-xl px-3 py-2.5 text-xs text-on-surface font-medium leading-relaxed flex items-start gap-2">
+          <span class="material-symbols-outlined text-tertiary text-lg shrink-0 icon-filled">check_circle</span>
+          <span>各フィールドの「コピー」ボタンでテキストをコピー → メルカリの出品フォームに貼り付けてください。</span>
+        </div>
+        <div id="ni-relist-photo-wrap" class="space-y-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <h4 class="text-xs font-bold text-on-surface-variant uppercase tracking-wider"><span id="ni-relist-photo-count-label">商品写真（0枚）</span></h4>
+            <button type="button" id="ni-relist-save-all-btn" onclick="downloadNiRelistPhotos()"
+              class="text-[11px] text-white font-bold flex items-center gap-1 bg-signature-gradient px-3 py-1.5 rounded-full shadow-sm hover:opacity-90 transition-opacity disabled:opacity-50">
+              <span class="material-symbols-outlined text-sm">download</span>全写真を保存
+            </button>
+          </div>
+          <p class="text-[10px] text-on-surface-variant">※ 元の出品を削除すると画像URLが無効になることがあります。再出品前に保存してください。</p>
+          <div id="ni-relist-thumbs" class="grid grid-cols-4 sm:grid-cols-5 gap-2"></div>
+          <p id="ni-relist-no-photos" class="text-[11px] text-on-surface-variant/70 hidden">保存された商品画像がありません（クローンで取り込んだ画像がここに表示されます）。</p>
+        </div>
+        <div class="space-y-3">
+          <div class="bg-surface-container-low rounded-xl p-3 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold text-on-surface-variant">商品名</span>
+              <button type="button" onclick="niCopyRelistTitle()" class="text-[11px] text-primary font-bold flex items-center gap-1 bg-primary/8 px-3 py-1 rounded-full hover:bg-primary/15">コピー</button>
+            </div>
+            <p id="ni-relist-copy-title-preview" class="text-sm font-medium line-clamp-2 break-words"></p>
+          </div>
+          <div class="bg-surface-container-low rounded-xl p-3 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold text-on-surface-variant">価格（円）</span>
+              <button type="button" onclick="niCopyRelistPrice()" class="text-[11px] text-primary font-bold flex items-center gap-1 bg-primary/8 px-3 py-1 rounded-full hover:bg-primary/15">コピー</button>
+            </div>
+            <p id="ni-relist-copy-price-preview" class="text-lg font-headline font-bold text-primary"></p>
+          </div>
+          <div class="bg-surface-container-low rounded-xl p-3 space-y-2">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span class="text-xs font-bold text-on-surface-variant">（AIで改善）商品説明</span>
+              <div class="flex gap-2">
+                <button type="button" onclick="improveNiRelistDescription()" class="text-[11px] text-on-surface-variant font-bold flex items-center gap-1 bg-surface-container px-3 py-1 rounded-full hover:bg-surface-container-high">
+                  <span class="material-symbols-outlined text-sm">auto_fix_high</span>AIで改善
+                </button>
+                <button type="button" onclick="niCopyRelistDescription()" class="text-[11px] text-primary font-bold flex items-center gap-1 bg-primary/8 px-3 py-1 rounded-full hover:bg-primary/15">コピー</button>
+              </div>
+            </div>
+            <p id="ni-relist-desc-preview" class="text-[11px] text-on-surface-variant line-clamp-4 whitespace-pre-wrap break-words max-h-28 overflow-y-auto"></p>
+          </div>
+        </div>
+      </div>
+
       <div>
         <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">AI説明文生成</p>
         <p class="text-[11px] text-on-surface-variant mb-3">商品タイトルから紹介文を自動生成し、テンプレートと結合して完全な説明文を作ります。</p>
@@ -1250,7 +1320,7 @@ tailwind.config = {
       </div>
       <div>
         <label class="text-xs font-semibold text-on-surface-variant">AI生成 紹介文（編集可）</label>
-        <textarea id="ni-ai-text" rows="5" placeholder="ここにAI生成テキストが表示されます..."
+        <textarea id="ni-ai-text" rows="5" placeholder="ここにAI生成テキストが表示されます..." oninput="syncNiRelistCopyPreviews()"
           class="mt-1 w-full bg-surface-container border-none rounded-xl px-4 py-3 text-sm outline-none resize-none"></textarea>
       </div>
       <div>
@@ -1627,7 +1697,7 @@ tailwind.config = {
   </button>
   <button onclick="navigate('relist')" data-nav="relist" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
     <span class="material-symbols-outlined text-xl">autorenew</span>
-    <span class="text-[9px] font-semibold tracking-tight">再出品</span>
+    <span class="text-[9px] font-semibold tracking-tight">在庫</span>
   </button>
   <button onclick="navigate('schedule')" data-nav="schedule" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
     <span class="material-symbols-outlined text-xl">calendar_month</span>
@@ -2280,6 +2350,12 @@ let discountInputMode = 'yen';
 /** 出品一覧「…」メニュー対象 ID */
 let itemMenuTargetId = null;
 let itemUrlEditId = null;
+/** 在庫一覧: 'list' | 'grid' */
+let itemsViewMode = 'list';
+try {
+  const _iv = localStorage.getItem('furimora_items_view');
+  if (_iv === 'grid' || _iv === 'list') itemsViewMode = _iv;
+} catch {}
 /** item-confirm-modal: 'sold' | 'delete' */
 let itemConfirmType = null;
 let itemConfirmId = null;
@@ -2698,12 +2774,14 @@ function syncNiTitleFromMain() {
   const m = document.getElementById('ni-title');
   const d = document.getElementById('ni-desc-title');
   if (m && d) d.value = m.value;
+  syncNiRelistCopyPreviews();
 }
 
 function syncNiTitleFromDesc() {
   const m = document.getElementById('ni-title');
   const d = document.getElementById('ni-desc-title');
   if (m && d) m.value = d.value;
+  syncNiRelistCopyPreviews();
 }
 
 function niShowValidation(message, tab = 'price', focusId = '') {
@@ -2720,6 +2798,53 @@ function niShowValidation(message, tab = 'price', focusId = '') {
   setTimeout(() => {
     try { el.focus(); } catch (e) { /* noop */ }
   }, 60);
+}
+
+function niGetStartPriceFromForm() {
+  const min = parseInt(document.getElementById('ni-minprice')?.value, 10) || 0;
+  const buf = parseInt(document.getElementById('ni-buffer')?.value, 10) || 0;
+  return min + buf;
+}
+
+function syncNiRelistCopyPreviews() {
+  if (!niRelistMode) return;
+  const t = document.getElementById('ni-relist-copy-title-preview');
+  const p = document.getElementById('ni-relist-copy-price-preview');
+  const d = document.getElementById('ni-relist-desc-preview');
+  const title = (document.getElementById('ni-title')?.value || '').trim();
+  const desc = document.getElementById('ni-ai-text')?.value || '';
+  const price = niGetStartPriceFromForm();
+  if (t) t.textContent = title || '—';
+  if (p) p.textContent = '¥' + price.toLocaleString();
+  if (d) d.textContent = desc.trim() ? desc : '（説明文がありません）';
+}
+
+function refreshNiRelistThumbs() {
+  const host = document.getElementById('ni-relist-thumbs');
+  const cntLbl = document.getElementById('ni-relist-photo-count-label');
+  const emptyEl = document.getElementById('ni-relist-no-photos');
+  if (!host) return;
+  let urls = [];
+  try {
+    urls = JSON.parse(document.getElementById('new-item-modal')?.dataset?.images || '[]');
+  } catch {
+    urls = [];
+  }
+  if (!Array.isArray(urls)) urls = [];
+  const n = urls.length;
+  if (cntLbl) cntLbl.textContent = `商品写真（${n}枚）`;
+  host.innerHTML = urls
+    .map(
+      (url, i) => `
+    <div class="relative aspect-square rounded-lg overflow-hidden bg-surface-container border border-surface-container-high">
+      <img src="${String(url).replace(/"/g, '&quot;')}" alt="" class="w-full h-full object-cover" onerror="this.style.display='none';this.parentElement.querySelector('.ni-ph-fallback')?.classList.remove('hidden')"/>
+      <span class="ni-ph-fallback hidden absolute inset-0 flex items-center justify-center text-[10px] text-on-surface-variant font-bold">${i + 1}</span>
+      <span class="absolute bottom-0.5 right-0.5 text-[9px] font-bold bg-black/50 text-white px-1 rounded pointer-events-none">写真${i + 1}</span>
+    </div>`
+    )
+    .join('');
+  if (emptyEl) emptyEl.classList.toggle('hidden', n > 0);
+  host.classList.toggle('hidden', n === 0);
 }
 
 function parseMercariUrlInput(raw) {
@@ -2849,25 +2974,62 @@ function renderItems() {
 
   const el = document.getElementById('items-list');
   if (!el) return;
+  el.className = itemsViewMode === 'grid'
+    ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3'
+    : 'space-y-3';
   if (!filtered.length) {
-    el.innerHTML = `<div class="text-center py-12 text-on-surface-variant/50 bg-surface-container-lowest rounded-lg">
+    el.className = 'space-y-3';
+    el.innerHTML = `<div class="text-center py-12 text-on-surface-variant/50 bg-surface-container-lowest rounded-lg col-span-full">
       <span class="material-symbols-outlined text-4xl block mb-2">inventory_2</span>
       <p class="text-sm font-medium">${ITEMS.length ? '該当する商品はありません' : '商品がまだ登録されていません'}</p>
       <p class="text-xs mt-1">${ITEMS.length ? '' : '「新規出品」ボタンから商品を追加してください'}</p>
     </div>`; return;
   }
+  const statusMap = { active:'出品中', relisted:'再出品済', sold:'売却済', pending:'準備中' };
+  const statusCls = { active:'bg-tertiary-container text-on-tertiary-container', relisted:'bg-primary/10 text-primary', sold:'bg-surface-container-highest text-on-surface-variant', pending:'bg-surface-container text-on-surface-variant' };
   el.innerHTML = filtered.map(item => {
     const days = getDaysSinceListed(item.listedAt);
     const daysBadge = days >= 60 ? `<span class="text-[10px] font-bold text-error">● ${days}日</span>`
       : days >= 30 ? `<span class="text-[10px] font-bold text-primary">▲ ${days}日</span>`
       : `<span class="text-[10px] text-on-surface-variant">${days}日</span>`;
-    const statusMap = { active:'出品中', relisted:'再出品済', sold:'売却済', pending:'準備中' };
-    const statusCls = { active:'bg-tertiary-container text-on-tertiary-container', relisted:'bg-primary/10 text-primary', sold:'bg-surface-container-highest text-on-surface-variant', pending:'bg-surface-container text-on-surface-variant' };
     const thumb = item.images?.[0]
       ? `<img src="${item.images[0]}" class="w-full h-full object-cover pointer-events-none" onerror="this.style.display='none'">`
-      : `<span class="material-symbols-outlined text-2xl text-on-surface-variant/30 pointer-events-none">image</span>`;
+      : `<span class="material-symbols-outlined text-3xl text-on-surface-variant/30 pointer-events-none">image</span>`;
     const hasMercari = !!mercariListingUrl(item);
     const thumbTitle = hasMercari ? 'メルカリで開く' : 'URLを設定（タップ）';
+    const curP = Number(item.currentPrice) || 0;
+    const startP = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || 0;
+    const showDisc = startP > curP && curP >= 0;
+    const pct = showDisc && startP > 0 ? Math.round((1 - curP / startP) * 100) : null;
+    const discHtml = showDisc
+      ? `<span class="text-[10px] text-on-surface-variant line-through">¥${startP.toLocaleString()}</span>${pct != null ? `<span class="text-[10px] font-bold text-error">${pct}%</span>` : ''}`
+      : '';
+    if (itemsViewMode === 'grid') {
+      const thumbBox = `<div class="w-full aspect-square rounded-t-xl overflow-hidden bg-surface-container flex items-center justify-center cursor-pointer hover:opacity-95 active:scale-[0.99] transition-all" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
+      return `<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col border border-surface-container-high/80">
+        ${thumbBox}
+        <div class="p-2.5 flex-1 flex flex-col min-h-0 gap-1">
+          <div class="flex items-start justify-between gap-1">
+            <h4 class="text-xs font-bold leading-snug line-clamp-2 flex-1">${item.title}</h4>
+            <span class="${statusCls[item.status]||''} text-[9px] font-bold px-1.5 py-0.5 rounded-sm flex-shrink-0">${statusMap[item.status]||''}</span>
+          </div>
+          ${item.category ? `<span class="text-[9px] text-on-surface-variant/80 line-clamp-1">${item.category}</span>` : ''}
+          <p class="text-[10px] text-on-surface-variant line-clamp-1">${item.condition||''}</p>
+          <div class="flex items-end justify-between gap-1 flex-wrap mt-auto pt-1">
+            <div class="flex flex-col min-w-0">
+              <span class="font-headline font-bold text-base text-primary leading-none">¥${curP.toLocaleString()}</span>
+              ${discHtml ? `<div class="flex items-center gap-1 mt-0.5">${discHtml}</div>` : ''}
+            </div>
+            ${daysBadge}
+          </div>
+          <div class="flex flex-wrap gap-1.5 mt-2">
+            <button onclick="openRelistItemModal(${item.id})" class="flex-1 min-w-[72px] text-[10px] font-bold text-white bg-signature-gradient px-2 py-1.5 rounded-full">再出品</button>
+            <button onclick="openDiscountItemModal(${item.id})" class="flex-1 min-w-[72px] text-[10px] font-bold text-primary bg-primary/10 px-2 py-1.5 rounded-full">値下げ</button>
+            <button type="button" data-item-more-btn onclick="toggleItemMoreMenu(event, ${item.id})" class="text-[10px] font-bold text-on-surface-variant bg-surface-container px-2 py-1.5 rounded-full min-w-[2.5rem]">…</button>
+          </div>
+        </div>
+      </div>`;
+    }
     const thumbBox = `<div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all ring-0 hover:ring-2 hover:ring-primary/30" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
     return `<div class="bg-surface-container-lowest rounded-lg p-3.5 flex items-center gap-3 shadow-sm">
       ${thumbBox}
@@ -2877,8 +3039,9 @@ function renderItems() {
           <span class="${statusCls[item.status]||''} text-[10px] font-bold px-2 py-0.5 rounded-sm flex-shrink-0 ml-1">${statusMap[item.status]||''}</span>
         </div>
         <p class="text-[11px] text-on-surface-variant">${item.condition||''}</p>
-        <div class="flex items-center gap-2 mt-1">
-          <span class="font-headline font-bold text-base text-primary">¥${Number(item.currentPrice||0).toLocaleString()}</span>
+        <div class="flex items-center gap-2 mt-1 flex-wrap">
+          <span class="font-headline font-bold text-base text-primary">¥${curP.toLocaleString()}</span>
+          ${showDisc ? `<span class="text-[11px] text-on-surface-variant line-through">¥${startP.toLocaleString()}</span>${pct != null ? `<span class="text-[10px] font-bold text-error">${pct}%</span>` : ''}` : ''}
           ${daysBadge}
         </div>
       </div>
@@ -2892,12 +3055,34 @@ function renderItems() {
 }
 
 function setNiModalMode(relist) {
+  const modal = document.getElementById('new-item-modal');
+  const sheet = modal?.querySelector('.modal-sheet');
+  if (modal) modal.dataset.niMode = relist ? 'relist' : 'new';
+  if (sheet) {
+    sheet.classList.toggle('border-l-4', !!relist);
+    sheet.classList.toggle('border-primary', !!relist);
+    sheet.classList.toggle('pl-2', !!relist);
+  }
+  const subEl = document.getElementById('ni-modal-subtitle');
+  if (subEl) subEl.textContent = relist ? 'メルカリに再掲載する手順' : '出品データを登録';
   const titleEl = document.getElementById('ni-modal-title');
   const labelEl = document.getElementById('ni-save-btn-label');
   const iconEl = document.getElementById('ni-save-btn-icon');
-  if (titleEl) titleEl.textContent = relist ? '再出品' : '新規出品';
+  if (titleEl) titleEl.textContent = relist ? '再出品アシスタント' : '新規出品';
   if (labelEl) labelEl.textContent = relist ? '再出品を確定' : '出品一覧に追加';
   if (iconEl) iconEl.textContent = relist ? 'autorenew' : 'playlist_add';
+  const descSub = document.getElementById('tab-desc-sub');
+  if (descSub) descSub.textContent = relist ? 'メルカリ連携' : '説明文';
+  const relistBlock = document.getElementById('ni-relist-mercari-block');
+  if (relistBlock) relistBlock.classList.toggle('hidden', !relist);
+  const localImgSec = document.getElementById('ni-local-images-section');
+  if (localImgSec) localImgSec.classList.toggle('hidden', !!relist);
+  if (relist) {
+    refreshNiRelistThumbs();
+    syncNiRelistCopyPreviews();
+  } else {
+    renderNiImagePreviews();
+  }
 }
 
 function openRelistItemModal(id) {
@@ -2906,7 +3091,6 @@ function openRelistItemModal(id) {
   if (!item) return;
   niEditId = id;
   niRelistMode = true;
-  setNiModalMode(true);
   document.getElementById('ni-title').value = item.title || '';
   document.getElementById('ni-cost').value = item.costPrice ?? 0;
   const minP = Number(item.minPrice) || 0;
@@ -2941,6 +3125,7 @@ function openRelistItemModal(id) {
     nm.dataset.mercariUrl = (item.mercariUrl || item.url || '').trim();
     nm.dataset.mercariItemId = item.mercariItemId != null ? String(item.mercariItemId) : (item.itemId != null ? String(item.itemId) : '');
   }
+  setNiModalMode(true);
   if (!item.marketplaceId) onNiMarketplaceChange();
   if (!item.shippingMethodId) onNiShippingMethodChange();
   switchItemTab('price');
@@ -3242,6 +3427,7 @@ function openNewItemModal(draftData) {
   onNiMarketplaceChange();
   onNiShippingMethodChange();
   switchItemTab('price'); calcItemPrice();
+  renderNiImagePreviews();
   document.getElementById('new-item-modal').classList.add('open');
 }
 
@@ -3273,8 +3459,8 @@ function switchItemTab(tab) {
   const prevBtn = document.getElementById('ni-step-prev-btn');
   const nextBtn = document.getElementById('ni-step-next-btn');
   if (hintEl) {
-    if (tab === 'price') hintEl.textContent = 'まず価格と利益を決めます';
-    if (tab === 'desc') hintEl.textContent = '次に説明文を整えます';
+    if (tab === 'price') hintEl.textContent = niRelistMode ? '価格・利益を確認します' : 'まず価格と利益を決めます';
+    if (tab === 'desc') hintEl.textContent = niRelistMode ? 'メルカリ出品フォームへコピー＆貼り付け' : '次に説明文を整えます';
     if (tab === 'schedule') hintEl.textContent = '最後に値下げ予定を確認します';
   }
   if (prevBtn) {
@@ -3287,14 +3473,19 @@ function switchItemTab(tab) {
     const isLast = currentIdx >= order.length - 1;
     nextBtn.disabled = isLast;
     nextBtn.classList.toggle('opacity-40', isLast);
-    if (tab === 'price') nextBtn.textContent = '次へ: 説明文';
+    if (tab === 'price') nextBtn.textContent = niRelistMode ? '次へ: メルカリ連携' : '次へ: 説明文';
     else if (tab === 'desc') nextBtn.textContent = '次へ: スケジュール';
     else nextBtn.textContent = '保存へ';
     const nextTab = order[Math.min(order.length - 1, currentIdx + 1)];
     nextBtn.onclick = () => switchItemTab(nextTab);
   }
-  if (tab === 'desc') syncNiCategoryFromMain();
-  else if (tab === 'price') syncNiCategoryFromDesc();
+  if (tab === 'desc') {
+    syncNiCategoryFromMain();
+    if (niRelistMode) {
+      refreshNiRelistThumbs();
+      syncNiRelistCopyPreviews();
+    }
+  } else if (tab === 'price') syncNiCategoryFromDesc();
   if (tab === 'schedule') updateNiScheduleTab();
 }
 
@@ -3326,6 +3517,7 @@ function calcItemPrice() {
   set('ni-minprice-hint','¥'+min.toLocaleString());
   set('ni-profit-min','¥'+profitMin.toLocaleString());
   updateNiScheduleTab();
+  syncNiRelistCopyPreviews();
 }
 
 /** 価格タブ・スケジュール欄の入力に連動した値下げプレビュー */
@@ -3477,6 +3669,7 @@ async function generateItemDesc(e) {
   const tag = title.replace(/[\s　]+/g,'');
   document.getElementById('ni-ai-text').value = `${title}を出品します。\n不要になったためお譲りします。大切に使用しておりましたが、素人検品のためご了承ください。\n\n#${tag} #${category.replace(/\s*[/／]\s*/g,'').replace(/\s+/g,'')} #メルカリ`;
   btn.innerHTML = orig; btn.disabled = false;
+  syncNiRelistCopyPreviews();
   showToast('紹介文を生成しました');
 }
 
@@ -3489,6 +3682,7 @@ function combineDesc() {
   const t = templates.find(x => x.id === selId);
   if (!t) { niShowValidation('テンプレートが見つかりません', 'desc', 'ni-template-select'); return; }
   document.getElementById('ni-ai-text').value = ai + '\n\n' + t.body;
+  syncNiRelistCopyPreviews();
   showToast('テンプレートと結合しました');
 }
 
@@ -4688,15 +4882,17 @@ function showCloneStep2(data) {
   }
 
   // いいね数
-  const likesBadge = document.getElementById('likes-count-badge');
+  const likesRow = document.getElementById('likes-count-row');
   const likesVal = document.getElementById('likes-count-value');
   if (data.likesCount > 0) {
     likesVal.textContent = data.likesCount;
-    likesBadge.classList.remove('hidden');
-    likesBadge.classList.add('flex');
-  } else {
-    likesBadge.classList.add('hidden');
-    likesBadge.classList.remove('flex');
+    if (likesRow) {
+      likesRow.classList.remove('hidden');
+      likesRow.classList.add('flex');
+    }
+  } else if (likesRow) {
+    likesRow.classList.add('hidden');
+    likesRow.classList.remove('flex');
   }
 }
 
@@ -4720,18 +4916,45 @@ function copyField(id) {
   }).catch(() => showToast('コピーに失敗しました'));
 }
 
-async function downloadAllImages() {
-  const imgs = (clonedData.images && clonedData.images.length)
-    ? clonedData.images
-    : (clonedData.thumbnailUrl ? [clonedData.thumbnailUrl] : []);
-  if (!imgs.length) { showToast('画像がありません'); return; }
+async function fetchImageBlobFromSource(url, baseUrl, signal) {
+  const s = String(url || '');
+  if (!s) return null;
+  if (s.startsWith('data:')) {
+    try {
+      const res = await fetch(s);
+      return res.ok ? await res.blob() : null;
+    } catch {
+      return null;
+    }
+  }
+  const proxyUrl = `${baseUrl}/api/image-proxy?url=${encodeURIComponent(s)}`;
+  const res = await fetch(proxyUrl, signal ? { signal } : {});
+  if (!res.ok) return null;
+  return res.blob();
+}
 
-  const btn = document.getElementById('open-all-img-btn');
-  const origHtml = btn.innerHTML;
-  btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span>取得中...';
-  btn.disabled = true;
+function guessImageExtFromUrl(url) {
+  const s = String(url || '');
+  if (s.startsWith('data:image/')) {
+    const m = s.match(/^data:image\/([a-z0-9+]+);/i);
+    return ((m && m[1]) ? m[1] : 'jpg').replace(/\+/g, '').substring(0, 4);
+  }
+  return (s.split('.').pop().split('?')[0] || 'jpg').substring(0, 4);
+}
 
-  const itemId = clonedData.itemId || 'item';
+async function downloadMercariImagesPack(imgs, folderKeyRaw, triggerBtn) {
+  if (!imgs || !imgs.length) {
+    showToast('画像がありません');
+    return;
+  }
+  const btn = triggerBtn;
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span>取得中...';
+    btn.disabled = true;
+  }
+
+  const itemId = folderKeyRaw || 'item';
   const useFolderPerItem = document.getElementById('folder-per-item-toggle')?.classList.contains('on') ?? true;
   let count = 0;
 
@@ -4739,7 +4962,6 @@ async function downloadAllImages() {
     ? PRIMARY_WEB_ORIGIN
     : '';
 
-  // File System Access API（フォルダが選択済みの場合）
   if (downloadDirHandle) {
     try {
       const perm = await downloadDirHandle.queryPermission({ mode: 'readwrite' });
@@ -4751,11 +4973,9 @@ async function downloadAllImages() {
 
       for (let i = 0; i < imgs.length; i++) {
         try {
-          const proxyUrl = `${baseUrl}/api/image-proxy?url=${encodeURIComponent(imgs[i])}`;
-          const res = await fetch(proxyUrl);
-          if (!res.ok) continue;
-          const blob = await res.blob();
-          const ext = (imgs[i].split('.').pop().split('?')[0] || 'jpg').substring(0, 4);
+          const blob = await fetchImageBlobFromSource(imgs[i], baseUrl, null);
+          if (!blob) continue;
+          const ext = guessImageExtFromUrl(imgs[i]);
           const filename = `${String(i + 1).padStart(2, '0')}.${ext}`;
           const fileHandle = await targetDir.getFileHandle(filename, { create: true });
           const writable = await fileHandle.createWritable();
@@ -4765,8 +4985,10 @@ async function downloadAllImages() {
         } catch (e) {}
       }
       const folderPath = useFolderPerItem ? `${downloadDirHandle.name}/${itemId}` : downloadDirHandle.name;
-      btn.innerHTML = `<span class="material-symbols-outlined text-sm">check</span>${count}枚保存済`;
-      setTimeout(() => { btn.innerHTML = origHtml; btn.disabled = false; }, 3000);
+      if (btn) {
+        btn.innerHTML = `<span class="material-symbols-outlined text-sm">check</span>${count}枚保存済`;
+        setTimeout(() => { btn.innerHTML = origHtml; btn.disabled = false; }, 3000);
+      }
       showToast(`${count}枚を ${folderPath}/ に保存しました`);
       return;
     } catch (err) {
@@ -4774,11 +4996,12 @@ async function downloadAllImages() {
     }
   }
 
-  // フォールバック: ZIP にまとめて1回だけダウンロード（モバイルで枚数分の OS プレビューを避ける）
   if (typeof JSZip === 'undefined') {
     showToast('ZIP用ライブラリの読み込みに失敗しました。ページを再読み込みしてください');
-    btn.innerHTML = origHtml;
-    btn.disabled = false;
+    if (btn) {
+      btn.innerHTML = origHtml;
+      btn.disabled = false;
+    }
     return;
   }
 
@@ -4806,11 +5029,9 @@ async function downloadAllImages() {
 
     for (let i = 0; i < imgs.length; i++) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      const proxyUrl = `${baseUrl}/api/image-proxy?url=${encodeURIComponent(imgs[i])}`;
-      const res = await fetch(proxyUrl, { signal });
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      const ext = (imgs[i].split('.').pop().split('?')[0] || 'jpg').substring(0, 4);
+      const blob = await fetchImageBlobFromSource(imgs[i], baseUrl, signal);
+      if (!blob) continue;
+      const ext = guessImageExtFromUrl(imgs[i]);
       const filename = `${String(i + 1).padStart(2, '0')}.${ext}`;
       folder.file(filename, blob);
       count++;
@@ -4821,8 +5042,10 @@ async function downloadAllImages() {
     if (count === 0) {
       showToast('画像の取得に失敗しました');
       cancelCloneZipDownload();
-      btn.innerHTML = origHtml;
-      btn.disabled = false;
+      if (btn) {
+        btn.innerHTML = origHtml;
+        btn.disabled = false;
+      }
       return;
     }
 
@@ -4847,7 +5070,9 @@ async function downloadAllImages() {
     cloneZipPreparedFileName = zipName;
     if (saveBtn) saveBtn.classList.remove('hidden');
     if (cancelBtn) cancelBtn.textContent = '閉じる';
-    btn.innerHTML = `<span class="material-symbols-outlined text-sm">check</span>${count}枚をZIPで保存`;
+    if (btn) {
+      btn.innerHTML = `<span class="material-symbols-outlined text-sm">check</span>${count}枚をZIPで保存`;
+    }
     const phaseEl = document.getElementById('clone-zip-phase');
     if (phaseEl) phaseEl.textContent = 'ZIP準備完了。下の「保存を開始」を押してください。';
   } catch (e) {
@@ -4860,11 +5085,154 @@ async function downloadAllImages() {
     cancelCloneZipDownload();
   } finally {
     cloneZipAbortController = null;
-    const delay = zipErr && zipErr.name === 'AbortError' ? 0 : 0;
-    setTimeout(() => { btn.innerHTML = origHtml; btn.disabled = false; }, delay);
+    setTimeout(() => {
+      if (btn) {
+        btn.innerHTML = origHtml;
+        btn.disabled = false;
+      }
+    }, 0);
     const cb = document.getElementById('clone-zip-cancel-btn');
     if (cb) cb.disabled = false;
   }
+}
+
+async function downloadAllImages() {
+  const imgs = (clonedData.images && clonedData.images.length)
+    ? clonedData.images
+    : (clonedData.thumbnailUrl ? [clonedData.thumbnailUrl] : []);
+  await downloadMercariImagesPack(imgs, clonedData.itemId || 'item', document.getElementById('open-all-img-btn'));
+}
+
+function niCopyRelistTitle() {
+  const v = document.getElementById('ni-title')?.value || '';
+  navigator.clipboard.writeText(v).then(() => showToast('商品名をコピーしました')).catch(() => showToast('コピーに失敗しました'));
+}
+
+function niCopyRelistPrice() {
+  const n = niGetStartPriceFromForm();
+  navigator.clipboard.writeText(String(n)).then(() => showToast('価格をコピーしました')).catch(() => showToast('コピーに失敗しました'));
+}
+
+function niCopyRelistDescription() {
+  const v = document.getElementById('ni-ai-text')?.value || '';
+  navigator.clipboard.writeText(v).then(() => showToast('説明文をコピーしました')).catch(() => showToast('コピーに失敗しました'));
+}
+
+async function improveNiRelistDescription() {
+  const desc = document.getElementById('ni-ai-text');
+  if (!desc) return;
+  const title = (document.getElementById('ni-title')?.value || document.getElementById('ni-desc-title')?.value || '').trim();
+  const orig = desc.value;
+  desc.value = '✨ AI改善中...';
+  await new Promise((r) => setTimeout(r, 1200));
+  desc.value = `【${title || '商品'}】\n\n${orig}\n\n◆ 商品の特徴\n・丁寧に使用しておりましたが、素人検品のためご了承ください。\n・即購入歓迎\n\n◆ 発送\n・購入後2〜3日以内に発送予定\n・丁寧に梱包してお届けします`;
+  syncNiRelistCopyPreviews();
+  showToast('説明文をAIで改善しました');
+}
+
+function downloadNiRelistPhotos() {
+  let imgs = [];
+  try {
+    imgs = JSON.parse(document.getElementById('new-item-modal')?.dataset?.images || '[]');
+  } catch {
+    imgs = [];
+  }
+  const mid = (document.getElementById('new-item-modal')?.dataset?.mercariItemId || '').trim();
+  const fid = niEditId != null ? String(niEditId) : '';
+  const folderKey = mid || fid || 'relist';
+  downloadMercariImagesPack(imgs, folderKey, document.getElementById('ni-relist-save-all-btn'));
+}
+
+function getNiModalImagesArray() {
+  try {
+    const raw = document.getElementById('new-item-modal')?.dataset?.images;
+    const a = JSON.parse(raw || '[]');
+    return Array.isArray(a) ? a : [];
+  } catch {
+    return [];
+  }
+}
+
+function setNiModalImagesArray(arr) {
+  const nm = document.getElementById('new-item-modal');
+  if (nm) nm.dataset.images = JSON.stringify(Array.isArray(arr) ? arr : []);
+  renderNiImagePreviews();
+}
+
+function renderNiImagePreviews() {
+  const host = document.getElementById('ni-image-previews');
+  if (!host) return;
+  const urls = getNiModalImagesArray();
+  host.innerHTML = urls
+    .map(
+      (url, i) => `
+    <div class="relative aspect-square rounded-lg overflow-hidden bg-surface-container border border-surface-container-high">
+      <img src="${String(url).replace(/"/g, '&quot;')}" alt="" class="w-full h-full object-cover"/>
+      <button type="button" onclick="removeNiLocalImage(${i})" class="absolute top-0.5 right-0.5 w-6 h-6 rounded-full bg-black/55 text-white text-xs font-bold flex items-center justify-center hover:bg-black/75" aria-label="削除">×</button>
+    </div>`
+    )
+    .join('');
+}
+
+function removeNiLocalImage(index) {
+  const urls = getNiModalImagesArray();
+  urls.splice(index, 1);
+  setNiModalImagesArray(urls);
+}
+
+function onNiLocalImagesSelected(ev) {
+  const files = ev.target?.files;
+  if (!files || !files.length) return;
+  const urls = getNiModalImagesArray();
+  let pending = files.length;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    if (!f.type.startsWith('image/')) {
+      pending--;
+      if (pending <= 0) {
+        ev.target.value = '';
+      }
+      continue;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result) urls.push(String(reader.result));
+      pending--;
+      if (pending <= 0) {
+        setNiModalImagesArray(urls);
+        ev.target.value = '';
+      }
+    };
+    reader.onerror = () => {
+      pending--;
+      if (pending <= 0) {
+        setNiModalImagesArray(urls);
+        ev.target.value = '';
+      }
+    };
+    reader.readAsDataURL(f);
+  }
+}
+
+function setItemsViewMode(mode) {
+  if (mode !== 'grid' && mode !== 'list') return;
+  itemsViewMode = mode;
+  try {
+    localStorage.setItem('furimora_items_view', mode);
+  } catch {}
+  const lb = document.getElementById('items-view-list-btn');
+  const gb = document.getElementById('items-view-grid-btn');
+  if (lb) {
+    lb.classList.toggle('bg-primary/15', mode === 'list');
+    lb.classList.toggle('text-primary', mode === 'list');
+    lb.setAttribute('aria-pressed', mode === 'list' ? 'true' : 'false');
+  }
+  if (gb) {
+    gb.classList.toggle('bg-primary/15', mode === 'grid');
+    gb.classList.toggle('text-primary', mode === 'grid');
+    gb.setAttribute('aria-pressed', mode === 'grid' ? 'true' : 'false');
+  }
+  renderItems();
 }
 
 function updateFeeCalc() {
@@ -6236,6 +6604,7 @@ document.addEventListener('DOMContentLoaded', () => {
   enableTapClearNumberInputs('new-item-modal');
   enableTapClearNumberInputs('discount-item-modal');
   furimoraResetSyncSignature();
+  setItemsViewMode(itemsViewMode);
   navigate('home');
   // 未読通知バッジ
   if (NOTIFICATIONS.length > 0) {
