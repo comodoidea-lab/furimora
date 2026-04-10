@@ -400,14 +400,17 @@ tailwind.config = {
           </button>
         </div>
       </div>
-      <button type="button" onclick="navigate('analytics')" class="stat-card col-span-2 md:col-span-1 flex bg-primary p-5 rounded-lg shadow-lg shadow-primary/30 flex-col justify-between min-h-[120px] text-white relative overflow-hidden text-left w-full cursor-pointer card-interactive">
+      <div class="stat-card col-span-2 md:col-span-1 flex bg-primary p-5 rounded-lg shadow-lg shadow-primary/30 flex-col justify-between min-h-[120px] text-white relative overflow-hidden">
         <div class="absolute -right-3 -top-3 opacity-10 pointer-events-none"><span class="material-symbols-outlined text-7xl">payments</span></div>
         <p class="text-white/70 text-xs font-semibold">今月の利益</p>
         <div>
           <h3 class="font-headline font-black text-2xl tracking-tighter" id="stat-profit">—</h3>
-          <p class="text-white/70 text-[10px] font-medium mt-1">販売手数料後 · タップで収支</p>
+          <p class="text-white/70 text-[10px] font-medium mt-1">販売手数料後</p>
+          <button type="button" onclick="navigate('analytics')" class="text-[10px] text-white font-bold mt-1 flex items-center gap-0.5 hover:underline">
+            タップで収支 <span class="material-symbols-outlined text-xs">chevron_right</span>
+          </button>
         </div>
-      </button>
+      </div>
     </div>
 
     <!-- Quick Actions -->
