@@ -281,14 +281,14 @@ tailwind.config = {
     <button onclick="navigate('clone')" data-nav="clone" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
       <span class="material-symbols-outlined text-xl">content_copy</span>クローン作成
     </button>
-    <button onclick="navigate('listing')" data-nav="listing" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
-      <span class="material-symbols-outlined text-xl">add_box</span>AI出品
-    </button>
     <button onclick="navigate('relist')" data-nav="relist" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
       <span class="material-symbols-outlined text-xl">autorenew</span>在庫・出品管理
     </button>
     <button onclick="navigate('schedule')" data-nav="schedule" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
       <span class="material-symbols-outlined text-xl">calendar_month</span>スケジュール
+    </button>
+    <button onclick="navigate('analytics')" data-nav="analytics" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
+      <span class="material-symbols-outlined text-xl">account_balance</span>収支
     </button>
     <button onclick="navigate('settings')" data-nav="settings" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
       <span class="material-symbols-outlined text-xl">settings</span>設定
@@ -400,12 +400,15 @@ tailwind.config = {
           </button>
         </div>
       </div>
-      <div class="stat-card hidden md:flex bg-primary p-5 rounded-lg shadow-lg shadow-primary/30 flex-col justify-between min-h-[120px] text-white relative overflow-hidden">
-        <div class="absolute -right-3 -top-3 opacity-10"><span class="material-symbols-outlined text-7xl">payments</span></div>
+      <div class="stat-card col-span-2 md:col-span-1 flex bg-primary p-5 rounded-lg shadow-lg shadow-primary/30 flex-col justify-between min-h-[120px] text-white relative overflow-hidden">
+        <div class="absolute -right-3 -top-3 opacity-10 pointer-events-none"><span class="material-symbols-outlined text-7xl">payments</span></div>
         <p class="text-white/70 text-xs font-semibold">今月の利益</p>
         <div>
           <h3 class="font-headline font-black text-2xl tracking-tighter" id="stat-profit">—</h3>
           <p class="text-white/70 text-[10px] font-medium mt-1">販売手数料後</p>
+          <button type="button" onclick="navigate('analytics')" class="text-[10px] text-white font-bold mt-1 flex items-center gap-0.5 hover:underline">
+            タップで収支 <span class="material-symbols-outlined text-xs">chevron_right</span>
+          </button>
         </div>
       </div>
     </div>
@@ -805,6 +808,65 @@ tailwind.config = {
     <button onclick="addScheduleItem()" class="fixed bottom-24 right-5 w-14 h-14 bg-signature-gradient text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-30 md:bottom-8 md:right-8">
       <span class="material-symbols-outlined text-2xl">add</span>
     </button>
+  </section>
+
+  <!-- PAGE: ANALYTICS (収支) -->
+  <section id="page-analytics" class="page px-5 py-6 max-w-5xl mx-auto space-y-6 w-full min-w-0 box-border">
+    <div>
+      <h2 class="font-headline font-black text-2xl tracking-tight">収支</h2>
+      <p class="text-on-surface-variant text-sm mt-1">売却済み商品から利益を集計</p>
+    </div>
+
+    <!-- 本日・今月サマリー -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div class="bg-signature-gradient text-white rounded-2xl p-6 shadow-lg shadow-primary/25 min-h-[140px] flex flex-col justify-between relative overflow-hidden">
+        <div class="absolute -right-4 -top-4 opacity-[0.12] pointer-events-none"><span class="material-symbols-outlined text-8xl">today</span></div>
+        <p class="text-white/80 text-xs font-bold uppercase tracking-wider">本日の合計利益</p>
+        <p class="font-headline font-black text-4xl sm:text-5xl tracking-tight" id="analytics-today-profit">—</p>
+        <p class="text-white/70 text-[11px] mt-1">売却日が本日の売却済み（手数料・経費・仕入控除後）</p>
+      </div>
+      <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-surface-container min-h-[140px] flex flex-col justify-between">
+        <p class="text-on-surface-variant text-xs font-bold uppercase tracking-wider">今月の累計利益</p>
+        <p class="font-headline font-black text-3xl sm:text-4xl text-primary tracking-tight" id="analytics-month-profit">—</p>
+        <p class="text-on-surface-variant text-[11px] mt-1">今月に売却済みとなった商品の合計</p>
+      </div>
+    </div>
+
+    <!-- 仕入先別 -->
+    <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-container overflow-hidden">
+      <div class="px-5 py-3 bg-surface-container-low border-b border-surface-container">
+        <h3 class="font-headline font-bold text-base flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary text-xl">storefront</span>仕入先別の利益内訳
+        </h3>
+      </div>
+      <div id="analytics-supplier-breakdown" class="divide-y divide-surface-container max-h-[280px] overflow-y-auto"></div>
+    </div>
+
+    <!-- 売却済み一覧 -->
+    <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-container overflow-hidden">
+      <div class="px-5 py-3 bg-surface-container-low border-b border-surface-container">
+        <h3 class="font-headline font-bold text-base flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary text-xl">sell</span>売却済み商品一覧
+        </h3>
+        <p class="text-[11px] text-on-surface-variant mt-0.5">新しい順（売却日）</p>
+      </div>
+      <div class="overflow-x-auto -mx-px">
+        <table class="w-full text-sm min-w-[640px]">
+          <thead>
+            <tr class="bg-surface-container/80 text-left text-[11px] font-bold text-on-surface-variant uppercase tracking-wide">
+              <th class="py-3 px-3">商品名</th>
+              <th class="py-3 px-3 whitespace-nowrap">仕入先</th>
+              <th class="py-3 px-3 whitespace-nowrap">販路</th>
+              <th class="py-3 px-3 whitespace-nowrap text-right">売価</th>
+              <th class="py-3 px-3 whitespace-nowrap text-right">利益</th>
+              <th class="py-3 px-3 whitespace-nowrap text-right">利益率</th>
+            </tr>
+          </thead>
+          <tbody id="analytics-sold-table" class="divide-y divide-surface-container"></tbody>
+        </table>
+      </div>
+      <p id="analytics-sold-empty" class="hidden text-center py-10 text-on-surface-variant text-sm">売却済みの商品がありません。在庫一覧で「売却済みにする」と集計されます。</p>
+    </div>
   </section>
 
   <!-- Schedule Add Modal -->
@@ -1727,10 +1789,6 @@ tailwind.config = {
     <span class="material-symbols-outlined text-xl">content_copy</span>
     <span class="text-[9px] font-semibold tracking-tight">クローン</span>
   </button>
-  <button onclick="navigate('listing')" data-nav="listing" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
-    <span class="material-symbols-outlined text-xl">add_box</span>
-    <span class="text-[9px] font-semibold tracking-tight">出品</span>
-  </button>
   <button onclick="navigate('relist')" data-nav="relist" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
     <span class="material-symbols-outlined text-xl">autorenew</span>
     <span class="text-[9px] font-semibold tracking-tight">在庫</span>
@@ -1738,6 +1796,10 @@ tailwind.config = {
   <button onclick="navigate('schedule')" data-nav="schedule" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
     <span class="material-symbols-outlined text-xl">calendar_month</span>
     <span class="text-[9px] font-semibold tracking-tight">スケジュール</span>
+  </button>
+  <button onclick="navigate('analytics')" data-nav="analytics" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
+    <span class="material-symbols-outlined text-xl">account_balance</span>
+    <span class="text-[9px] font-semibold tracking-tight">収支</span>
   </button>
 </nav>
 
@@ -2336,6 +2398,115 @@ function furimoraMonthProfitFromItems(items) {
   return Math.round(sum);
 }
 
+/** 本日（ローカル日付）に売却済みとなった商品の粗利合計 */
+function furimoraTodayProfitFromItems(items) {
+  if (!Array.isArray(items)) return 0;
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = now.getMonth();
+  const d = now.getDate();
+  let sum = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item || item.status !== 'sold') continue;
+    const saleIso = item.soldAt || item.updatedAt;
+    if (!saleIso) continue;
+    const dt = new Date(saleIso);
+    if (Number.isNaN(dt.getTime())) continue;
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo || dt.getDate() !== d) continue;
+    sum += furimoraComputeItemNetProfit(item);
+  }
+  return Math.round(sum);
+}
+
+function furimoraProfitMarginPct(item, profit) {
+  const price = Number(item?.currentPrice) || 0;
+  if (price <= 0) return null;
+  return (profit / price) * 100;
+}
+
+function furimoraEscapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function furimoraSoldItemsSorted(items) {
+  const sold = (items || []).filter((i) => i && i.status === 'sold');
+  sold.sort((a, b) => {
+    const ta = new Date(a.soldAt || a.updatedAt || 0).getTime();
+    const tb = new Date(b.soldAt || b.updatedAt || 0).getTime();
+    return tb - ta;
+  });
+  return sold;
+}
+
+function renderAnalyticsPage() {
+  loadItems();
+  const items = ITEMS || [];
+  const today = furimoraTodayProfitFromItems(items);
+  const month = furimoraMonthProfitFromItems(items);
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  set('analytics-today-profit', '¥' + today.toLocaleString());
+  set('analytics-month-profit', '¥' + month.toLocaleString());
+
+  const soldAll = items.filter((i) => i && i.status === 'sold');
+  const bySup = {};
+  for (let i = 0; i < soldAll.length; i++) {
+    const item = soldAll[i];
+    const key = (item.supplierName && String(item.supplierName).trim()) || '未設定';
+    bySup[key] = (bySup[key] || 0) + furimoraComputeItemNetProfit(item);
+  }
+  const rows = Object.entries(bySup).sort((a, b) => b[1] - a[1]);
+  const supEl = document.getElementById('analytics-supplier-breakdown');
+  if (supEl) {
+    if (!rows.length) {
+      supEl.innerHTML = '<div class="px-5 py-8 text-center text-sm text-on-surface-variant">売却済みがまだありません</div>';
+    } else {
+      supEl.innerHTML = rows.map(([name, amt]) => `
+        <div class="flex items-center justify-between px-5 py-3 gap-3">
+          <span class="text-sm font-bold text-on-surface min-w-0 truncate">${furimoraEscapeHtml(name)}</span>
+          <span class="text-sm font-headline font-black text-primary shrink-0">¥${Math.round(amt).toLocaleString()}</span>
+        </div>`).join('');
+    }
+  }
+
+  const sorted = furimoraSoldItemsSorted(items);
+  const tbody = document.getElementById('analytics-sold-table');
+  const empty = document.getElementById('analytics-sold-empty');
+  if (empty) empty.classList.toggle('hidden', sorted.length > 0);
+  if (tbody) {
+    tbody.innerHTML = sorted.map((item) => {
+      const profit = furimoraComputeItemNetProfit(item);
+      const margin = furimoraProfitMarginPct(item, profit);
+      const title = item.title || '（無題）';
+      const sup = item.supplierName ? String(item.supplierName).trim() : '—';
+      const mk = item.marketplaceName || '—';
+      const price = Number(item.currentPrice) || 0;
+      const marginStr = margin == null ? '—' : `${margin.toFixed(1)}%`;
+      const profitStr = `${profit >= 0 ? '+' : ''}¥${Math.round(profit).toLocaleString()}`;
+      return `<tr class="hover:bg-surface-container-low/60">
+        <td class="py-2.5 px-3 font-medium max-w-[220px]"><span class="line-clamp-2">${furimoraEscapeHtml(title)}</span></td>
+        <td class="py-2.5 px-3 text-on-surface-variant whitespace-nowrap">${furimoraEscapeHtml(sup)}</td>
+        <td class="py-2.5 px-3 text-on-surface-variant whitespace-nowrap">${furimoraEscapeHtml(mk)}</td>
+        <td class="py-2.5 px-3 text-right font-semibold">¥${price.toLocaleString()}</td>
+        <td class="py-2.5 px-3 text-right font-bold ${profit >= 0 ? 'text-tertiary' : 'text-error'}">${profitStr}</td>
+        <td class="py-2.5 px-3 text-right text-on-surface-variant">${marginStr}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+function maybeRenderAnalytics() {
+  const el = document.getElementById('page-analytics');
+  if (el && el.classList.contains('active')) renderAnalyticsPage();
+}
+
 function loadStats() {
   try {
     const s = JSON.parse(localStorage.getItem('furimora_stats') || '{}');
@@ -2347,6 +2518,7 @@ function loadStats() {
     set('stat-relist',   s.relist   != null ? String(s.relist)   : '0');
     const monthProfit = furimoraMonthProfitFromItems(listedItems);
     set('stat-profit', '¥' + monthProfit.toLocaleString());
+    maybeRenderAnalytics();
     const profile = JSON.parse(localStorage.getItem('furimora_profile') || '{}');
     const name = profile.name || 'ゲスト';
     const plan = profile.plan || '無料プラン';
@@ -2761,6 +2933,7 @@ function saveItems() {
   if (tombChanged) furimoraSaveItemTombstones(tombstones);
   localStorage.setItem('furimora_items', JSON.stringify(ITEMS));
   notifyLocalDataChanged();
+  maybeRenderAnalytics();
 }
 
 /** クローン/APIのカテゴリ文字列を出品フォームのセレクト値に寄せる（CD・DVD 混同を避ける） */
@@ -3024,6 +3197,7 @@ function renderItems() {
   const statusMap = { active:'出品中', relisted:'再出品済', sold:'売却済', pending:'準備中' };
   const statusCls = { active:'bg-tertiary-container text-on-tertiary-container', relisted:'bg-primary/10 text-primary', sold:'bg-surface-container-highest text-on-surface-variant', pending:'bg-surface-container text-on-surface-variant' };
   el.innerHTML = filtered.map(item => {
+    const soldMutedCls = item.status === 'sold' ? 'opacity-75 saturate-50' : '';
     const days = getDaysSinceListed(item.listedAt);
     const daysBadge = days >= 60 ? `<span class="text-[10px] font-bold text-error">● ${days}日</span>`
       : days >= 30 ? `<span class="text-[10px] font-bold text-primary">▲ ${days}日</span>`
@@ -3041,8 +3215,8 @@ function renderItems() {
       ? `<span class="text-[10px] text-on-surface-variant line-through">¥${startP.toLocaleString()}</span>${pct != null ? `<span class="text-[10px] font-bold text-error">${pct}%</span>` : ''}`
       : '';
     if (itemsViewMode === 'grid') {
-      const thumbBox = `<div class="w-full aspect-square rounded-t-xl overflow-hidden bg-surface-container flex items-center justify-center cursor-pointer hover:opacity-95 active:scale-[0.99] transition-all" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
-      return `<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col border border-surface-container-high/80 min-w-0">
+      const thumbBox = `<div class="w-full aspect-square rounded-t-xl overflow-hidden bg-surface-container flex items-center justify-center cursor-pointer hover:opacity-95 active:scale-[0.99] transition-all ${item.status === 'sold' ? 'grayscale' : ''}" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
+      return `<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col border border-surface-container-high/80 min-w-0 ${soldMutedCls}">
         ${thumbBox}
         <div class="p-2.5 flex-1 flex flex-col min-h-0 gap-1">
           <div class="flex items-start justify-between gap-1">
@@ -3066,8 +3240,8 @@ function renderItems() {
         </div>
       </div>`;
     }
-    const thumbBox = `<div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all ring-0 hover:ring-2 hover:ring-primary/30" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
-    return `<div class="bg-surface-container-lowest rounded-lg p-3.5 flex items-center gap-3 shadow-sm min-w-0 w-full">
+    const thumbBox = `<div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all ring-0 hover:ring-2 hover:ring-primary/30 ${item.status === 'sold' ? 'grayscale' : ''}" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
+    return `<div class="bg-surface-container-lowest rounded-lg p-3.5 flex items-center gap-3 shadow-sm min-w-0 w-full ${soldMutedCls}">
       ${thumbBox}
       <div class="flex-1 min-w-0">
         <div class="flex items-start justify-between gap-1 mb-0.5">
@@ -3889,6 +4063,21 @@ function exportItemsCSV() {
   a.click(); showToast('CSVをエクスポートしました');
 }
 
+function openNewItemModalFromDraftIndex(index) {
+  let drafts = [];
+  try {
+    drafts = JSON.parse(localStorage.getItem('furimora_drafts') || '[]');
+  } catch {
+    drafts = [];
+  }
+  const d = drafts[index];
+  if (!d) {
+    showToast('下書きが見つかりません');
+    return;
+  }
+  openNewItemModal(d);
+}
+
 function renderListingDrafts() {
   const drafts = JSON.parse(localStorage.getItem('furimora_drafts')||'[]');
   const el = document.getElementById('listing-drafts-list');
@@ -3970,6 +4159,21 @@ async function _loadHandleFromIDB() {
 }
 
 // ── Navigation ──
+function furimoraSyncBrowserPath(page, navOpts = {}) {
+  if (navOpts.skipPath) return;
+  try {
+    const want = page === 'analytics' ? '/analytics' : '/';
+    const cur = window.location.pathname || '/';
+    const norm = (p) => {
+      if (!p || p === '/') return '/';
+      return p.endsWith('/') ? p.slice(0, -1) : p;
+    };
+    if (norm(cur) === norm(want)) return;
+    if (navOpts.replacePath) history.replaceState({ frPage: page }, '', want);
+    else history.pushState({ frPage: page }, '', want);
+  } catch (e) { /* file:// 等 */ }
+}
+
 function navigate(page, navOpts = {}) {
   if (page !== 'clone') {
     cloneIOSPastePendingFetch = false;
@@ -4019,6 +4223,8 @@ function navigate(page, navOpts = {}) {
     renderActivities();
     loadStats();
   }
+  if (page === 'analytics') renderAnalyticsPage();
+  furimoraSyncBrowserPath(page, navOpts);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -5374,11 +5580,15 @@ function renderDrafts() {
         ${d.category ? `<span class="text-[10px] text-on-surface-variant">${d.category}</span>` : ''}
       </div>
       <div class="flex flex-col gap-1.5 flex-shrink-0">
-        <button onclick="loadDraft(${i})"
+        <button type="button" onclick="openNewItemModalFromDraftIndex(${i})"
           class="bg-signature-gradient text-white text-[11px] font-bold px-3 py-1.5 rounded-full hover:scale-105 transition-transform active:scale-95">
+          出品登録
+        </button>
+        <button type="button" onclick="loadDraft(${i})"
+          class="bg-surface-container text-on-surface text-[11px] font-bold px-3 py-1.5 rounded-full hover:bg-surface-container-high transition-transform active:scale-95">
           編集
         </button>
-        <button onclick="deleteDraft(${i})"
+        <button type="button" onclick="deleteDraft(${i})"
           class="bg-surface-container text-on-surface-variant text-[11px] font-bold px-3 py-1.5 rounded-full hover:bg-error-container/30 hover:text-error transition-colors">
           削除
         </button>
@@ -6641,7 +6851,9 @@ document.addEventListener('DOMContentLoaded', () => {
   enableTapClearNumberInputs('discount-item-modal');
   furimoraResetSyncSignature();
   setItemsViewMode(itemsViewMode);
-  navigate('home');
+  const _pathBoot = window.location.pathname || '/';
+  const _bootAnalytics = /\/analytics\/?$/.test(_pathBoot);
+  navigate(_bootAnalytics ? 'analytics' : 'home', { skipPath: true });
   // 未読通知バッジ
   if (NOTIFICATIONS.length > 0) {
     document.querySelectorAll('.notif-badge').forEach(b => b.classList.remove('hidden'));
@@ -6713,6 +6925,12 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => fetchCloneData(), 300);
     }
   }
+
+  window.addEventListener('popstate', () => {
+    const p = window.location.pathname || '/';
+    if (/\/analytics\/?$/.test(p)) navigate('analytics', { skipPath: true });
+    else navigate('home', { skipPath: true });
+  });
 });
 </script>
 </body>

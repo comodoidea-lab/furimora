@@ -2,6 +2,10 @@
   "version": 2,
   "routes": [
     {
+      "src": "^/analytics$",
+      "dest": "/public/index.html"
+    },
+    {
       "src": "/(?!api/)(.*)",
       "dest": "/public/$1"
     }
