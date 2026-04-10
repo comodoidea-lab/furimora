@@ -3197,6 +3197,7 @@ function renderItems() {
   const statusMap = { active:'出品中', relisted:'再出品済', sold:'売却済', pending:'準備中' };
   const statusCls = { active:'bg-tertiary-container text-on-tertiary-container', relisted:'bg-primary/10 text-primary', sold:'bg-surface-container-highest text-on-surface-variant', pending:'bg-surface-container text-on-surface-variant' };
   el.innerHTML = filtered.map(item => {
+    const soldMutedCls = item.status === 'sold' ? 'opacity-75 saturate-50' : '';
     const days = getDaysSinceListed(item.listedAt);
     const daysBadge = days >= 60 ? `<span class="text-[10px] font-bold text-error">● ${days}日</span>`
       : days >= 30 ? `<span class="text-[10px] font-bold text-primary">▲ ${days}日</span>`
@@ -3214,8 +3215,8 @@ function renderItems() {
       ? `<span class="text-[10px] text-on-surface-variant line-through">¥${startP.toLocaleString()}</span>${pct != null ? `<span class="text-[10px] font-bold text-error">${pct}%</span>` : ''}`
       : '';
     if (itemsViewMode === 'grid') {
-      const thumbBox = `<div class="w-full aspect-square rounded-t-xl overflow-hidden bg-surface-container flex items-center justify-center cursor-pointer hover:opacity-95 active:scale-[0.99] transition-all" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
-      return `<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col border border-surface-container-high/80 min-w-0">
+      const thumbBox = `<div class="w-full aspect-square rounded-t-xl overflow-hidden bg-surface-container flex items-center justify-center cursor-pointer hover:opacity-95 active:scale-[0.99] transition-all ${item.status === 'sold' ? 'grayscale' : ''}" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
+      return `<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col border border-surface-container-high/80 min-w-0 ${soldMutedCls}">
         ${thumbBox}
         <div class="p-2.5 flex-1 flex flex-col min-h-0 gap-1">
           <div class="flex items-start justify-between gap-1">
@@ -3239,8 +3240,8 @@ function renderItems() {
         </div>
       </div>`;
     }
-    const thumbBox = `<div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all ring-0 hover:ring-2 hover:ring-primary/30" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
-    return `<div class="bg-surface-container-lowest rounded-lg p-3.5 flex items-center gap-3 shadow-sm min-w-0 w-full">
+    const thumbBox = `<div class="w-14 h-14 rounded-md overflow-hidden bg-surface-container flex-shrink-0 flex items-center justify-center cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all ring-0 hover:ring-2 hover:ring-primary/30 ${item.status === 'sold' ? 'grayscale' : ''}" role="button" tabindex="0" title="${thumbTitle}" onclick="openMercariListingFromItem(${item.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMercariListingFromItem(${item.id});}">${thumb}</div>`;
+    return `<div class="bg-surface-container-lowest rounded-lg p-3.5 flex items-center gap-3 shadow-sm min-w-0 w-full ${soldMutedCls}">
       ${thumbBox}
       <div class="flex-1 min-w-0">
         <div class="flex items-start justify-between gap-1 mb-0.5">
