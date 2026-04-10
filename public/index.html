@@ -210,6 +210,9 @@ tailwind.config = {
     max-width: min(480px, 100vw);
     box-sizing: border-box;
   }
+  #new-item-modal .ni-modal-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
   #new-item-modal #item-tab-price,
   #new-item-modal #item-tab-schedule {
     min-width: 0;
@@ -295,7 +298,7 @@ tailwind.config = {
     </button>
   </nav>
   <div class="mt-4 mx-2">
-    <button onclick="navigate('listing')" class="w-full bg-signature-gradient text-white py-3.5 px-5 rounded-full font-bold text-sm shadow-lg shadow-primary/25 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+    <button type="button" onclick="navigate('relist'); openNewItemModal(null)" class="w-full bg-signature-gradient text-white py-3.5 px-5 rounded-full font-bold text-sm shadow-lg shadow-primary/25 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2">
       <span class="material-symbols-outlined text-xl">add</span>新規出品作成
     </button>
   </div>
@@ -414,8 +417,8 @@ tailwind.config = {
     </div>
 
     <!-- Quick Actions -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-      <button onclick="openNewItemModal(null)" class="bg-surface-container-lowest p-4 rounded-lg shadow-sm flex items-center gap-3 text-left card-interactive">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <button type="button" onclick="navigate('relist'); openNewItemModal(null)" class="bg-surface-container-lowest p-4 rounded-lg shadow-sm flex items-center gap-3 text-left card-interactive">
         <div class="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
           <span class="material-symbols-outlined text-emerald-600">calculate</span>
         </div>
@@ -424,22 +427,13 @@ tailwind.config = {
           <p class="text-[10px] text-on-surface-variant">利益計算から開始</p>
         </div>
       </button>
-      <button onclick="navigate('clone')" class="bg-surface-container-lowest p-4 rounded-lg shadow-sm flex items-center gap-3 text-left card-interactive">
+      <button type="button" onclick="navigate('clone')" class="bg-surface-container-lowest p-4 rounded-lg shadow-sm flex items-center gap-3 text-left card-interactive">
         <div class="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
           <span class="material-symbols-outlined text-primary">content_copy</span>
         </div>
         <div>
           <p class="font-bold text-sm">クローン</p>
           <p class="text-[10px] text-on-surface-variant">URLから下書き作成</p>
-        </div>
-      </button>
-      <button onclick="navigate('listing')" class="bg-surface-container-lowest p-4 rounded-lg shadow-sm flex items-center gap-3 text-left card-interactive">
-        <div class="w-10 h-10 bg-tertiary/10 rounded-lg flex items-center justify-center flex-shrink-0">
-          <span class="material-symbols-outlined text-tertiary">auto_awesome</span>
-        </div>
-        <div>
-          <p class="font-bold text-sm">AI出品</p>
-          <p class="text-[10px] text-on-surface-variant">説明文を自動作成</p>
         </div>
       </button>
     </div>
@@ -640,7 +634,7 @@ tailwind.config = {
       <h3 class="font-headline font-black text-xl">クローン完了！</h3>
       <p class="text-on-surface-variant text-sm">出品の準備ができました。下書きに保存されました。</p>
       <div class="flex gap-3 pt-2">
-        <button onclick="navigate('listing')" class="flex-1 bg-signature-gradient text-white py-3.5 rounded-full font-bold text-sm shadow-lg shadow-primary/20">AI設定で編集</button>
+        <button type="button" onclick="navigate('relist'); openNewItemModal(null)" class="flex-1 bg-signature-gradient text-white py-3.5 rounded-full font-bold text-sm shadow-lg shadow-primary/20">出品登録へ</button>
         <button onclick="resetClone()" class="flex-1 bg-surface-container text-on-surface py-3.5 rounded-full font-bold text-sm">もう1つ作成</button>
       </div>
     </div>
@@ -658,29 +652,6 @@ tailwind.config = {
         </button>
       </div>
       <div id="drafts-list"></div>
-    </div>
-  </section>
-
-  <!-- PAGE: LISTING (出品アシスタント起点) -->
-  <section id="page-listing" class="page px-5 py-6 max-w-2xl mx-auto space-y-5">
-    <div>
-      <h2 class="font-headline font-black text-2xl tracking-tight">新規出品</h2>
-      <p class="text-on-surface-variant text-sm mt-1">価格・説明文・値下げスケジュールを設定して出品リストに追加</p>
-    </div>
-
-    <!-- CTA -->
-    <button onclick="openNewItemModal(null)"
-      class="w-full bg-signature-gradient text-white py-5 rounded-xl font-bold text-base flex items-center justify-center gap-3 shadow-xl shadow-primary/20 hover:scale-[1.01] active:scale-[0.98] transition-all">
-      <span class="material-symbols-outlined text-2xl">add_circle</span>新規出品アシスタントを開く
-    </button>
-
-    <!-- クローン下書きから追加 -->
-    <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden">
-      <div class="px-5 py-3 bg-surface-container-low flex items-center justify-between">
-        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">クローン下書きから出品登録</p>
-        <span id="listing-drafts-count" class="text-xs text-on-surface-variant"></span>
-      </div>
-      <div id="listing-drafts-list" class="divide-y divide-surface-container"></div>
     </div>
   </section>
 
@@ -1179,7 +1150,8 @@ tailwind.config = {
 
 <!-- 新規出品アシスタント Modal -->
 <div id="new-item-modal" class="modal-overlay" data-ni-mode="new" onclick="if(event.target===this)closeModal('new-item-modal')">
-  <div class="modal-sheet max-h-[92vh] overflow-y-auto overflow-x-hidden w-full min-w-0 pb-24 border-l-0 border-transparent" style="max-width:min(480px,100vw)">
+  <div class="modal-sheet max-h-[92vh] flex flex-col overflow-hidden w-full min-w-0 border-l-0 border-transparent" style="max-width:min(480px,100vw)">
+    <div class="flex-shrink-0 px-6 pt-4">
     <div class="flex items-start justify-between gap-2 mb-2">
       <div class="min-w-0">
         <h3 class="font-headline font-bold text-lg" id="ni-modal-title">新規出品</h3>
@@ -1213,7 +1185,9 @@ tailwind.config = {
         </div>
       </div>
     </div>
+    </div>
 
+    <div class="ni-modal-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-6 pb-2">
     <!-- Tab: 価格 -->
     <div id="item-tab-price" class="space-y-4 min-w-0 max-w-full">
       <div>
@@ -1489,12 +1463,13 @@ tailwind.config = {
         </div>
       </div>
     </div>
+    </div>
 
-    <!-- Footer -->
-    <div class="sticky bottom-0 left-0 right-0 z-10 -mx-6 px-6 py-3 mt-6 border-t border-surface-container bg-surface/95 backdrop-blur-sm flex gap-3 min-w-0">
-      <button onclick="closeModal('new-item-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
-      <button onclick="saveNewItem()" class="flex-1 bg-signature-gradient text-white py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2">
-        <span class="material-symbols-outlined text-lg" id="ni-save-btn-icon">playlist_add</span><span id="ni-save-btn-label">出品一覧に追加</span>
+    <!-- Footer（常にモーダル最下部・背面にコンテンツが透けない） -->
+    <div class="flex-shrink-0 border-t border-surface-container bg-surface-container-lowest px-6 py-3 flex gap-3 min-w-0 z-10">
+      <button type="button" onclick="closeModal('new-item-modal')" class="flex-1 py-3 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
+      <button type="button" onclick="saveNewItem()" class="flex-1 bg-signature-gradient text-white py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2">
+        <span class="material-symbols-outlined text-lg" id="ni-save-btn-icon">playlist_add</span><span id="ni-save-btn-label">在庫に追加</span>
       </button>
     </div>
   </div>
@@ -1502,7 +1477,8 @@ tailwind.config = {
 
 <!-- 値下げ計算 Modal（出品一覧） -->
 <div id="discount-item-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('discount-item-modal')">
-  <div class="modal-sheet w-full max-h-[90vh] overflow-y-auto" style="max-width:440px">
+  <div class="modal-sheet w-full max-h-[90vh] flex flex-col overflow-hidden" style="max-width:440px">
+    <div class="flex-1 min-h-0 overflow-y-auto px-1">
     <div class="flex items-center justify-between mb-2">
       <h3 class="font-headline font-bold text-lg">値下げ計算</h3>
       <button type="button" onclick="closeModal('discount-item-modal')" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container" aria-label="閉じる">
@@ -1549,8 +1525,9 @@ tailwind.config = {
       <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">価格履歴</p>
       <div id="discount-modal-history" class="rounded-xl bg-surface-container border border-surface-container-high divide-y divide-surface-container-high max-h-36 overflow-y-auto text-[11px]"></div>
     </div>
+    </div>
 
-    <div class="flex gap-3 mt-6 pt-4 border-t border-surface-container justify-end">
+    <div class="flex-shrink-0 border-t border-surface-container bg-surface-container-lowest pt-3 mt-2 flex gap-3 justify-end px-1">
       <button type="button" onclick="closeModal('discount-item-modal')" class="px-5 py-2.5 rounded-full border border-surface-container-highest font-bold text-sm">キャンセル</button>
       <button type="button" onclick="applyDiscountFromModal()" class="px-5 py-2.5 rounded-full font-bold text-sm text-white bg-signature-gradient shadow-lg">この価格を記録</button>
     </div>
@@ -1581,6 +1558,10 @@ tailwind.config = {
 
 <!-- 出品一覧・その他メニュー（プルダウン） -->
 <div id="item-more-menu" class="hidden fixed z-[110] w-[200px] bg-surface-container-lowest rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-surface-container py-1.5" role="menu">
+  <button type="button" role="menuitem" onclick="openItemEditFromMenu()"
+    class="w-full text-left px-4 py-2.5 text-sm font-bold text-on-surface hover:bg-surface-container transition-colors flex items-center gap-2">
+    <span class="material-symbols-outlined text-lg text-primary">edit</span>編集
+  </button>
   <button type="button" role="menuitem" onclick="openItemUrlModal()"
     class="w-full text-left px-4 py-2.5 text-sm font-bold text-on-surface hover:bg-surface-container transition-colors flex items-center gap-2">
     <span class="material-symbols-outlined text-lg text-primary">link</span>URLを変更
@@ -1896,9 +1877,9 @@ const FURIMORA_COACHMARK_STEPS = [
   {
     page: 'home',
     targetId: null,
-    targetHint: 'ホーム画面の「新規出品」カード',
+    targetHint: 'ホームの「新規出品」またはサイドバー「新規出品作成」',
     title: '操作ガイド: 新規出品',
-    body: 'まずはホームの「新規出品」カードを開き、最初の1件を登録してみましょう。',
+    body: '「新規出品」から在庫画面へ移動し、モーダルで最初の1件を登録してみましょう。',
   },
   {
     page: 'settings',
@@ -3191,7 +3172,7 @@ function renderItems() {
     el.innerHTML = `<div class="text-center py-12 text-on-surface-variant/50 bg-surface-container-lowest rounded-lg w-full">
       <span class="material-symbols-outlined text-4xl block mb-2">inventory_2</span>
       <p class="text-sm font-medium">${ITEMS.length ? '該当する商品はありません' : '商品がまだ登録されていません'}</p>
-      <p class="text-xs mt-1">${ITEMS.length ? '' : '「新規出品」ボタンから商品を追加してください'}</p>
+      <p class="text-xs mt-1">${ITEMS.length ? '' : '上部の「新規出品」から追加してください'}</p>
     </div>`; return;
   }
   const statusMap = { active:'出品中', relisted:'再出品済', sold:'売却済', pending:'準備中' };
@@ -3264,23 +3245,39 @@ function renderItems() {
   }).join('');
 }
 
-function setNiModalMode(relist) {
+/** @param {'new'|'relist'|'edit'} mode */
+function setNiModalMode(mode) {
+  const relist = mode === 'relist';
   const modal = document.getElementById('new-item-modal');
   const sheet = modal?.querySelector('.modal-sheet');
-  if (modal) modal.dataset.niMode = relist ? 'relist' : 'new';
+  if (modal) modal.dataset.niMode = mode;
   if (sheet) {
     sheet.classList.toggle('border-l-4', !!relist);
     sheet.classList.toggle('border-primary', !!relist);
     sheet.classList.toggle('pl-2', !!relist);
   }
   const subEl = document.getElementById('ni-modal-subtitle');
-  if (subEl) subEl.textContent = relist ? 'メルカリに再掲載する手順' : '出品データを登録';
+  if (subEl) {
+    if (relist) subEl.textContent = 'メルカリに再掲載する手順';
+    else if (mode === 'edit') subEl.textContent = '登録内容を更新します（メルカリ連携なし）';
+    else subEl.textContent = '出品データを登録';
+  }
   const titleEl = document.getElementById('ni-modal-title');
   const labelEl = document.getElementById('ni-save-btn-label');
   const iconEl = document.getElementById('ni-save-btn-icon');
-  if (titleEl) titleEl.textContent = relist ? '再出品アシスタント' : '新規出品';
-  if (labelEl) labelEl.textContent = relist ? '再出品を確定' : '出品一覧に追加';
-  if (iconEl) iconEl.textContent = relist ? 'autorenew' : 'playlist_add';
+  if (titleEl) {
+    if (relist) titleEl.textContent = '再出品アシスタント';
+    else if (mode === 'edit') titleEl.textContent = '商品を編集';
+    else titleEl.textContent = '新規出品';
+  }
+  if (labelEl) {
+    if (relist) labelEl.textContent = '再出品を確定';
+    else if (mode === 'edit') labelEl.textContent = '変更を保存';
+    else labelEl.textContent = '在庫に追加';
+  }
+  if (iconEl) {
+    iconEl.textContent = relist ? 'autorenew' : mode === 'edit' ? 'save' : 'playlist_add';
+  }
   const descSub = document.getElementById('tab-desc-sub');
   if (descSub) descSub.textContent = relist ? 'メルカリ連携' : '説明文';
   const relistBlock = document.getElementById('ni-relist-mercari-block');
@@ -3293,6 +3290,62 @@ function setNiModalMode(relist) {
   } else {
     renderNiImagePreviews();
   }
+}
+
+function openItemEditFromMenu() {
+  const id = itemMenuTargetId;
+  closeItemMoreMenu();
+  if (!id) return;
+  openInventoryEditItemModal(id);
+}
+
+function openInventoryEditItemModal(id) {
+  loadItems();
+  const item = ITEMS.find((i) => i.id === id);
+  if (!item) return;
+  niEditId = id;
+  niRelistMode = false;
+  document.getElementById('ni-title').value = item.title || '';
+  document.getElementById('ni-cost').value = item.costPrice ?? 0;
+  const minP = Number(item.minPrice) || 0;
+  const startP = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || minP;
+  let buf = Math.max(0, startP - minP);
+  if (!buf) buf = 400;
+  document.getElementById('ni-minprice').value = minP || 800;
+  setBuffer(buf);
+  document.getElementById('ni-fee').value = item.fee ?? 10;
+  document.getElementById('ni-shipping').value = Number(item.shippingCost) || 0;
+  const listedRaw = item.listedAt ? String(item.listedAt).slice(0, 10) : '';
+  document.getElementById('ni-listed-at').value = listedRaw || new Date().toISOString().slice(0, 10);
+  document.getElementById('ni-discount-start').value = item.discountStartDays ?? 7;
+  document.getElementById('ni-discount-amount').value = item.discountAmount ?? 100;
+  document.getElementById('ni-discount-freq').value = item.discountFreqDays ?? 1;
+  document.getElementById('ni-desc-title').value = item.title || '';
+  document.getElementById('ni-ai-text').value = item.description || '';
+  document.getElementById('ni-supplier').value = item.supplierName || '';
+  populateNiSupplierSelect(item.supplierName || '');
+  populateNiMarketplaceSelect(item.marketplaceId || '');
+  populateNiShippingSelect(item.shippingMethodId || '');
+  populateTemplateSelect();
+  applyNiCategoryToBoth(item.category);
+  const condSel = document.getElementById('ni-condition');
+  if (condSel && item.condition) {
+    [...condSel.options].forEach((o) => {
+      if (o.value === item.condition) condSel.value = o.value;
+    });
+  }
+  const nm = document.getElementById('new-item-modal');
+  if (nm) {
+    nm.dataset.images = JSON.stringify(item.images || []);
+    nm.dataset.mercariUrl = (item.mercariUrl || item.url || '').trim();
+    nm.dataset.mercariItemId = item.mercariItemId != null ? String(item.mercariItemId) : (item.itemId != null ? String(item.itemId) : '');
+  }
+  setNiModalMode('edit');
+  if (!item.marketplaceId) onNiMarketplaceChange();
+  if (!item.shippingMethodId) onNiShippingMethodChange();
+  switchItemTab('price');
+  calcItemPrice();
+  document.getElementById('new-item-modal').classList.add('open');
 }
 
 function openRelistItemModal(id) {
@@ -3335,7 +3388,7 @@ function openRelistItemModal(id) {
     nm.dataset.mercariUrl = (item.mercariUrl || item.url || '').trim();
     nm.dataset.mercariItemId = item.mercariItemId != null ? String(item.mercariItemId) : (item.itemId != null ? String(item.itemId) : '');
   }
-  setNiModalMode(true);
+  setNiModalMode('relist');
   if (!item.marketplaceId) onNiMarketplaceChange();
   if (!item.shippingMethodId) onNiShippingMethodChange();
   switchItemTab('price');
@@ -3524,7 +3577,7 @@ function toggleItemMoreMenu(ev, id) {
   if (left < 8) left = 8;
   if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
   menu.style.left = left + 'px';
-  const estH = 120;
+  const estH = 168;
   let top = rect.bottom + 6;
   if (top + estH > window.innerHeight - 12) top = Math.max(8, rect.top - estH - 6);
   menu.style.top = top + 'px';
@@ -3602,7 +3655,7 @@ function executeItemConfirm() {
 function openNewItemModal(draftData) {
   niEditId = null;
   niRelistMode = false;
-  setNiModalMode(false);
+  setNiModalMode('new');
   document.getElementById('ni-title').value = draftData?.title || '';
   document.getElementById('ni-cost').value = 0;
   const draftPrice = Number(draftData?.price);
@@ -3998,6 +4051,8 @@ function saveNewItem() {
   const shippingMethodId = (document.getElementById('ni-shipping-method')?.value || '').trim();
   const marketplace = MARKETPLACE_OPTIONS.find((x) => x.id === marketplaceId) || null;
   const shippingMethod = SHIPPING_METHOD_OPTIONS.find((x) => x.id === shippingMethodId) || null;
+  const prevStatus = niEditId && prev && prev.status ? prev.status : 'active';
+  const statusNorm = ['active', 'relisted', 'sold', 'pending'].includes(prevStatus) ? prevStatus : 'active';
   const item = {
     id: niEditId || Date.now(),
     title, images,
@@ -4010,7 +4065,7 @@ function saveNewItem() {
     shippingBaseCost: shippingMethod ? Number(shippingMethod.shippingCost || 0) : undefined,
     packingCost: shippingMethod ? Number(shippingMethod.packingCost || 0) : undefined,
     description: document.getElementById('ni-ai-text').value,
-    status: 'active',
+    status: niEditId && prev ? statusNorm : 'active',
     listedAt: listedAtStr,
     discountStartDays: parseInt(document.getElementById('ni-discount-start').value)||7,
     discountAmount: parseInt(document.getElementById('ni-discount-amount').value)||100,
@@ -4026,6 +4081,7 @@ function saveNewItem() {
     mercariItemId: mercariItemId || undefined,
     updatedAt: new Date().toISOString(),
   };
+  if (niEditId && prev && prev.soldAt != null && item.status === 'sold') item.soldAt = prev.soldAt;
   if (niEditId) { const idx=ITEMS.findIndex(i=>i.id===niEditId); if(idx>=0) ITEMS[idx]=item; }
   else ITEMS.unshift(item);
   furimoraClearItemTombstone(item.id);
@@ -4037,18 +4093,26 @@ function saveNewItem() {
   if (!niEditId) s.total = (s.total||0)+1;
   localStorage.setItem('furimora_stats', JSON.stringify(s)); loadStats();
   const isRelist = niRelistMode;
+  const isEditOnly = !!niEditId && !niRelistMode;
+  let actAction = '在庫に追加しました';
+  let actIcon = 'tag';
+  if (isRelist) { actAction = '再出品しました'; actIcon = 'refresh-cw'; }
+  else if (isEditOnly) { actAction = '商品情報を更新しました'; actIcon = 'edit'; }
   ACTIVITIES.unshift({
     name: title,
-    action: isRelist ? '再出品しました' : '出品一覧に追加しました',
+    action: actAction,
     time: 'たった今',
     status: '出品中',
     type: 'active',
-    icon: isRelist ? 'refresh-cw' : 'tag',
+    icon: actIcon,
   });
   saveStorageData();
   closeModal('new-item-modal');
   navigate('relist');
-  showToast(isRelist ? `「${title.substring(0,20)}」を再出品しました` : `「${title.substring(0,20)}」を出品一覧に追加しました`);
+  let toastMsg = `「${title.substring(0, 20)}」を在庫に追加しました`;
+  if (isRelist) toastMsg = `「${title.substring(0, 20)}」を再出品しました`;
+  else if (isEditOnly) toastMsg = `「${title.substring(0, 20)}」を更新しました`;
+  showToast(toastMsg);
 }
 
 function exportItemsCSV() {
@@ -4075,34 +4139,8 @@ function openNewItemModalFromDraftIndex(index) {
     showToast('下書きが見つかりません');
     return;
   }
+  navigate('relist');
   openNewItemModal(d);
-}
-
-function renderListingDrafts() {
-  const drafts = JSON.parse(localStorage.getItem('furimora_drafts')||'[]');
-  const el = document.getElementById('listing-drafts-list');
-  const ct = document.getElementById('listing-drafts-count');
-  if (!el) return;
-  if (ct) ct.textContent = drafts.length + '件';
-  if (!drafts.length) {
-    el.innerHTML = `<div class="text-center py-6 text-on-surface-variant/50 text-sm">クローンタブで商品を保存すると表示されます</div>`; return;
-  }
-  el.innerHTML = drafts.map((d,i) => {
-    const thumb = d.thumbnailUrl||d.images?.[0]
-      ? `<img src="${d.thumbnailUrl||d.images[0]}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
-      : `<span class="material-symbols-outlined text-lg text-on-surface-variant/40">image</span>`;
-    return `<div class="flex items-center gap-3 px-4 py-3">
-      <div class="w-10 h-10 rounded-md bg-surface-container flex-shrink-0 flex items-center justify-center overflow-hidden">${thumb}</div>
-      <div class="flex-1 min-w-0">
-        <p class="text-sm font-bold truncate">${d.title||'（タイトルなし）'}</p>
-        <p class="text-[11px] text-on-surface-variant">${d.price ? '¥'+Number(d.price).toLocaleString() : '価格未設定'}</p>
-      </div>
-      <button onclick="openNewItemModal(${JSON.stringify(d).replace(/"/g,'&quot;')})"
-        class="flex-shrink-0 text-[11px] font-bold text-white bg-signature-gradient px-3 py-1.5 rounded-full">
-        出品登録
-      </button>
-    </div>`;
-  }).join('');
 }
 
 // ── ダウンロードフォルダ設定 ──
@@ -4175,6 +4213,7 @@ function furimoraSyncBrowserPath(page, navOpts = {}) {
 }
 
 function navigate(page, navOpts = {}) {
+  if (page === 'listing') page = 'relist';
   if (page !== 'clone') {
     cloneIOSPastePendingFetch = false;
     if (cloneIOSPastePendingTimer) {
@@ -4216,7 +4255,6 @@ function navigate(page, navOpts = {}) {
     }
   }
   if (page === 'relist') renderItems();
-  if (page === 'listing') renderListingDrafts();
   if (page === 'settings') { renderTemplatesList(); renderCommerceSettings(); }
   if (page === 'home') {
     renderAlerts();
@@ -4262,7 +4300,7 @@ function closeModal(id) {
   if (id === 'new-item-modal') {
     niRelistMode = false;
     niEditId = null;
-    setNiModalMode(false);
+    setNiModalMode('new');
   }
   if (id === 'discount-item-modal') {
     discountModalItemId = null;
@@ -4560,7 +4598,7 @@ function applyDiscount(btn, name, pct, itemId = '') {
   if (!target) target = ITEMS.find((i) => i.title === name && i.status === 'active');
   if (!target) {
     navigate('relist');
-    showToast('対象の商品が見つかりません。出品一覧から調整してください');
+    showToast('対象の商品が見つかりません。在庫一覧から調整してください');
     return;
   }
   openDiscountItemModal(target.id);
@@ -5733,7 +5771,6 @@ function furimoraReloadAllFromStorage() {
   renderActivities();
   renderQueue();
   renderDrafts();
-  renderListingDrafts();
   renderCalendar();
   renderTemplatesList();
   populateTemplateSelect();
@@ -6224,7 +6261,6 @@ async function furimoraPerformFullLogout() {
   renderActivities();
   renderQueue();
   renderDrafts();
-  renderListingDrafts();
   renderCalendar();
   renderTemplatesList();
   populateTemplateSelect();
@@ -6912,6 +6948,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const autofetch = params.get('autofetch') === '1';
     history.replaceState({}, '', window.location.pathname);
     if (autofetch && u) setTimeout(() => fetchCloneData(), 300);
+  } else if (pageParam === 'relist' || pageParam === 'listing') {
+    navigate('relist', { skipPath: true });
+    history.replaceState({}, '', window.location.pathname);
   } else {
     // モバイル共有連携: ブックマークレット(iOS) / Share Target(Android PWA) — page=clone と排他
     const mercariRaw = params.get('mercari_url');

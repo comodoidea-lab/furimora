@@ -46,10 +46,10 @@
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "AI出品",
-      "short_name": "AI出品",
-      "description": "AIで説明文を生成して出品",
-      "url": "/?page=listing",
+      "name": "在庫・新規出品",
+      "short_name": "在庫",
+      "description": "在庫一覧から新規出品",
+      "url": "/?page=relist",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
