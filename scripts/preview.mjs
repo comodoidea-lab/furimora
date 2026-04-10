@@ -121,6 +121,18 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
     res.end(data);
   } catch {
+    // SPA: /analytics など拡張子なしルートは index.html を返す
+    const noExt = !path.extname(url.pathname);
+    if (noExt && url.pathname !== '/') {
+      try {
+        const data = await fs.readFile(path.join(publicDir, 'index.html'));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(data);
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not Found');
   }
