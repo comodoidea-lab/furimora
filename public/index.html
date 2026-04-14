@@ -1761,7 +1761,7 @@ tailwind.config = {
 </div>
 
 <!-- MOBILE BOTTOM NAV -->
-<nav id="bottom-nav" class="fixed bottom-0 left-0 w-full z-40 glass border-t border-surface-container flex justify-around items-center h-[68px] pb-safe px-2 shadow-[0_-4px_16px_rgba(0,0,0,0.04)]">
+<nav id="bottom-nav" class="fixed bottom-0 left-0 w-full z-40 glass border-t border-surface-container flex justify-around items-center h-[68px] pb-safe px-2 shadow-[0_-4px_16px_rgba(0,0,0,0.04)] overflow-visible">
   <button onclick="navigate('home')" data-nav="home" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
     <span class="material-symbols-outlined text-xl">home</span>
     <span class="text-[9px] font-semibold tracking-tight">ホーム</span>
@@ -1770,9 +1770,19 @@ tailwind.config = {
     <span class="material-symbols-outlined text-xl">content_copy</span>
     <span class="text-[9px] font-semibold tracking-tight">クローン</span>
   </button>
-  <button onclick="navigate('relist')" data-nav="relist" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
-    <span class="material-symbols-outlined text-xl">autorenew</span>
-    <span class="text-[9px] font-semibold tracking-tight">在庫</span>
+  <button type="button" onclick="navigate('relist')" data-nav="relist" aria-label="在庫" class="nav-btn-mobile nav-fab-inventory relative z-10 flex flex-col items-center justify-center px-2 py-1 rounded-xl transition-all active:scale-90 text-on-surface-variant">
+    <span class="flex h-[72px] w-[72px] shrink-0 flex-col items-center overflow-hidden rounded-full bg-[#CC0000] px-1.5 pt-3 pb-2 shadow-[0_4px_14px_rgba(0,0,0,0.14)] -mt-5" aria-hidden="true">
+      <!-- Lucide「package」と同一パス（lucide-react の Package と同じ） -->
+      <span class="flex min-h-0 flex-1 w-full flex-col items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pointer-events-none shrink-0">
+          <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/>
+          <path d="M12 22V12"/>
+          <polyline points="3.29 7 12 12 20.71 7"/>
+          <path d="m7.5 4.27 9 5.15"/>
+        </svg>
+      </span>
+      <span class="shrink-0 text-center text-[9px] font-semibold leading-none tracking-tight text-white [line-height:1]">在庫</span>
+    </span>
   </button>
   <button onclick="navigate('schedule')" data-nav="schedule" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
     <span class="material-symbols-outlined text-xl">calendar_month</span>
