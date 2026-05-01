@@ -81,6 +81,27 @@ document.getElementById('btn-open-app').addEventListener('click', () => {
   });
 });
 
+document.getElementById('btn-open-sidepanel').addEventListener('click', async () => {
+  if (!chrome.sidePanel || !chrome.windows) {
+    withAppUrl((appUrl) => {
+      chrome.tabs.create({ url: appUrl });
+      window.close();
+    });
+    return;
+  }
+
+  try {
+    const currentWindow = await chrome.windows.getCurrent();
+    await chrome.sidePanel.open({ windowId: currentWindow.id });
+    window.close();
+  } catch {
+    withAppUrl((appUrl) => {
+      chrome.tabs.create({ url: appUrl });
+      window.close();
+    });
+  }
+});
+
 document.getElementById('btn-relist').addEventListener('click', () => {
   withAppUrl((appUrl) => {
     chrome.tabs.create({ url: `${appUrl}?page=relist` });

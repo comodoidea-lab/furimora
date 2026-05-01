@@ -37,8 +37,12 @@
     "alarms",
     "downloads",
     "clipboardWrite",
-    "notifications"
+    "notifications",
+    "sidePanel"
   ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "host_permissions": [
     "https://jp.mercari.com/*"
   ],
@@ -47,5 +51,8 @@
       "resources": ["icons/*"],
       "matches": ["https://jp.mercari.com/*"]
     }
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://furimora.vercel.app https://furimora-assist.vercel.app"
+  }
 }
