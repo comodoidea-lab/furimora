@@ -6663,14 +6663,37 @@ function furimoraWireBackupButtons() {
 function furimoraWireSyncButtons() {
   const origin = window.location.origin;
   const path = window.location.pathname || '/';
+  const isEmbeddedFrame = (() => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  })();
+
+  const signInWithGoogle = async () => {
+    if (!furimoraSupabaseClient) return;
+    const redirectTo = origin + path;
+    const { data, error } = await furimoraSupabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+        // In extension side panel (iframe), direct redirect can break due provider frame restrictions.
+        ...(isEmbeddedFrame ? { skipBrowserRedirect: true } : {}),
+      },
+    });
+    if (error) {
+      showToast(error.message || 'Google ログインに失敗しました');
+      return;
+    }
+    if (isEmbeddedFrame && data?.url) {
+      window.open(data.url, '_blank', 'noopener,noreferrer');
+      showToast('開いたタブでGoogleログインを完了後、サイドパネルに戻ってください');
+    }
+  };
 
   document.getElementById('sync-google-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const { error } = await furimoraSupabaseClient.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: origin + path },
-    });
-    if (error) showToast(error.message || 'Google ログインに失敗しました');
+    await signInWithGoogle();
   });
 
   document.getElementById('sync-email-signin-btn')?.addEventListener('click', async () => {
@@ -6729,12 +6752,7 @@ function furimoraWireSyncButtons() {
   });
 
   document.getElementById('modal-sync-google-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const { error } = await furimoraSupabaseClient.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: origin + path },
-    });
-    if (error) showToast(error.message || 'Google ログインに失敗しました');
+    await signInWithGoogle();
   });
   document.getElementById('modal-sync-email-signin-btn')?.addEventListener('click', async () => {
     if (!furimoraSupabaseClient) return;
