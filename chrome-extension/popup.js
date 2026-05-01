@@ -81,6 +81,37 @@ document.getElementById('btn-open-app').addEventListener('click', () => {
   });
 });
 
+document.getElementById('btn-open-sidepanel').addEventListener('click', async () => {
+  if (!chrome.sidePanel || !chrome.tabs) {
+    withAppUrl((appUrl) => {
+      chrome.tabs.create({ url: appUrl });
+      window.close();
+    });
+    return;
+  }
+
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab?.windowId) {
+      throw new Error('No active window');
+    }
+
+    // Ensure panel page is enabled for the current tab/window context.
+    await chrome.sidePanel.setOptions({
+      tabId: activeTab.id,
+      path: 'sidepanel.html',
+      enabled: true,
+    });
+    await chrome.sidePanel.open({ windowId: activeTab.windowId });
+    window.close();
+  } catch {
+    withAppUrl((appUrl) => {
+      chrome.tabs.create({ url: appUrl });
+      window.close();
+    });
+  }
+});
+
 document.getElementById('btn-relist').addEventListener('click', () => {
   withAppUrl((appUrl) => {
     chrome.tabs.create({ url: `${appUrl}?page=relist` });
