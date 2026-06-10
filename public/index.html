@@ -707,6 +707,16 @@ tailwind.config = {
           <input id="items-search" type="text" placeholder="タイトル検索..." oninput="renderItems()"
             class="w-full min-w-0 bg-surface-container-lowest border-none rounded-full py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none shadow-sm"/>
         </div>
+        <label class="relative flex-shrink-0">
+          <span class="sr-only">日付順に並べ替え</span>
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">sort</span>
+          <select id="items-sort-order" onchange="setItemSortOrder(this.value)" aria-label="日付順に並べ替え"
+            class="appearance-none bg-surface-container-lowest border-none rounded-full py-2.5 pl-10 pr-9 text-xs font-bold text-on-surface shadow-sm focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer">
+            <option value="date-desc">日付が新しい順</option>
+            <option value="date-asc">日付が古い順</option>
+          </select>
+          <span class="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">expand_more</span>
+        </label>
         <div class="inline-flex rounded-xl border border-surface-container-high bg-surface-container-low p-0.5 flex-shrink-0" role="group" aria-label="表示切替">
           <button type="button" id="items-view-list-btn" onclick="setItemsViewMode('list')" title="リスト表示"
             class="p-2 rounded-lg transition-colors text-on-surface-variant hover:bg-surface-container" aria-pressed="true">
@@ -2280,9 +2290,13 @@ async function furimoraSyncItemsToCloud(userId) {
 async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
   if (!furimoraFirestore || !userId) return;
   const snapshot = await furimoraFirestoreItemsRef(userId).get();
-  const localMap = new Map((Array.isArray(ITEMS) ? ITEMS : []).map((i) => [String(i.id), i]));
-  const tombstones = furimoraLoadItemTombstones();
-  let changed = false;
+  const currentItems = Array.isArray(ITEMS) ? ITEMS : [];
+  const currentTombstones = furimoraLoadItemTombstones();
+  const localMap = preferRemote
+    ? new Map()
+    : new Map(currentItems.map((i) => [String(i.id), i]));
+  const tombstones = preferRemote ? {} : currentTombstones;
+  let changed = preferRemote && (currentItems.length > 0 || Object.keys(currentTombstones).length > 0);
   for (const doc of snapshot.docs) {
     const row = doc.data() || {};
     const id = String(row.itemId || decodeURIComponent(doc.id));
@@ -2292,7 +2306,7 @@ async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
     const localItemMs = furimoraGetItemUpdatedMs(localItem);
     const localDelMs = new Date(tombstones[id] || '').getTime();
     const localLatest = Math.max(Number.isFinite(localItemMs) ? localItemMs : 0, Number.isFinite(localDelMs) ? localDelMs : 0);
-    const shouldApplyRemote = preferRemote ? remoteMs >= localLatest : remoteMs > localLatest;
+    const shouldApplyRemote = preferRemote || remoteMs > localLatest;
     if (!shouldApplyRemote) continue;
     if (row.deleted) {
       if (localMap.has(id)) {
@@ -2584,9 +2598,13 @@ let itemMenuTargetId = null;
 let itemUrlEditId = null;
 /** 在庫一覧: 'list' | 'grid' */
 let itemsViewMode = 'list';
+/** 在庫一覧: 日付の新しい順 | 古い順 */
+let itemSortOrder = 'date-desc';
 try {
   const _iv = localStorage.getItem('furimora_items_view');
   if (_iv === 'grid' || _iv === 'list') itemsViewMode = _iv;
+  const _is = localStorage.getItem('furimora_items_sort');
+  if (_is === 'date-desc' || _is === 'date-asc') itemSortOrder = _is;
 } catch {}
 /** item-confirm-modal: 'sold' | 'delete' */
 let itemConfirmType = null;
@@ -3179,6 +3197,23 @@ function setItemFilter(f) {
   renderItems();
 }
 
+function setItemSortOrder(order) {
+  itemSortOrder = order === 'date-asc' ? 'date-asc' : 'date-desc';
+  try { localStorage.setItem('furimora_items_sort', itemSortOrder); } catch {}
+  renderItems();
+}
+
+function getItemSortDateMs(item) {
+  const preferred = item?.status === 'sold'
+    ? [item.soldAt, item.listedAt, item.createdAt, item.updatedAt]
+    : [item?.listedAt, item?.createdAt, item?.updatedAt];
+  for (const value of preferred) {
+    const ms = new Date(value || 0).getTime();
+    if (Number.isFinite(ms) && ms > 0) return ms;
+  }
+  return 0;
+}
+
 function renderItems() {
   loadItems();
   const search = (document.getElementById('items-search')?.value || '').toLowerCase();
@@ -3191,6 +3226,10 @@ function renderItems() {
     if (itemFilter === 'relisted') return item.status === 'relisted';
     if (itemFilter === 'sold') return item.status === 'sold';
     return true;
+  }).sort((a, b) => {
+    const diff = getItemSortDateMs(a) - getItemSortDateMs(b);
+    if (diff !== 0) return itemSortOrder === 'date-asc' ? diff : -diff;
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
   });
 
   const active = ITEMS.filter(i => i.status === 'active');
@@ -5785,8 +5824,13 @@ function furimoraCollectSyncPayload() {
   return { v: 1, keys };
 }
 
-function furimoraApplySyncPayload(payload) {
+function furimoraApplySyncPayload(payload, replaceLocal = false) {
   if (!payload || !payload.keys || typeof payload.keys !== 'object') return;
+  if (replaceLocal) {
+    FURIMORA_SYNC_KEYS.forEach((key) => {
+      try { localStorage.removeItem(key); } catch (e) { /* quota */ }
+    });
+  }
   const ks = Object.keys(payload.keys);
   for (let i = 0; i < ks.length; i++) {
     const k = ks[i];
@@ -5821,6 +5865,23 @@ function furimoraReloadAllFromStorage() {
   document.querySelectorAll('.notif-badge').forEach((b) => b.classList.toggle('hidden', NOTIFICATIONS.length === 0));
 }
 
+async function furimoraApplyCloudSnapshot(userId, data, remoteUpdatedAt, showSuccessToast = true) {
+  if (!userId || !data) return;
+  furimoraSyncSetBadge('syncing', '同期中');
+  backupLocalSyncPayload();
+  furimoraApplySyncPayload(data.payload || { v: 1, keys: {} }, true);
+  await furimoraPullItemsFromCloud(userId, true);
+  if (remoteUpdatedAt) {
+    setLastRemoteAt(remoteUpdatedAt);
+    furimoraSetLastSyncAt(remoteUpdatedAt);
+  }
+  clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
+  setSyncIsoNow(FURIMORA_SYNC_LAST_PUSH_AT);
+  furimoraResetSyncSignature();
+  furimoraSyncSetBadge('ok', '同期済み');
+  if (showSuccessToast) showToast('クラウドの最新版をこの端末に反映しました');
+}
+
 async function furimoraPushToCloud(source = 'manual') {
   // sync_coordinator: furimoraSyncAfterLogin 内部からの push（この時は InProgress なので除外しない）
   const fromCoordinator = source === 'sync_coordinator';
@@ -5835,17 +5896,48 @@ async function furimoraPushToCloud(source = 'manual') {
     return { ok: false, reason: 'not_logged_in' };
   }
   const payload = furimoraCollectSyncPayload();
+  const expectedRemoteMs = getLastRemoteMergeMs();
   let updatedAt = new Date().toISOString();
+  let newerRemoteData = null;
+  let newerRemoteUpdatedAt = '';
   try {
     const stateRef = furimoraFirestoreStateRef(user.uid);
-    await stateRef.set({
-      payload,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      clientUpdatedAt: updatedAt,
-    }, { merge: true });
+    await furimoraFirestore.runTransaction(async (transaction) => {
+      const current = await transaction.get(stateRef);
+      if (current.exists) {
+        const remoteData = current.data() || {};
+        const remoteUpdatedAt =
+          furimoraTimestampToIso(remoteData.updatedAt) ||
+          furimoraTimestampToIso(remoteData.clientUpdatedAt);
+        const remoteMs = new Date(remoteUpdatedAt).getTime();
+        if (!expectedRemoteMs || (Number.isFinite(remoteMs) && remoteMs > expectedRemoteMs)) {
+          newerRemoteData = remoteData;
+          newerRemoteUpdatedAt = remoteUpdatedAt;
+          const staleError = new Error('cloud state is newer');
+          staleError.code = 'furimora/cloud-newer';
+          throw staleError;
+        }
+      }
+      transaction.set(stateRef, {
+        payload,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        clientUpdatedAt: updatedAt,
+      }, { merge: true });
+    });
     const saved = await stateRef.get({ source: 'server' });
     updatedAt = furimoraTimestampToIso(saved.data()?.updatedAt) || updatedAt;
   } catch (error) {
+    if (error?.code === 'furimora/cloud-newer' && newerRemoteData) {
+      try {
+        await furimoraApplyCloudSnapshot(user.uid, newerRemoteData, newerRemoteUpdatedAt, true);
+        return { ok: false, reason: 'remote_newer', updatedAt: newerRemoteUpdatedAt };
+      } catch (pullError) {
+        console.error('[sync stale pull]', pullError);
+        furimoraSyncSetBadge('error', '失敗');
+        showToast('クラウド最新版の取得に失敗しました: ' + (pullError.message || String(pullError)));
+        return { ok: false, reason: 'error', error: pullError };
+      }
+    }
     console.error('[sync push]', error);
     furimoraSyncSetBadge('error', '失敗');
     showToast('同期に失敗しました: ' + (error.message || String(error)));
@@ -5906,45 +5998,16 @@ async function furimoraSyncAfterLogin() {
     }
     return;
   }
-  const hasKeys = data.payload && data.payload.keys && Object.keys(data.payload.keys).length > 0;
-  if (!hasKeys) {
-    try {
-      await furimoraPullItemsFromCloud(user.uid, false);
-    } catch (e) {
-      console.error('[sync items pull]', e);
-    }
-    const localPayload = furimoraCollectSyncPayload();
-    const hasLocal = localPayload?.keys && Object.keys(localPayload.keys).length > 0;
-    if (hasLocal) {
-      await furimoraPushToCloud('sync_coordinator');
-      showToast('この端末のデータをクラウドに保存しました');
-    } else {
-      furimoraSyncSetBadge('idle', '待機中');
-    }
-    return;
-  }
   const remoteT = new Date(remoteUpdatedAt).getTime();
-  // ローカル最終編集時刻ではなく、最後に取り込んだクラウド時刻と比較する
+  // クラウドが新しければローカル未同期の有無にかかわらずクラウドを正本として反映する
   if (remoteT > lastMerged) {
-    if (hasUnsyncedLocalChanges()) {
-      furimoraSyncSetBadge('error', '競合');
-      showToast('別端末の更新とこの端末の未同期変更が競合しています。先に「今すぐ同期（アップロード）」または「クラウドから取得」を選んでください。');
-      return;
-    }
-    furimoraSyncSetBadge('syncing', '同期中');
-    backupLocalSyncPayload();
-    furimoraApplySyncPayload(data.payload);
     try {
-      await furimoraPullItemsFromCloud(user.uid, true);
+      await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, true);
     } catch (e) {
-      console.error('[sync items pull]', e);
+      console.error('[sync latest pull]', e);
+      furimoraSyncSetBadge('error', '失敗');
+      showToast('クラウド最新版の取得に失敗しました');
     }
-    setLastRemoteAt(remoteUpdatedAt);
-    furimoraSetLastSyncAt(remoteUpdatedAt);
-    clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
-    furimoraResetSyncSignature();
-    furimoraSyncSetBadge('ok', '同期済み');
-    showToast('クラウドのデータを読み込みました');
   } else {
     // 重要: リモートが新しくない場合でも、未同期のローカル変更がある時だけ push する
     // （未変更端末からの stale 上書きを防ぐ）
@@ -5974,13 +6037,6 @@ async function furimoraForcePullFromCloud() {
   furimoraSyncSetBadge('syncing', '同期中');
   const user = furimoraCurrentUser();
   if (!user) { showToast('ログインしてください'); return; }
-  if (hasUnsyncedLocalChanges()) {
-    const ok = confirm('この端末に未同期の変更があります。クラウド取得を実行するとローカル変更が上書きされる可能性があります。続行しますか？');
-    if (!ok) {
-      furimoraSyncSetBadge('idle', '待機中');
-      return;
-    }
-  }
   let stateSnapshot;
   try {
     stateSnapshot = await furimoraFirestoreStateRef(user.uid).get({ source: 'server' });
@@ -5988,27 +6044,20 @@ async function furimoraForcePullFromCloud() {
     console.error('[sync force pull]', error);
   }
   const data = stateSnapshot?.exists ? stateSnapshot.data() : null;
-  if (!data || !data.payload || !data.payload.keys) {
+  if (!data) {
     furimoraSyncSetBadge('error', '失敗');
     showToast('クラウドにデータがありません');
     return;
   }
-  backupLocalSyncPayload();
-  furimoraApplySyncPayload(data.payload);
+  const remoteUpdatedAt = furimoraTimestampToIso(data.updatedAt) || furimoraTimestampToIso(data.clientUpdatedAt);
   try {
-    await furimoraPullItemsFromCloud(user.uid, true);
+    await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, false);
   } catch (e) {
     console.error('[sync items pull]', e);
     furimoraSyncSetBadge('error', '失敗');
     showToast('アイテム同期に失敗しました');
     return;
   }
-  const remoteUpdatedAt = furimoraTimestampToIso(data.updatedAt) || furimoraTimestampToIso(data.clientUpdatedAt);
-  setLastRemoteAt(remoteUpdatedAt);
-  furimoraSetLastSyncAt(remoteUpdatedAt);
-  clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
-  furimoraResetSyncSignature();
-  furimoraSyncSetBadge('ok', '同期済み');
   showToast('クラウドのデータを反映しました');
 }
 
@@ -6894,6 +6943,8 @@ document.addEventListener('DOMContentLoaded', () => {
   enableTapClearNumberInputs('new-item-modal');
   enableTapClearNumberInputs('discount-item-modal');
   furimoraResetSyncSignature();
+  const itemSortSelect = document.getElementById('items-sort-order');
+  if (itemSortSelect) itemSortSelect.value = itemSortOrder;
   setItemsViewMode(itemsViewMode);
   const _pathBoot = window.location.pathname || '/';
   const _bootAnalytics = /\/analytics\/?$/.test(_pathBoot);
