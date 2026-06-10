@@ -930,10 +930,10 @@ tailwind.config = {
 
     <div class="bg-surface-container-lowest rounded-lg shadow-sm overflow-hidden" id="sync-settings-card">
       <div class="px-5 py-3 bg-surface-container-low">
-        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">クラウド同期（Supabase・実験的）</p>
+        <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">クラウド同期（Firebase）</p>
       </div>
       <div class="px-5 py-4 space-y-4">
-        <p class="text-[10px] text-amber-800/90 dark:text-amber-200/90 bg-amber-500/10 rounded-xl px-3 py-2 leading-relaxed">端末間の同期は競合し得ます。本番データの退避は上の<strong>バックアップ</strong>を優先してください。手動の「今すぐ同期／クラウドから取得」も取り扱いに注意してください。</p>
+        <p class="text-[10px] text-on-surface-variant bg-tertiary/10 rounded-xl px-3 py-2 leading-relaxed">ログインすると設定と商品を端末間で同期します。JSONバックアップは非常時の退避として引き続き利用できます。</p>
         <div class="flex items-center justify-between gap-2">
           <p class="text-[11px] text-on-surface-variant leading-relaxed" id="sync-status-text">読み込み中…</p>
           <span id="sync-state-badge" class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold bg-surface-container text-on-surface-variant">
@@ -961,10 +961,10 @@ tailwind.config = {
           <p class="text-xs font-semibold text-on-surface break-all" id="sync-user-email"></p>
           <div class="flex items-center justify-between gap-3 py-2 border-y border-surface-container">
             <div class="min-w-0">
-              <p class="text-sm font-bold">Supabase 自動同期</p>
-              <p class="text-[10px] text-on-surface-variant mt-0.5">OFF推奨。ONでバックグラウンド同期</p>
+              <p class="text-sm font-bold">Firebase 自動同期</p>
+              <p class="text-[10px] text-on-surface-variant mt-0.5">ONで変更を自動的にクラウドへ保存</p>
             </div>
-            <div class="toggle-track flex-shrink-0" id="settings-supabase-auto-sync-toggle" role="switch" aria-checked="false"><div class="toggle-thumb"></div></div>
+            <div class="toggle-track flex-shrink-0" id="settings-firebase-auto-sync-toggle" role="switch" aria-checked="false"><div class="toggle-thumb"></div></div>
           </div>
           <div class="flex flex-wrap gap-2">
             <button type="button" id="sync-push-btn" class="px-4 py-2 rounded-full bg-primary/10 text-primary font-bold text-xs">今すぐ同期（アップロード）</button>
@@ -1812,7 +1812,9 @@ tailwind.config = {
 
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js" crossorigin="anonymous"></script>
 <script>
 // ── Data (localStorage-driven, no hardcoded samples) ──
 let ALERTS = [];
@@ -1832,7 +1834,8 @@ const FURIMORA_SYNC_KEYS = [
 ];
 // 旧クライアント互換用（新クライアントでは基本的に取り込まない）
 const FURIMORA_LEGACY_SYNC_WRITE_KEYS = ['furimora_items'];
-let furimoraSupabaseClient = null;
+let furimoraFirebaseAuth = null;
+let furimoraFirestore = null;
 let furimoraSyncPushTimer = null;
 let furimoraSyncPollTimer = null;
 let furimoraSyncAfterLoginLastTs = 0;
@@ -1842,14 +1845,15 @@ let furimoraWebPushVapidPublicKey = '';
 let furimoraAutoPushDiscountRunning = false;
 let furimoraAutoPushRelistRunning = false;
 const FURIMORA_SYNC_POLL_MS = 12000;
-/** 最後にクラウドの版（updated_at）を取り込んだ／push で確定した時刻（ローカル編集時刻とは別。多段末同期の判定に使う） */
+/** 最後にクラウドの版を取り込んだ／push で確定した時刻（ローカル編集時刻とは別） */
 const FURIMORA_SYNC_LAST_REMOTE_AT = 'furimora_sync_last_remote_at';
 const FURIMORA_SYNC_LOCAL_CHANGED_AT = 'furimora_sync_local_changed_at';
 const FURIMORA_SYNC_LAST_PUSH_AT = 'furimora_sync_last_push_at';
 const FURIMORA_SYNC_LOCAL_BACKUP = 'furimora_sync_local_backup_v1';
 const FURIMORA_ITEMS_TOMBSTONES_KEY = 'furimora_items_tombstones';
-/** Supabase のバックグラウンド同期（push / ポーリング）。既定は OFF（バックアップ優先） */
-const FURIMORA_SUPABASE_AUTO_SYNC_KEY = 'furimora_supabase_auto_sync';
+const FURIMORA_FIREBASE_AUTO_SYNC_KEY = 'furimora_firebase_auto_sync';
+const FURIMORA_LEGACY_SUPABASE_AUTO_SYNC_KEY = 'furimora_supabase_auto_sync';
+const FURIMORA_FIREBASE_MAGIC_EMAIL_KEY = 'furimora_firebase_magic_email';
 const FURIMORA_BACKUP_FORMAT = 'furimora_backup_v1';
 let furimoraBackupImportFile = null;
 let furimoraGoogleDriveClientId = '';
@@ -1919,13 +1923,58 @@ function furimoraGetAutomationSettings() {
   }
 }
 
-function furimoraGetSupabaseAutoSync() {
-  return localStorage.getItem(FURIMORA_SUPABASE_AUTO_SYNC_KEY) === '1';
+function furimoraGetFirebaseAutoSync() {
+  const current = localStorage.getItem(FURIMORA_FIREBASE_AUTO_SYNC_KEY);
+  if (current != null) return current === '1';
+  const legacy = localStorage.getItem(FURIMORA_LEGACY_SUPABASE_AUTO_SYNC_KEY);
+  if (legacy != null) {
+    localStorage.setItem(FURIMORA_FIREBASE_AUTO_SYNC_KEY, legacy);
+    return legacy === '1';
+  }
+  return true;
 }
-function furimoraSetSupabaseAutoSync(on) {
+function furimoraSetFirebaseAutoSync(on) {
   try {
-    localStorage.setItem(FURIMORA_SUPABASE_AUTO_SYNC_KEY, on ? '1' : '0');
+    localStorage.setItem(FURIMORA_FIREBASE_AUTO_SYNC_KEY, on ? '1' : '0');
   } catch (e) { /* quota */ }
+}
+
+function furimoraCurrentUser() {
+  return furimoraFirebaseAuth?.currentUser || null;
+}
+
+function furimoraUserSession(user = furimoraCurrentUser()) {
+  return user ? { user: { id: user.uid, email: user.email || '' } } : null;
+}
+
+function furimoraTimestampToIso(value) {
+  if (!value) return '';
+  if (typeof value.toDate === 'function') return value.toDate().toISOString();
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+}
+
+function furimoraFirestoreStateRef(userId) {
+  return furimoraFirestore.collection('users').doc(userId).collection('app').doc('state');
+}
+
+function furimoraFirestoreItemsRef(userId) {
+  return furimoraFirestore.collection('users').doc(userId).collection('items');
+}
+
+function furimoraFirestorePushRef(userId) {
+  return furimoraFirestore.collection('users').doc(userId).collection('pushSubscriptions');
+}
+
+function furimoraFirestoreItemDocId(itemId) {
+  return encodeURIComponent(String(itemId)).slice(0, 1400);
+}
+
+async function furimoraSha256Hex(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function furimoraCollectBackupPayload() {
@@ -2184,77 +2233,61 @@ function furimoraGetItemUpdatedMs(item) {
   return Number.isFinite(t) ? t : 0;
 }
 async function furimoraSyncItemsToCloud(userId) {
-  if (!furimoraSupabaseClient || !userId) return;
+  if (!furimoraFirestore || !userId) return;
   const rows = [];
   const tombstones = furimoraLoadItemTombstones();
+  const activeItemIds = new Set();
   for (const item of (Array.isArray(ITEMS) ? ITEMS : [])) {
     if (!item || item.id == null) continue;
     const itemId = String(item.id);
+    activeItemIds.add(itemId);
     rows.push({
-      user_id: userId,
-      item_id: itemId,
-      payload: item,
+      itemId,
+      payload: JSON.parse(JSON.stringify(item)),
       deleted: false,
-      updated_at: item.updatedAt || new Date().toISOString(),
+      updatedAt: item.updatedAt || new Date().toISOString(),
     });
   }
   Object.keys(tombstones).forEach((itemId) => {
+    if (activeItemIds.has(String(itemId))) return;
     rows.push({
-      user_id: userId,
-      item_id: String(itemId),
+      itemId: String(itemId),
       payload: null,
       deleted: true,
-      updated_at: tombstones[itemId] || new Date().toISOString(),
+      updatedAt: tombstones[itemId] || new Date().toISOString(),
     });
   });
   if (!rows.length) return;
-  const { data: upserted, error } = await furimoraSupabaseClient
-    .from('user_items')
-    .upsert(rows, { onConflict: 'user_id,item_id' })
-    .select('item_id, updated_at, deleted');
-  if (error) throw error;
-  if (Array.isArray(upserted) && upserted.length) {
-    let touched = false;
-    const tombstones = furimoraLoadItemTombstones();
-    for (const row of upserted) {
-      const id = String(row.item_id);
-      if (row.deleted) {
-        if (tombstones[id] !== row.updated_at) {
-          tombstones[id] = row.updated_at;
-          touched = true;
-        }
-        continue;
-      }
-      const item = ITEMS.find((i) => String(i.id) === id);
-      if (item && item.updatedAt !== row.updated_at) {
-        item.updatedAt = row.updated_at;
-        touched = true;
-      }
-      if (Object.prototype.hasOwnProperty.call(tombstones, id)) {
-        delete tombstones[id];
-        touched = true;
-      }
-    }
-    if (touched) {
-      localStorage.setItem('furimora_items', JSON.stringify(ITEMS));
-      furimoraSaveItemTombstones(tombstones);
-      furimoraResetSyncSignature();
+  const itemsRef = furimoraFirestoreItemsRef(userId);
+  for (let start = 0; start < rows.length; start += 400) {
+    const batch = furimoraFirestore.batch();
+    rows.slice(start, start + 400).forEach((row) => {
+      batch.set(itemsRef.doc(furimoraFirestoreItemDocId(row.itemId)), {
+        ...row,
+        clientUpdatedAt: row.updatedAt,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    });
+    await batch.commit();
+  }
+  for (const row of rows) {
+    if (!row.deleted && Object.prototype.hasOwnProperty.call(tombstones, row.itemId)) {
+      delete tombstones[row.itemId];
     }
   }
+  furimoraSaveItemTombstones(tombstones);
 }
 async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
-  if (!furimoraSupabaseClient || !userId) return;
-  const { data, error } = await furimoraSupabaseClient
-    .from('user_items')
-    .select('item_id, payload, deleted, updated_at')
-    .eq('user_id', userId);
-  if (error) throw error;
+  if (!furimoraFirestore || !userId) return;
+  const snapshot = await furimoraFirestoreItemsRef(userId).get();
   const localMap = new Map((Array.isArray(ITEMS) ? ITEMS : []).map((i) => [String(i.id), i]));
   const tombstones = furimoraLoadItemTombstones();
   let changed = false;
-  for (const row of (Array.isArray(data) ? data : [])) {
-    const id = String(row.item_id);
-    const remoteMs = new Date(row.updated_at).getTime();
+  for (const doc of snapshot.docs) {
+    const row = doc.data() || {};
+    const id = String(row.itemId || decodeURIComponent(doc.id));
+    const remoteIso = furimoraTimestampToIso(row.updatedAt) || furimoraTimestampToIso(row.clientUpdatedAt);
+    const remoteMs = new Date(remoteIso).getTime();
     const localItem = localMap.get(id);
     const localItemMs = furimoraGetItemUpdatedMs(localItem);
     const localDelMs = new Date(tombstones[id] || '').getTime();
@@ -2266,15 +2299,15 @@ async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
         localMap.delete(id);
         changed = true;
       }
-      if (tombstones[id] !== row.updated_at) {
-        tombstones[id] = row.updated_at;
+      if (tombstones[id] !== remoteIso) {
+        tombstones[id] = remoteIso;
         changed = true;
       }
       continue;
     }
     const incoming = row.payload && typeof row.payload === 'object' ? row.payload : null;
     if (!incoming) continue;
-    incoming.updatedAt = row.updated_at;
+    incoming.updatedAt = remoteIso;
     const prev = localMap.get(id);
     if (!prev || JSON.stringify(prev) !== JSON.stringify(incoming)) {
       localMap.set(id, incoming);
@@ -2298,8 +2331,8 @@ async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
   renderItems();
 }
 function scheduleSyncPush() {
-  if (!furimoraSupabaseClient) return;
-  if (!furimoraGetSupabaseAutoSync()) return;
+  if (!furimoraFirestore) return;
+  if (!furimoraGetFirebaseAutoSync()) return;
   clearTimeout(furimoraSyncPushTimer);
   furimoraSyncPushTimer = setTimeout(() => {
     furimoraPushToCloud('auto').catch((err) => console.error('[sync push]', err));
@@ -2317,9 +2350,9 @@ function furimoraStopSyncPolling() {
 }
 function furimoraStartSyncPolling() {
   furimoraStopSyncPolling();
-  if (!furimoraSupabaseClient) return;
+  if (!furimoraFirestore) return;
   furimoraSyncPollTimer = setInterval(() => {
-    if (!furimoraGetSupabaseAutoSync()) return;
+    if (!furimoraGetFirebaseAutoSync()) return;
     if (document.visibilityState !== 'visible') return;
     // 念のため差分監視（notify 漏れや別タブ更新を拾う）
     furimoraRefreshSyncSignature();
@@ -2328,7 +2361,7 @@ function furimoraStartSyncPolling() {
 }
 function furimoraSyncOnVisible() {
   if (document.visibilityState !== 'visible') return;
-  if (!furimoraGetSupabaseAutoSync()) return;
+  if (!furimoraGetFirebaseAutoSync()) return;
   furimoraRefreshSyncSignature();
   furimoraSyncAfterLogin().catch((e) => console.error('[sync visible]', e));
 }
@@ -5740,10 +5773,10 @@ function copyToClipboard(msg) {
   showToast(msg);
 }
 
-// ── Supabase クラウド同期 ──
+// ── Firebase クラウド同期 ──
 function furimoraCollectSyncPayload() {
   const keys = {};
-  const writeKeys = [...FURIMORA_SYNC_KEYS, ...FURIMORA_LEGACY_SYNC_WRITE_KEYS];
+  const writeKeys = FURIMORA_SYNC_KEYS;
   for (let i = 0; i < writeKeys.length; i++) {
     const k = writeKeys[i];
     const v = localStorage.getItem(k);
@@ -5758,7 +5791,7 @@ function furimoraApplySyncPayload(payload) {
   for (let i = 0; i < ks.length; i++) {
     const k = ks[i];
     if (k === 'furimora_items') {
-      // 新方式（user_items差分同期）への移行中:
+      // 商品単位の差分同期へ移行済み:
       // 旧スナップショットの items は、ローカルに items が空の時だけ初期移行として受け入れる
       let curItems = [];
       try { curItems = JSON.parse(localStorage.getItem('furimora_items') || '[]'); } catch { curItems = []; }
@@ -5794,44 +5827,45 @@ async function furimoraPushToCloud(source = 'manual') {
   if (!fromCoordinator && furimoraSyncInProgress) {
     return { ok: false, reason: 'sync_busy' };
   }
-  if (!furimoraSupabaseClient) return { ok: false, reason: 'not_ready' };
+  if (!furimoraFirestore) return { ok: false, reason: 'not_ready' };
   furimoraSyncSetBadge('syncing', '同期中');
-  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
-  if (!session) {
+  const user = furimoraCurrentUser();
+  if (!user) {
     furimoraSyncSetBadge('idle', '待機中');
     return { ok: false, reason: 'not_logged_in' };
   }
   const payload = furimoraCollectSyncPayload();
-  const { data, error } = await furimoraSupabaseClient
-    .from('user_app_state')
-    .upsert(
-      { user_id: session.user.id, payload },
-      { onConflict: 'user_id' }
-    )
-    .select('updated_at')
-    .maybeSingle();
-  if (error) {
+  let updatedAt = new Date().toISOString();
+  try {
+    const stateRef = furimoraFirestoreStateRef(user.uid);
+    await stateRef.set({
+      payload,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      clientUpdatedAt: updatedAt,
+    }, { merge: true });
+    const saved = await stateRef.get({ source: 'server' });
+    updatedAt = furimoraTimestampToIso(saved.data()?.updatedAt) || updatedAt;
+  } catch (error) {
     console.error('[sync push]', error);
     furimoraSyncSetBadge('error', '失敗');
     showToast('同期に失敗しました: ' + (error.message || String(error)));
     return { ok: false, reason: 'error', error };
   }
   try {
-    await furimoraSyncItemsToCloud(session.user.id);
+    await furimoraSyncItemsToCloud(user.uid);
   } catch (e) {
     console.error('[sync items push]', e);
+    furimoraSyncSetBadge('error', '失敗');
+    showToast('商品同期に失敗しました: ' + (e.message || String(e)));
+    return { ok: false, reason: 'error', error: e };
   }
-  if (data?.updated_at) {
-    setLastRemoteAt(data.updated_at);
-    furimoraSetLastSyncAt(data.updated_at);
-  } else {
-    furimoraSetLastSyncAt(new Date().toISOString());
-  }
+  setLastRemoteAt(updatedAt);
+  furimoraSetLastSyncAt(updatedAt);
   setSyncIsoNow(FURIMORA_SYNC_LAST_PUSH_AT);
   clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
   furimoraResetSyncSignature();
   furimoraSyncSetBadge('ok', '同期済み');
-  return { ok: true, updatedAt: data?.updated_at || null };
+  return { ok: true, updatedAt };
 }
 
 async function furimoraSyncAfterLogin() {
@@ -5841,24 +5875,24 @@ async function furimoraSyncAfterLogin() {
   furimoraSyncAfterLoginLastTs = now;
   furimoraSyncInProgress = true;
   try {
-  if (!furimoraSupabaseClient) return;
-  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
-  if (!session) return;
+  if (!furimoraFirestore) return;
+  const user = furimoraCurrentUser();
+  if (!user) return;
   const lastMerged = getLastRemoteMergeMs();
-  const { data, error } = await furimoraSupabaseClient
-    .from('user_app_state')
-    .select('payload, updated_at')
-    .eq('user_id', session.user.id)
-    .maybeSingle();
-  if (error) {
+  let stateSnapshot;
+  try {
+    stateSnapshot = await furimoraFirestoreStateRef(user.uid).get();
+  } catch (error) {
     console.error('[sync pull]', error);
     furimoraSyncSetBadge('error', '失敗');
     showToast('同期データの取得に失敗しました: ' + (error.message || ''));
     return;
   }
+  const data = stateSnapshot.exists ? stateSnapshot.data() : null;
+  const remoteUpdatedAt = furimoraTimestampToIso(data?.updatedAt) || furimoraTimestampToIso(data?.clientUpdatedAt);
   if (!data) {
     try {
-      await furimoraPullItemsFromCloud(session.user.id, false);
+      await furimoraPullItemsFromCloud(user.uid, false);
     } catch (e) {
       console.error('[sync items pull]', e);
     }
@@ -5875,7 +5909,7 @@ async function furimoraSyncAfterLogin() {
   const hasKeys = data.payload && data.payload.keys && Object.keys(data.payload.keys).length > 0;
   if (!hasKeys) {
     try {
-      await furimoraPullItemsFromCloud(session.user.id, false);
+      await furimoraPullItemsFromCloud(user.uid, false);
     } catch (e) {
       console.error('[sync items pull]', e);
     }
@@ -5889,8 +5923,8 @@ async function furimoraSyncAfterLogin() {
     }
     return;
   }
-  const remoteT = new Date(data.updated_at).getTime();
-  // ローカル最終編集時刻ではなく「最後に取り込んだクラウドの updated_at」と比較（端末で保存すると常にローカルが新しくなる問題を防ぐ）
+  const remoteT = new Date(remoteUpdatedAt).getTime();
+  // ローカル最終編集時刻ではなく、最後に取り込んだクラウド時刻と比較する
   if (remoteT > lastMerged) {
     if (hasUnsyncedLocalChanges()) {
       furimoraSyncSetBadge('error', '競合');
@@ -5901,12 +5935,12 @@ async function furimoraSyncAfterLogin() {
     backupLocalSyncPayload();
     furimoraApplySyncPayload(data.payload);
     try {
-      await furimoraPullItemsFromCloud(session.user.id, true);
+      await furimoraPullItemsFromCloud(user.uid, true);
     } catch (e) {
       console.error('[sync items pull]', e);
     }
-    setLastRemoteAt(data.updated_at);
-    furimoraSetLastSyncAt(data.updated_at);
+    setLastRemoteAt(remoteUpdatedAt);
+    furimoraSetLastSyncAt(remoteUpdatedAt);
     clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
     furimoraResetSyncSignature();
     furimoraSyncSetBadge('ok', '同期済み');
@@ -5918,7 +5952,7 @@ async function furimoraSyncAfterLogin() {
       await furimoraPushToCloud('sync_coordinator');
     } else {
       try {
-        await furimoraPullItemsFromCloud(session.user.id, false);
+        await furimoraPullItemsFromCloud(user.uid, false);
       } catch (e) {
         console.error('[sync items pull]', e);
       }
@@ -5935,11 +5969,11 @@ async function furimoraSyncAfterLogin() {
 }
 
 async function furimoraForcePullFromCloud() {
-  if (!furimoraSupabaseClient) return;
+  if (!furimoraFirestore) return;
   if (furimoraSyncInProgress) { showToast('同期中です。しばらくお待ちください'); return; }
   furimoraSyncSetBadge('syncing', '同期中');
-  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
-  if (!session) { showToast('ログインしてください'); return; }
+  const user = furimoraCurrentUser();
+  if (!user) { showToast('ログインしてください'); return; }
   if (hasUnsyncedLocalChanges()) {
     const ok = confirm('この端末に未同期の変更があります。クラウド取得を実行するとローカル変更が上書きされる可能性があります。続行しますか？');
     if (!ok) {
@@ -5947,12 +5981,14 @@ async function furimoraForcePullFromCloud() {
       return;
     }
   }
-  const { data, error } = await furimoraSupabaseClient
-    .from('user_app_state')
-    .select('payload, updated_at')
-    .eq('user_id', session.user.id)
-    .maybeSingle();
-  if (error || !data || !data.payload || !data.payload.keys) {
+  let stateSnapshot;
+  try {
+    stateSnapshot = await furimoraFirestoreStateRef(user.uid).get({ source: 'server' });
+  } catch (error) {
+    console.error('[sync force pull]', error);
+  }
+  const data = stateSnapshot?.exists ? stateSnapshot.data() : null;
+  if (!data || !data.payload || !data.payload.keys) {
     furimoraSyncSetBadge('error', '失敗');
     showToast('クラウドにデータがありません');
     return;
@@ -5960,15 +5996,16 @@ async function furimoraForcePullFromCloud() {
   backupLocalSyncPayload();
   furimoraApplySyncPayload(data.payload);
   try {
-    await furimoraPullItemsFromCloud(session.user.id, true);
+    await furimoraPullItemsFromCloud(user.uid, true);
   } catch (e) {
     console.error('[sync items pull]', e);
     furimoraSyncSetBadge('error', '失敗');
     showToast('アイテム同期に失敗しました');
     return;
   }
-  setLastRemoteAt(data.updated_at);
-  furimoraSetLastSyncAt(data.updated_at);
+  const remoteUpdatedAt = furimoraTimestampToIso(data.updatedAt) || furimoraTimestampToIso(data.clientUpdatedAt);
+  setLastRemoteAt(remoteUpdatedAt);
+  furimoraSetLastSyncAt(remoteUpdatedAt);
   clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
   furimoraResetSyncSignature();
   furimoraSyncSetBadge('ok', '同期済み');
@@ -6235,11 +6272,11 @@ function furimoraApplyInitialSetup() {
   showToast('初期設定を保存しました');
 }
 
-/** セッション解除＋この端末の furimora データ・Supabase ストレージ・DL フォルダ IDB を消去し、ログインモーダルを開く */
+/** セッション解除＋この端末の furimora データ・Firebase セッション・DL フォルダ IDB を消去する */
 async function furimoraPerformFullLogout() {
   document.querySelectorAll('.modal-overlay.open').forEach((el) => el.classList.remove('open'));
   try {
-    if (furimoraSupabaseClient) await furimoraSupabaseClient.auth.signOut({ scope: 'local' });
+    if (furimoraFirebaseAuth) await furimoraFirebaseAuth.signOut();
   } catch (e) {
     console.error(e);
   }
@@ -6297,15 +6334,15 @@ function furimoraSyncUpdateUI(session) {
     if (minn) minn.classList.remove('hidden');
     if (emailEl) emailEl.textContent = session.user.email || session.user.id;
     if (memailEl) memailEl.textContent = session.user.email || session.user.id;
-    const auto = furimoraGetSupabaseAutoSync();
-    if (furimoraSupabaseClient) {
+    const auto = furimoraGetFirebaseAutoSync();
+    if (furimoraFirestore) {
       furimoraSyncSetStatus(
         auto
           ? 'ログイン中 — 自動同期ON。変更は数秒後にクラウドへ送られます'
           : 'ログイン中 — 自動同期はOFFです。バックアップまたは手動の「今すぐ同期」でクラウドとやり取りできます。',
       );
     }
-    const autoToggle = document.getElementById('settings-supabase-auto-sync-toggle');
+    const autoToggle = document.getElementById('settings-firebase-auto-sync-toggle');
     if (autoToggle) {
       furimoraToggleTrackSetState(autoToggle, auto);
       autoToggle.setAttribute('aria-checked', auto ? 'true' : 'false');
@@ -6318,7 +6355,7 @@ function furimoraSyncUpdateUI(session) {
     if (inn) inn.classList.add('hidden');
     if (mout) mout.classList.remove('hidden');
     if (minn) minn.classList.add('hidden');
-    if (furimoraSupabaseClient) furimoraSyncSetStatus('未ログイン — ログインすると端末間でデータを同期できます');
+    if (furimoraFirestore) furimoraSyncSetStatus('未ログイン — ログインすると端末間でデータを同期できます');
     furimoraStopSyncPolling();
     furimoraUpdateHeaderAccount(null);
   }
@@ -6341,13 +6378,13 @@ function furimoraUint8ArrayToUrlBase64(bytes) {
 }
 
 async function furimoraEnsureWebPushSubscription(showToastOnSuccess = true) {
-  if (!furimoraSupabaseClient) throw new Error('not ready');
+  if (!furimoraFirestore) throw new Error('not ready');
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('unsupported');
   if (!('Notification' in window)) throw new Error('notification unsupported');
   if (!furimoraWebPushVapidPublicKey) throw new Error('missing vapid key');
 
-  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
-  if (!session?.user?.id) throw new Error('not signed in');
+  const user = furimoraCurrentUser();
+  if (!user?.uid) throw new Error('not signed in');
 
   const permission = Notification.permission === 'granted'
     ? 'granted'
@@ -6374,16 +6411,13 @@ async function furimoraEnsureWebPushSubscription(showToastOnSuccess = true) {
   const endpoint = payload?.endpoint || subscription.endpoint;
   if (!endpoint) throw new Error('invalid subscription');
 
-  const { error } = await furimoraSupabaseClient
-    .from('user_push_subscriptions')
-    .upsert({
-      user_id: session.user.id,
+  const subscriptionId = await furimoraSha256Hex(endpoint);
+  await furimoraFirestorePushRef(user.uid).doc(subscriptionId).set({
       endpoint,
       subscription: payload,
-      user_agent: navigator.userAgent || '',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,endpoint' });
-  if (error) throw error;
+      userAgent: navigator.userAgent || '',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
 
   if (showToastOnSuccess) showToast('この端末で通知を有効化しました');
   return subscription;
@@ -6428,19 +6462,12 @@ function furimoraPruneSentAlertPushMap(map) {
 }
 
 async function furimoraSendWebPushToAllDevices(payload) {
-  if (!furimoraSupabaseClient) throw new Error('not ready');
-  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
-  if (!session?.user?.id) throw new Error('not signed in');
-
-  const { data, error } = await furimoraSupabaseClient
-    .from('user_push_subscriptions')
-    .select('subscription,endpoint')
-    .eq('user_id', session.user.id)
-    .limit(30);
-  if (error) throw error;
-
-  const subs = (Array.isArray(data) ? data : [])
-    .map((x) => x?.subscription)
+  if (!furimoraFirestore) throw new Error('not ready');
+  const user = furimoraCurrentUser();
+  if (!user?.uid) throw new Error('not signed in');
+  const snapshot = await furimoraFirestorePushRef(user.uid).limit(30).get();
+  const subs = snapshot.docs
+    .map((doc) => doc.data()?.subscription)
     .filter((x) => x && x.endpoint);
   if (!subs.length) return { ok: false, sent: 0, reason: 'no subscriptions' };
 
@@ -6466,14 +6493,13 @@ async function furimoraSendWebPushToAllDevices(payload) {
 async function furimoraAutoPushDueDiscounts(dueDiscounts) {
   if (furimoraAutoPushDiscountRunning) return;
   if (!Array.isArray(dueDiscounts) || !dueDiscounts.length) return;
-  if (!furimoraSupabaseClient) return;
+  if (!furimoraFirestore) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const automation = furimoraGetAutomationSettings();
   if (!automation.autoDiscountEnabled) return;
   if (!automation.pushEnabled || !automation.pushDiscountEnabled) return;
 
-  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
-  if (!session) return;
+  if (!furimoraCurrentUser()) return;
 
   furimoraAutoPushDiscountRunning = true;
   try {
@@ -6507,13 +6533,12 @@ async function furimoraAutoPushDueDiscounts(dueDiscounts) {
 async function furimoraAutoPushDueRelists(dueRelists) {
   if (furimoraAutoPushRelistRunning) return;
   if (!Array.isArray(dueRelists) || !dueRelists.length) return;
-  if (!furimoraSupabaseClient) return;
+  if (!furimoraFirestore) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const automation = furimoraGetAutomationSettings();
   if (!automation.pushEnabled || !automation.pushRelistEnabled) return;
 
-  const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
-  if (!session) return;
+  if (!furimoraCurrentUser()) return;
 
   furimoraAutoPushRelistRunning = true;
   try {
@@ -6544,7 +6569,7 @@ async function furimoraAutoPushDueRelists(dueRelists) {
   }
 }
 
-async function furimoraInitSupabase() {
+async function furimoraInitFirebase() {
   try {
     const r = await fetch('/api/public-config');
     const cfg = await r.json();
@@ -6552,38 +6577,49 @@ async function furimoraInitSupabase() {
     furimoraRefreshBackupDriveButton();
 
     if (!cfg || !cfg.configured) {
-      furimoraSyncSetStatus('未設定（ホストに SUPABASE_URL / SUPABASE_ANON_KEY を設定してください）');
+      furimoraSyncSetStatus('未設定（ホストに FIREBASE_* 環境変数を設定してください）');
       furimoraSyncSetBadge('error', '未設定');
       return;
     }
-    const sb = typeof supabase !== 'undefined' ? supabase : window.supabase;
-    const createClient = sb && sb.createClient ? sb.createClient.bind(sb) : null;
-    if (!createClient) {
-      furimoraSyncSetStatus('Supabase SDK が読み込めませんでした');
+    if (typeof firebase === 'undefined') {
+      furimoraSyncSetStatus('Firebase SDK が読み込めませんでした');
       furimoraSyncSetBadge('error', '失敗');
       return;
     }
     furimoraWebPushVapidPublicKey = cfg.webPushVapidPublicKey || '';
-    furimoraSupabaseClient = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-      auth: {
-        flowType: 'pkce',
-        detectSessionInUrl: true,
-        persistSession: true,
-        storage: localStorage,
-        autoRefreshToken: true,
-      },
-    });
-    furimoraSupabaseClient.auth.onAuthStateChange((event, session) => {
+    const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(cfg.firebaseConfig);
+    furimoraFirebaseAuth = app.auth();
+    furimoraFirestore = app.firestore();
+    await furimoraFirebaseAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+    if (furimoraFirebaseAuth.isSignInWithEmailLink(window.location.href)) {
+      let email = localStorage.getItem(FURIMORA_FIREBASE_MAGIC_EMAIL_KEY) || '';
+      if (!email) email = window.prompt('ログインリンクを送信したメールアドレスを入力してください') || '';
+      if (email) {
+        await furimoraFirebaseAuth.signInWithEmailLink(email, window.location.href);
+        localStorage.removeItem(FURIMORA_FIREBASE_MAGIC_EMAIL_KEY);
+        history.replaceState({}, '', window.location.pathname || '/');
+      }
+    }
+
+    let resolveInitialAuth;
+    const initialAuthState = new Promise((resolve) => { resolveInitialAuth = resolve; });
+    furimoraFirebaseAuth.onAuthStateChanged((user) => {
+      const session = furimoraUserSession(user);
       furimoraSyncUpdateUI(session);
-      if (event === 'SIGNED_IN' && session && furimoraGetSupabaseAutoSync()) {
+      if (resolveInitialAuth) {
+        resolveInitialAuth(session);
+        resolveInitialAuth = null;
+      }
+      if (session && furimoraGetFirebaseAutoSync()) {
         furimoraSyncAfterLogin().catch((e) => console.error(e));
       }
     });
-    const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
+    const session = await initialAuthState;
     furimoraSyncUpdateUI(session);
     furimoraSyncSetBadge('idle', '待機中');
     furimoraSetLastSyncAt(localStorage.getItem(FURIMORA_SYNC_LAST_REMOTE_AT) || '');
-    if (session && furimoraGetSupabaseAutoSync()) await furimoraSyncAfterLogin();
+    if (session && furimoraGetFirebaseAutoSync()) await furimoraSyncAfterLogin();
   } catch (e) {
     console.error(e);
     furimoraGoogleDriveClientId = '';
@@ -6663,51 +6699,55 @@ function furimoraWireBackupButtons() {
 function furimoraWireSyncButtons() {
   const origin = window.location.origin;
   const path = window.location.pathname || '/';
-
-  document.getElementById('sync-google-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const { error } = await furimoraSupabaseClient.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: origin + path },
-    });
-    if (error) showToast(error.message || 'Google ログインに失敗しました');
-  });
-
-  document.getElementById('sync-email-signin-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const email = (document.getElementById('sync-email-input')?.value || '').trim();
-    const password = document.getElementById('sync-password-input')?.value || '';
-    if (!email || !password) { showToast('メールとパスワードを入力してください'); return; }
-    const { error } = await furimoraSupabaseClient.auth.signInWithPassword({ email, password });
-    if (error) showToast(error.message || 'ログインに失敗しました');
-    else showToast('ログインしました');
-  });
-
-  document.getElementById('sync-email-signup-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const email = (document.getElementById('sync-email-input')?.value || '').trim();
-    const password = document.getElementById('sync-password-input')?.value || '';
-    if (!email || password.length < 8) { showToast('メールと8文字以上のパスワードを入力してください'); return; }
-    const { error } = await furimoraSupabaseClient.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: origin + path },
-    });
-    if (error) showToast(error.message || '登録に失敗しました');
-    else showToast('確認メールを送信しました。メール内のリンクを開いてください');
-  });
-
-  document.getElementById('sync-magic-link-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const email = (document.getElementById('sync-email-input')?.value || '').trim();
-    if (!email) { showToast('メールアドレスを入力してください'); return; }
-    const { error } = await furimoraSupabaseClient.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: origin + path },
-    });
-    if (error) showToast(error.message || '送信に失敗しました');
-    else showToast('ログイン用リンクをメールに送信しました');
-  });
+  const actionCodeSettings = { url: origin + path, handleCodeInApp: true };
+  const runAuth = async (action, closeOnSuccess = false) => {
+    try {
+      if (!furimoraFirebaseAuth) return;
+      await action();
+      if (closeOnSuccess) closeModal('account-modal');
+    } catch (error) {
+      console.error('[firebase auth]', error);
+      showToast(error?.message || '認証に失敗しました');
+    }
+  };
+  const wireAuthForm = (prefix, closeOnSuccess) => {
+    const id = (suffix) => `${prefix}${suffix}`;
+    document.getElementById(id('google-btn'))?.addEventListener('click', () => runAuth(async () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      try {
+        await furimoraFirebaseAuth.signInWithPopup(provider);
+      } catch (error) {
+        if (error?.code !== 'auth/popup-blocked' && error?.code !== 'auth/operation-not-supported-in-this-environment') throw error;
+        await furimoraFirebaseAuth.signInWithRedirect(provider);
+        return;
+      }
+      showToast('Google でログインしました');
+    }, closeOnSuccess));
+    document.getElementById(id('email-signin-btn'))?.addEventListener('click', () => runAuth(async () => {
+      const email = (document.getElementById(id('email-input'))?.value || '').trim();
+      const password = document.getElementById(id('password-input'))?.value || '';
+      if (!email || !password) throw new Error('メールとパスワードを入力してください');
+      await furimoraFirebaseAuth.signInWithEmailAndPassword(email, password);
+      showToast('ログインしました');
+    }, closeOnSuccess));
+    document.getElementById(id('email-signup-btn'))?.addEventListener('click', () => runAuth(async () => {
+      const email = (document.getElementById(id('email-input'))?.value || '').trim();
+      const password = document.getElementById(id('password-input'))?.value || '';
+      if (!email || password.length < 8) throw new Error('メールと8文字以上のパスワードを入力してください');
+      const credential = await furimoraFirebaseAuth.createUserWithEmailAndPassword(email, password);
+      await credential.user?.sendEmailVerification(actionCodeSettings);
+      showToast('登録しました。確認メールも送信しました');
+    }, closeOnSuccess));
+    document.getElementById(id('magic-link-btn'))?.addEventListener('click', () => runAuth(async () => {
+      const email = (document.getElementById(id('email-input'))?.value || '').trim();
+      if (!email) throw new Error('メールアドレスを入力してください');
+      await furimoraFirebaseAuth.sendSignInLinkToEmail(email, actionCodeSettings);
+      localStorage.setItem(FURIMORA_FIREBASE_MAGIC_EMAIL_KEY, email);
+      showToast('ログイン用リンクをメールに送信しました');
+    }));
+  };
+  wireAuthForm('sync-', false);
+  wireAuthForm('modal-sync-', true);
 
   document.getElementById('sync-push-btn')?.addEventListener('click', async () => {
     const result = await furimoraPushToCloud();
@@ -6728,47 +6768,6 @@ function furimoraWireSyncButtons() {
     furimoraPerformFullLogout().catch((e) => console.error(e));
   });
 
-  document.getElementById('modal-sync-google-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const { error } = await furimoraSupabaseClient.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: origin + path },
-    });
-    if (error) showToast(error.message || 'Google ログインに失敗しました');
-  });
-  document.getElementById('modal-sync-email-signin-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const email = (document.getElementById('modal-sync-email-input')?.value || '').trim();
-    const password = document.getElementById('modal-sync-password-input')?.value || '';
-    if (!email || !password) { showToast('メールとパスワードを入力してください'); return; }
-    const { error } = await furimoraSupabaseClient.auth.signInWithPassword({ email, password });
-    if (error) showToast(error.message || 'ログインに失敗しました');
-    else { showToast('ログインしました'); closeModal('account-modal'); }
-  });
-  document.getElementById('modal-sync-email-signup-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const email = (document.getElementById('modal-sync-email-input')?.value || '').trim();
-    const password = document.getElementById('modal-sync-password-input')?.value || '';
-    if (!email || password.length < 8) { showToast('メールと8文字以上のパスワードを入力してください'); return; }
-    const { error } = await furimoraSupabaseClient.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: origin + path },
-    });
-    if (error) showToast(error.message || '登録に失敗しました');
-    else showToast('確認メールを送信しました。メール内のリンクを開いてください');
-  });
-  document.getElementById('modal-sync-magic-link-btn')?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const email = (document.getElementById('modal-sync-email-input')?.value || '').trim();
-    if (!email) { showToast('メールアドレスを入力してください'); return; }
-    const { error } = await furimoraSupabaseClient.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: origin + path },
-    });
-    if (error) showToast(error.message || '送信に失敗しました');
-    else showToast('ログイン用リンクをメールに送信しました');
-  });
   document.getElementById('modal-sync-push-btn')?.addEventListener('click', async () => {
     const result = await furimoraPushToCloud();
     if (result?.ok) showToast('クラウドに保存しました');
@@ -6803,13 +6802,12 @@ function furimoraWireSyncButtons() {
   document.getElementById('sync-retry-btn')?.addEventListener('click', retry);
   document.getElementById('modal-sync-retry-btn')?.addEventListener('click', retry);
 
-  const autoToggle = document.getElementById('settings-supabase-auto-sync-toggle');
+  const autoToggle = document.getElementById('settings-firebase-auto-sync-toggle');
   autoToggle?.addEventListener('click', async () => {
-    if (!furimoraSupabaseClient) return;
-    const { data: { session } } = await furimoraSupabaseClient.auth.getSession();
-    if (!session) { showToast('ログインしてください'); return; }
-    const next = !furimoraGetSupabaseAutoSync();
-    furimoraSetSupabaseAutoSync(next);
+    if (!furimoraFirestore) return;
+    if (!furimoraCurrentUser()) { showToast('ログインしてください'); return; }
+    const next = !furimoraGetFirebaseAutoSync();
+    furimoraSetFirebaseAutoSync(next);
     furimoraToggleTrackSetState(autoToggle, next);
     autoToggle.setAttribute('aria-checked', next ? 'true' : 'false');
     if (next) {
@@ -6906,7 +6904,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-  furimoraInitSupabase().then(() => {
+  furimoraInitFirebase().then(() => {
     furimoraWireSyncButtons();
     furimoraWireBackupButtons();
   });
