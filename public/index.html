@@ -1854,13 +1854,15 @@ let furimoraFirebaseAuth = null;
 let furimoraFirestore = null;
 let furimoraSyncPushTimer = null;
 let furimoraSyncPollTimer = null;
+let furimoraSyncStateUnsubscribe = null;
+let furimoraPendingPushClientAt = '';
 let furimoraSyncAfterLoginLastTs = 0;
 let furimoraSyncInProgress = false;
 let furimoraLastSyncSignature = '';
 let furimoraWebPushVapidPublicKey = '';
 let furimoraAutoPushDiscountRunning = false;
 let furimoraAutoPushRelistRunning = false;
-const FURIMORA_SYNC_POLL_MS = 12000;
+const FURIMORA_SYNC_POLL_MS = 5 * 60 * 1000;
 /** 最後にクラウドの版を取り込んだ／push で確定した時刻（ローカル編集時刻とは別） */
 const FURIMORA_SYNC_LAST_REMOTE_AT = 'furimora_sync_last_remote_at';
 const FURIMORA_SYNC_LOCAL_CHANGED_AT = 'furimora_sync_local_changed_at';
@@ -2367,17 +2369,45 @@ function notifyLocalDataChanged() {
   scheduleSyncPush();
 }
 function furimoraStopSyncPolling() {
-  if (!furimoraSyncPollTimer) return;
-  clearInterval(furimoraSyncPollTimer);
-  furimoraSyncPollTimer = null;
+  if (furimoraSyncStateUnsubscribe) {
+    furimoraSyncStateUnsubscribe();
+    furimoraSyncStateUnsubscribe = null;
+  }
+  if (furimoraSyncPollTimer) {
+    clearInterval(furimoraSyncPollTimer);
+    furimoraSyncPollTimer = null;
+  }
 }
 function furimoraStartSyncPolling() {
   furimoraStopSyncPolling();
   if (!furimoraFirestore) return;
+  const user = furimoraCurrentUser();
+  if (!user) return;
+  furimoraSyncStateUnsubscribe = furimoraFirestoreStateRef(user.uid).onSnapshot((snapshot) => {
+    if (!furimoraGetFirebaseAutoSync()) return;
+    if (document.visibilityState !== 'visible') return;
+    furimoraRefreshSyncSignature();
+    const data = snapshot.exists ? snapshot.data() : null;
+    const remoteUpdatedAt =
+      furimoraTimestampToIso(data?.updatedAt) ||
+      furimoraTimestampToIso(data?.clientUpdatedAt);
+    const remoteClientUpdatedAt = furimoraTimestampToIso(data?.clientUpdatedAt);
+    if (remoteClientUpdatedAt && remoteClientUpdatedAt === furimoraPendingPushClientAt) return;
+    const remoteMs = new Date(remoteUpdatedAt).getTime();
+    if (hasUnsyncedLocalChanges() || (Number.isFinite(remoteMs) && remoteMs > getLastRemoteMergeMs())) {
+      furimoraSyncAfterLogin().catch((e) => console.error('[sync watch]', e));
+    }
+  }, (error) => {
+    console.error('[sync watch]', error);
+    if (furimoraIsQuotaError(error)) {
+      furimoraSyncSetStatus('Firestore の利用上限に達しています。上限リセット後に自動で再開します');
+      furimoraSyncSetBadge('error', '上限到達');
+    }
+  });
   furimoraSyncPollTimer = setInterval(() => {
     if (!furimoraGetFirebaseAutoSync()) return;
     if (document.visibilityState !== 'visible') return;
-    // 念のため差分監視（notify 漏れや別タブ更新を拾う）
+    // 変更通知が切れた場合に備えた低頻度の確認
     furimoraRefreshSyncSignature();
     furimoraSyncAfterLogin().catch((e) => console.error('[sync poll]', e));
   }, FURIMORA_SYNC_POLL_MS);
@@ -5984,6 +6014,22 @@ function furimoraCollectSyncPayload() {
   return { v: 1, keys };
 }
 
+function furimoraIsQuotaError(error) {
+  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || error || '').toLowerCase();
+  return code.includes('resource-exhausted') ||
+    code.includes('quota') ||
+    message.includes('resource_exhausted') ||
+    message.includes('quota exceeded');
+}
+
+function furimoraSyncErrorMessage(error, fallback = '同期に失敗しました') {
+  if (furimoraIsQuotaError(error)) {
+    return 'Firestore の利用上限に達しています。上限リセット後に再試行してください';
+  }
+  return `${fallback}: ${error?.message || String(error || '')}`;
+}
+
 function furimoraApplySyncPayload(payload, replaceLocal = false) {
   if (!payload || !payload.keys || typeof payload.keys !== 'object') return;
   if (replaceLocal) {
@@ -6058,6 +6104,7 @@ async function furimoraPushToCloud(source = 'manual') {
   const payload = furimoraCollectSyncPayload();
   const expectedRemoteMs = getLastRemoteMergeMs();
   let updatedAt = new Date().toISOString();
+  furimoraPendingPushClientAt = updatedAt;
   let newerRemoteData = null;
   let newerRemoteUpdatedAt = '';
   try {
@@ -6090,25 +6137,31 @@ async function furimoraPushToCloud(source = 'manual') {
     if (error?.code === 'furimora/cloud-newer' && newerRemoteData) {
       try {
         await furimoraApplyCloudSnapshot(user.uid, newerRemoteData, newerRemoteUpdatedAt, true);
+        furimoraPendingPushClientAt = '';
         return { ok: false, reason: 'remote_newer', updatedAt: newerRemoteUpdatedAt };
       } catch (pullError) {
         console.error('[sync stale pull]', pullError);
         furimoraSyncSetBadge('error', '失敗');
         showToast('クラウド最新版の取得に失敗しました: ' + (pullError.message || String(pullError)));
+        furimoraPendingPushClientAt = '';
         return { ok: false, reason: 'error', error: pullError };
       }
     }
     console.error('[sync push]', error);
-    furimoraSyncSetBadge('error', '失敗');
-    showToast('同期に失敗しました: ' + (error.message || String(error)));
+    furimoraSyncSetBadge('error', furimoraIsQuotaError(error) ? '上限到達' : '失敗');
+    furimoraSyncSetStatus(furimoraSyncErrorMessage(error));
+    showToast(furimoraSyncErrorMessage(error));
+    furimoraPendingPushClientAt = '';
     return { ok: false, reason: 'error', error };
   }
   try {
     await furimoraSyncItemsToCloud(user.uid);
   } catch (e) {
     console.error('[sync items push]', e);
-    furimoraSyncSetBadge('error', '失敗');
-    showToast('商品同期に失敗しました: ' + (e.message || String(e)));
+    furimoraSyncSetBadge('error', furimoraIsQuotaError(e) ? '上限到達' : '失敗');
+    furimoraSyncSetStatus(furimoraSyncErrorMessage(e, '商品同期に失敗しました'));
+    showToast(furimoraSyncErrorMessage(e, '商品同期に失敗しました'));
+    furimoraPendingPushClientAt = '';
     return { ok: false, reason: 'error', error: e };
   }
   setLastRemoteAt(updatedAt);
@@ -6117,6 +6170,7 @@ async function furimoraPushToCloud(source = 'manual') {
   clearSyncKey(FURIMORA_SYNC_LOCAL_CHANGED_AT);
   furimoraResetSyncSignature();
   furimoraSyncSetBadge('ok', '同期済み');
+  furimoraPendingPushClientAt = '';
   return { ok: true, updatedAt };
 }
 
@@ -6136,8 +6190,9 @@ async function furimoraSyncAfterLogin() {
     stateSnapshot = await furimoraFirestoreStateRef(user.uid).get();
   } catch (error) {
     console.error('[sync pull]', error);
-    furimoraSyncSetBadge('error', '失敗');
-    showToast('同期データの取得に失敗しました: ' + (error.message || ''));
+    furimoraSyncSetBadge('error', furimoraIsQuotaError(error) ? '上限到達' : '失敗');
+    furimoraSyncSetStatus(furimoraSyncErrorMessage(error, '同期データの取得に失敗しました'));
+    showToast(furimoraSyncErrorMessage(error, '同期データの取得に失敗しました'));
     return;
   }
   const data = stateSnapshot.exists ? stateSnapshot.data() : null;
@@ -6174,11 +6229,6 @@ async function furimoraSyncAfterLogin() {
     if (hasUnsyncedLocalChanges()) {
       await furimoraPushToCloud('sync_coordinator');
     } else {
-      try {
-        await furimoraPullItemsFromCloud(user.uid, false);
-      } catch (e) {
-        console.error('[sync items pull]', e);
-      }
       furimoraSyncSetBadge('idle', '待機中');
     }
   }
