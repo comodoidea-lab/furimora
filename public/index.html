@@ -698,7 +698,7 @@ tailwind.config = {
         <button onclick="setItemFilter('active')" id="filter-active" class="item-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant">出品中</button>
         <button onclick="setItemFilter('over30')" id="filter-over30" class="item-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant">▲ 30日超</button>
         <button onclick="setItemFilter('over60')" id="filter-over60" class="item-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant">● 60日超</button>
-        <button onclick="setItemFilter('relisted')" id="filter-relisted" class="item-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant">再出品済</button>
+        <button onclick="setItemFilter('relisted')" id="filter-relisted" class="item-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant">再出品中</button>
         <button onclick="setItemFilter('sold')" id="filter-sold" class="item-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant">売却済</button>
       </div>
       <div class="flex flex-wrap gap-2 items-center min-w-0">
@@ -3195,6 +3195,10 @@ function getDaysSinceListed(listedAt) {
   return Math.max(0, Math.floor((Date.now() - new Date(listedAt).getTime()) / 86400000));
 }
 
+function itemNeedsRelistAlert(item) {
+  return item?.status === 'active' && getDaysSinceListed(item.listedAt) >= 30;
+}
+
 function setItemFilter(f) {
   itemFilter = f;
   document.querySelectorAll('.item-filter-btn').forEach(b => {
@@ -3231,7 +3235,7 @@ function renderItems() {
     if (itemFilter === 'active') return item.status === 'active';
     if (itemFilter === 'over30') return item.status === 'active' && days >= 30;
     if (itemFilter === 'over60') return item.status === 'active' && days >= 60;
-    if (itemFilter === 'relisted') return item.status === 'relisted';
+    if (itemFilter === 'relisted') return Number(item.relistCount || 0) > 0 && item.status !== 'sold';
     if (itemFilter === 'sold') return item.status === 'sold';
     return true;
   }).sort((a, b) => {
@@ -3270,6 +3274,17 @@ function renderItems() {
   el.innerHTML = filtered.map(item => {
     const soldMutedCls = item.status === 'sold' ? 'opacity-75 saturate-50' : '';
     const days = getDaysSinceListed(item.listedAt);
+    const relistCount = Math.max(0, parseInt(item.relistCount, 10) || 0);
+    const needsRelistAlert = itemNeedsRelistAlert(item);
+    const relistAlertBadge = needsRelistAlert
+      ? `<span class="inline-flex items-center gap-0.5 rounded-full bg-error-container/30 px-1.5 py-0.5 text-[9px] font-black text-error whitespace-nowrap"><span class="material-symbols-outlined text-[11px] leading-none">notification_important</span>再出品アラート</span>`
+      : '';
+    const itemStatusLabel = item.status !== 'sold' && relistCount > 0
+      ? `再出品中 x${relistCount}`
+      : (statusMap[item.status] || '');
+    const itemStatusClass = item.status !== 'sold' && relistCount > 0
+      ? 'bg-primary/10 text-primary'
+      : (statusCls[item.status] || '');
     const daysBadge = days >= 60 ? `<span class="text-[10px] font-bold text-error">● ${days}日</span>`
       : days >= 30 ? `<span class="text-[10px] font-bold text-primary">▲ ${days}日</span>`
       : `<span class="text-[10px] text-on-surface-variant">${days}日</span>`;
@@ -3303,8 +3318,9 @@ function renderItems() {
         <div class="p-2.5 flex-1 flex flex-col min-h-0 gap-1">
           <div class="flex items-start justify-between gap-1">
             <h4 class="text-xs font-bold leading-snug line-clamp-2 flex-1">${item.title}</h4>
-            <span class="${statusCls[item.status]||''} text-[9px] font-bold px-1.5 py-0.5 rounded-sm flex-shrink-0">${statusMap[item.status]||''}</span>
+            <span class="${itemStatusClass} text-[9px] font-bold px-1.5 py-0.5 rounded-sm flex-shrink-0">${itemStatusLabel}</span>
           </div>
+          ${relistAlertBadge ? `<div>${relistAlertBadge}</div>` : ''}
           ${item.category ? `<span class="text-[9px] text-on-surface-variant/80 line-clamp-1">${item.category}</span>` : ''}
           <p class="text-[10px] text-on-surface-variant line-clamp-1">${item.condition||''}</p>
           <div class="flex items-end justify-between gap-1 flex-wrap mt-auto pt-1">
@@ -3330,8 +3346,11 @@ function renderItems() {
       ${thumbBox}
       <div class="flex-1 min-w-0">
         <div class="flex items-start justify-between gap-1 mb-0.5">
-          <h4 class="text-sm font-bold leading-snug line-clamp-2 flex-1">${item.title}</h4>
-          <span class="${statusCls[item.status]||''} text-[10px] font-bold px-2 py-0.5 rounded-sm flex-shrink-0 ml-1">${statusMap[item.status]||''}</span>
+          <div class="flex-1 min-w-0">
+            <h4 class="text-sm font-bold leading-snug line-clamp-2">${item.title}</h4>
+            ${relistAlertBadge ? `<div class="mt-1">${relistAlertBadge}</div>` : ''}
+          </div>
+          <span class="${itemStatusClass} text-[10px] font-bold px-2 py-0.5 rounded-sm flex-shrink-0 ml-1">${itemStatusLabel}</span>
         </div>
         <p class="text-[11px] text-on-surface-variant">${item.condition||''}</p>
         <div class="flex items-center gap-2 mt-1 flex-wrap">
@@ -4121,6 +4140,7 @@ function upsertScheduleFromItem(item) {
   const step = Math.max(1, parseInt(item.discountAmount, 10) || 100);
   const freq = Math.max(1, parseInt(item.discountFreqDays, 10) || 1);
   const baseName = item.title || '商品';
+  const relistCount = Math.max(0, parseInt(item.relistCount, 10) || 0);
   const safeItemId = String(item.id).replace(/[^a-zA-Z0-9_-]/g, '_');
   let eventIndex = 0;
 
@@ -4136,9 +4156,11 @@ function upsertScheduleFromItem(item) {
   pushEvent(new Date(listed), {
     itemId: item.id,
     name: baseName,
-    icon: 'tag',
+    icon: relistCount > 0 ? 'refresh-cw' : 'tag',
     time: '09:00',
-    type: `出品開始 ¥${Math.max(0, startPrice).toLocaleString()}`,
+    type: relistCount > 0
+      ? `再出品 x${relistCount} ¥${Math.max(0, startPrice).toLocaleString()}`
+      : `出品開始 ¥${Math.max(0, startPrice).toLocaleString()}`,
     status: '予定',
   });
 
