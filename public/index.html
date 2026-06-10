@@ -1869,6 +1869,8 @@ const FURIMORA_SYNC_LOCAL_CHANGED_AT = 'furimora_sync_local_changed_at';
 const FURIMORA_SYNC_LAST_PUSH_AT = 'furimora_sync_last_push_at';
 const FURIMORA_SYNC_LOCAL_BACKUP = 'furimora_sync_local_backup_v1';
 const FURIMORA_ITEMS_TOMBSTONES_KEY = 'furimora_items_tombstones';
+const FURIMORA_ITEMS_DIRTY_KEY = 'furimora_items_dirty_v1';
+const FURIMORA_ITEMS_LAST_REMOTE_AT = 'furimora_items_last_remote_at';
 const FURIMORA_FIREBASE_AUTO_SYNC_KEY = 'furimora_firebase_auto_sync';
 const FURIMORA_LEGACY_SUPABASE_AUTO_SYNC_KEY = 'furimora_supabase_auto_sync';
 const FURIMORA_FIREBASE_MAGIC_EMAIL_KEY = 'furimora_firebase_magic_email';
@@ -1972,6 +1974,16 @@ function furimoraTimestampToIso(value) {
   if (value instanceof Date) return value.toISOString();
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+}
+
+function furimoraLatestStateIso(data) {
+  const candidates = [
+    furimoraTimestampToIso(data?.updatedAt),
+    furimoraTimestampToIso(data?.itemsUpdatedAt),
+    furimoraTimestampToIso(data?.clientUpdatedAt),
+  ].filter(Boolean);
+  candidates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  return candidates[0] || '';
 }
 
 function furimoraFirestoreStateRef(userId) {
@@ -2168,9 +2180,9 @@ function clearSyncKey(key) {
 }
 function hasUnsyncedLocalChanges() {
   const changedAt = getSyncMs(FURIMORA_SYNC_LOCAL_CHANGED_AT);
-  if (!changedAt) return false;
   const pushedAt = getSyncMs(FURIMORA_SYNC_LAST_PUSH_AT);
-  return changedAt > pushedAt;
+  if (changedAt > pushedAt) return true;
+  return Object.keys(furimoraLoadDirtyItems()).length > 0;
 }
 function furimoraComputeSyncSignature() {
   try {
@@ -2221,10 +2233,59 @@ function furimoraSaveItemTombstones(tombstones) {
     console.warn('[items tombstones]', e);
   }
 }
+function furimoraLoadDirtyItems() {
+  try {
+    const raw = localStorage.getItem(FURIMORA_ITEMS_DIRTY_KEY);
+    if (raw != null) {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    }
+  } catch (e) {
+    console.warn('[items dirty]', e);
+  }
+  const dirty = {};
+  let storedItems = Array.isArray(ITEMS) ? ITEMS : [];
+  if (!storedItems.length) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('furimora_items') || '[]');
+      if (Array.isArray(parsed)) storedItems = parsed;
+    } catch (e) { /* ignore invalid legacy data */ }
+  }
+  const lastPushMs = getSyncMs(FURIMORA_SYNC_LAST_PUSH_AT);
+  for (const item of storedItems) {
+    if (!item || item.id == null) continue;
+    const itemUpdatedMs = furimoraGetItemUpdatedMs(item);
+    if (lastPushMs && item.updatedAt && itemUpdatedMs <= lastPushMs) continue;
+    dirty[String(item.id)] = item.updatedAt || new Date().toISOString();
+  }
+  const tombstones = furimoraLoadItemTombstones();
+  Object.keys(tombstones).forEach((itemId) => {
+    const deletedAt = tombstones[itemId] || new Date().toISOString();
+    const deletedMs = new Date(deletedAt).getTime();
+    if (lastPushMs && Number.isFinite(deletedMs) && deletedMs <= lastPushMs) return;
+    dirty[String(itemId)] = deletedAt;
+  });
+  furimoraSaveDirtyItems(dirty);
+  return dirty;
+}
+function furimoraSaveDirtyItems(dirty) {
+  try {
+    localStorage.setItem(FURIMORA_ITEMS_DIRTY_KEY, JSON.stringify(dirty || {}));
+  } catch (e) {
+    console.warn('[items dirty]', e);
+  }
+}
+function furimoraMarkItemDirty(itemId, changedAtIso) {
+  const dirty = furimoraLoadDirtyItems();
+  dirty[String(itemId)] = changedAtIso || new Date().toISOString();
+  furimoraSaveDirtyItems(dirty);
+}
 function furimoraMarkItemDeleted(itemId, deletedAtIso) {
   const tombstones = furimoraLoadItemTombstones();
-  tombstones[String(itemId)] = deletedAtIso || new Date().toISOString();
+  const deletedAt = deletedAtIso || new Date().toISOString();
+  tombstones[String(itemId)] = deletedAt;
   furimoraSaveItemTombstones(tombstones);
+  furimoraMarkItemDirty(itemId, deletedAt);
 }
 function furimoraClearItemTombstone(itemId) {
   const tombstones = furimoraLoadItemTombstones();
@@ -2251,86 +2312,149 @@ function furimoraGetItemUpdatedMs(item) {
   const t = new Date(src).getTime();
   return Number.isFinite(t) ? t : 0;
 }
+function furimoraLoadItemsRemoteCursor() {
+  const raw = localStorage.getItem(FURIMORA_ITEMS_LAST_REMOTE_AT) || '';
+  if (!raw || !firebase?.firestore?.Timestamp) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Number.isFinite(parsed?.seconds) && Number.isFinite(parsed?.nanoseconds)) {
+      return new firebase.firestore.Timestamp(parsed.seconds, parsed.nanoseconds);
+    }
+  } catch (e) { /* legacy ISO cursor */ }
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? firebase.firestore.Timestamp.fromMillis(ms) : null;
+}
+function furimoraSaveItemsRemoteCursor(timestamp) {
+  if (!timestamp || !Number.isFinite(timestamp.seconds) || !Number.isFinite(timestamp.nanoseconds)) return;
+  localStorage.setItem(FURIMORA_ITEMS_LAST_REMOTE_AT, JSON.stringify({
+    seconds: timestamp.seconds,
+    nanoseconds: timestamp.nanoseconds,
+  }));
+}
+function furimoraCompareFirestoreTimestamps(a, b) {
+  if (!a) return b ? -1 : 0;
+  if (!b) return 1;
+  if (a.seconds !== b.seconds) return a.seconds > b.seconds ? 1 : -1;
+  if (a.nanoseconds === b.nanoseconds) return 0;
+  return a.nanoseconds > b.nanoseconds ? 1 : -1;
+}
 async function furimoraSyncItemsToCloud(userId) {
-  if (!furimoraFirestore || !userId) return;
+  if (!furimoraFirestore || !userId) return { count: 0 };
   const rows = [];
+  const staleDirtyIds = [];
+  const dirty = furimoraLoadDirtyItems();
   const tombstones = furimoraLoadItemTombstones();
-  const activeItemIds = new Set();
-  for (const item of (Array.isArray(ITEMS) ? ITEMS : [])) {
-    if (!item || item.id == null) continue;
-    const itemId = String(item.id);
-    activeItemIds.add(itemId);
-    rows.push({
-      itemId,
-      payload: JSON.parse(JSON.stringify(item)),
-      deleted: false,
-      updatedAt: item.updatedAt || new Date().toISOString(),
-    });
-  }
-  Object.keys(tombstones).forEach((itemId) => {
-    if (activeItemIds.has(String(itemId))) return;
+  const itemMap = new Map(
+    (Array.isArray(ITEMS) ? ITEMS : [])
+      .filter((item) => item && item.id != null)
+      .map((item) => [String(item.id), item]),
+  );
+  Object.entries(dirty).forEach(([itemId, dirtyAt]) => {
+    const item = itemMap.get(String(itemId));
+    const deletedAt = tombstones[itemId];
+    if (deletedAt && !item) {
+      rows.push({
+        itemId: String(itemId),
+        payload: null,
+        deleted: true,
+        updatedAt: deletedAt,
+        dirtyAt,
+      });
+      return;
+    }
+    if (!item) {
+      staleDirtyIds.push(itemId);
+      return;
+    }
     rows.push({
       itemId: String(itemId),
-      payload: null,
-      deleted: true,
-      updatedAt: tombstones[itemId] || new Date().toISOString(),
+      payload: JSON.parse(JSON.stringify(item)),
+      deleted: false,
+      updatedAt: item.updatedAt || dirtyAt || new Date().toISOString(),
+      dirtyAt,
     });
   });
-  if (!rows.length) return;
+  if (!rows.length) {
+    if (staleDirtyIds.length) {
+      staleDirtyIds.forEach((itemId) => { delete dirty[itemId]; });
+      furimoraSaveDirtyItems(dirty);
+    }
+    return { count: 0 };
+  }
   const itemsRef = furimoraFirestoreItemsRef(userId);
   for (let start = 0; start < rows.length; start += 400) {
     const batch = furimoraFirestore.batch();
     rows.slice(start, start + 400).forEach((row) => {
+      const { dirtyAt, ...cloudRow } = row;
       batch.set(itemsRef.doc(furimoraFirestoreItemDocId(row.itemId)), {
-        ...row,
-        clientUpdatedAt: row.updatedAt,
+        ...cloudRow,
+        clientUpdatedAt: cloudRow.updatedAt,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
     });
     await batch.commit();
   }
+  const latestDirty = furimoraLoadDirtyItems();
+  staleDirtyIds.forEach((itemId) => { delete latestDirty[itemId]; });
   for (const row of rows) {
-    if (!row.deleted && Object.prototype.hasOwnProperty.call(tombstones, row.itemId)) {
-      delete tombstones[row.itemId];
+    if (latestDirty[row.itemId] === row.dirtyAt) {
+      delete latestDirty[row.itemId];
     }
   }
-  furimoraSaveItemTombstones(tombstones);
+  furimoraSaveDirtyItems(latestDirty);
+  return { count: rows.length };
 }
 async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
-  if (!furimoraFirestore || !userId) return;
-  const snapshot = await furimoraFirestoreItemsRef(userId).get();
+  if (!furimoraFirestore || !userId) return { count: 0, full: false };
+  const remoteCursor = furimoraLoadItemsRemoteCursor();
+  const full = preferRemote || !remoteCursor;
+  let query = furimoraFirestoreItemsRef(userId).orderBy('updatedAt', 'asc');
+  if (!full) {
+    query = query.where('updatedAt', '>', remoteCursor);
+  }
+  const snapshot = await query.get();
   const currentItems = Array.isArray(ITEMS) ? ITEMS : [];
   const currentTombstones = furimoraLoadItemTombstones();
   const localMap = preferRemote
     ? new Map()
     : new Map(currentItems.map((i) => [String(i.id), i]));
   const tombstones = preferRemote ? {} : currentTombstones;
+  const appliedRemoteIds = [];
   let changed = preferRemote && (currentItems.length > 0 || Object.keys(currentTombstones).length > 0);
+  let newestRemoteCursor = remoteCursor;
   for (const doc of snapshot.docs) {
     const row = doc.data() || {};
     const id = String(row.itemId || decodeURIComponent(doc.id));
-    const remoteIso = furimoraTimestampToIso(row.updatedAt) || furimoraTimestampToIso(row.clientUpdatedAt);
-    const remoteMs = new Date(remoteIso).getTime();
+    const remoteChangeIso = furimoraTimestampToIso(row.updatedAt) || furimoraTimestampToIso(row.clientUpdatedAt);
+    const remoteContentIso = furimoraTimestampToIso(row.clientUpdatedAt) || remoteChangeIso;
+    const remoteChangeTimestamp = row.updatedAt?.seconds != null
+      ? row.updatedAt
+      : (remoteChangeIso ? firebase.firestore.Timestamp.fromDate(new Date(remoteChangeIso)) : null);
+    const remoteContentMs = new Date(remoteContentIso).getTime();
+    if (furimoraCompareFirestoreTimestamps(remoteChangeTimestamp, newestRemoteCursor) > 0) {
+      newestRemoteCursor = remoteChangeTimestamp;
+    }
     const localItem = localMap.get(id);
     const localItemMs = furimoraGetItemUpdatedMs(localItem);
     const localDelMs = new Date(tombstones[id] || '').getTime();
     const localLatest = Math.max(Number.isFinite(localItemMs) ? localItemMs : 0, Number.isFinite(localDelMs) ? localDelMs : 0);
-    const shouldApplyRemote = preferRemote || remoteMs > localLatest;
+    const shouldApplyRemote = preferRemote || remoteContentMs > localLatest;
     if (!shouldApplyRemote) continue;
     if (row.deleted) {
       if (localMap.has(id)) {
         localMap.delete(id);
         changed = true;
       }
-      if (tombstones[id] !== remoteIso) {
-        tombstones[id] = remoteIso;
+      if (tombstones[id] !== remoteContentIso) {
+        tombstones[id] = remoteContentIso;
         changed = true;
       }
+      appliedRemoteIds.push(id);
       continue;
     }
     const incoming = row.payload && typeof row.payload === 'object' ? row.payload : null;
     if (!incoming) continue;
-    incoming.updatedAt = remoteIso;
+    incoming.updatedAt = remoteContentIso;
     const prev = localMap.get(id);
     if (!prev || JSON.stringify(prev) !== JSON.stringify(incoming)) {
       localMap.set(id, incoming);
@@ -2340,8 +2464,17 @@ async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
       delete tombstones[id];
       changed = true;
     }
+    appliedRemoteIds.push(id);
   }
-  if (!changed) return;
+  if (newestRemoteCursor) furimoraSaveItemsRemoteCursor(newestRemoteCursor);
+  if (preferRemote) {
+    furimoraSaveDirtyItems({});
+  } else if (appliedRemoteIds.length) {
+    const dirty = furimoraLoadDirtyItems();
+    appliedRemoteIds.forEach((id) => { delete dirty[id]; });
+    furimoraSaveDirtyItems(dirty);
+  }
+  if (!changed) return { count: snapshot.size, full };
   ITEMS = Array.from(localMap.values()).sort((a, b) => {
     const ta = furimoraGetItemUpdatedMs(a);
     const tb = furimoraGetItemUpdatedMs(b);
@@ -2354,6 +2487,7 @@ async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
   renderAlerts();
   renderCalendar();
   renderItems();
+  return { count: snapshot.size, full };
 }
 function scheduleSyncPush() {
   if (!furimoraFirestore) return;
@@ -2388,9 +2522,7 @@ function furimoraStartSyncPolling() {
     if (document.visibilityState !== 'visible') return;
     furimoraRefreshSyncSignature();
     const data = snapshot.exists ? snapshot.data() : null;
-    const remoteUpdatedAt =
-      furimoraTimestampToIso(data?.updatedAt) ||
-      furimoraTimestampToIso(data?.clientUpdatedAt);
+    const remoteUpdatedAt = furimoraLatestStateIso(data);
     const remoteClientUpdatedAt = furimoraTimestampToIso(data?.clientUpdatedAt);
     if (remoteClientUpdatedAt && remoteClientUpdatedAt === furimoraPendingPushClientAt) return;
     const remoteMs = new Date(remoteUpdatedAt).getTime();
@@ -3044,6 +3176,7 @@ function saveItems() {
   const prevMap = new Map((Array.isArray(prevItems) ? prevItems : []).map((i) => [String(i.id), i]));
   const nowIso = new Date().toISOString();
   const aliveIds = new Set();
+  const changedIds = [];
   ITEMS = (Array.isArray(ITEMS) ? ITEMS : []).map((item) => {
     if (!item || item.id == null) return item;
     const id = String(item.id);
@@ -3055,6 +3188,7 @@ function saveItems() {
     if (prevCmp) delete prevCmp.updatedAt;
     if (!prev || JSON.stringify(curCmp) !== JSON.stringify(prevCmp) || !item.updatedAt) {
       item.updatedAt = nowIso;
+      changedIds.push(id);
     }
     return item;
   });
@@ -3068,6 +3202,11 @@ function saveItems() {
     }
   });
   if (tombChanged) furimoraSaveItemTombstones(tombstones);
+  if (changedIds.length) {
+    const dirty = furimoraLoadDirtyItems();
+    changedIds.forEach((id) => { dirty[id] = nowIso; });
+    furimoraSaveDirtyItems(dirty);
+  }
   localStorage.setItem('furimora_items', JSON.stringify(ITEMS));
   syncScheduleFromItems();
   notifyLocalDataChanged();
@@ -6071,12 +6210,12 @@ function furimoraReloadAllFromStorage() {
   document.querySelectorAll('.notif-badge').forEach((b) => b.classList.toggle('hidden', NOTIFICATIONS.length === 0));
 }
 
-async function furimoraApplyCloudSnapshot(userId, data, remoteUpdatedAt, showSuccessToast = true) {
+async function furimoraApplyCloudSnapshot(userId, data, remoteUpdatedAt, showSuccessToast = true, forceFullItems = false) {
   if (!userId || !data) return;
   furimoraSyncSetBadge('syncing', '同期中');
   backupLocalSyncPayload();
   furimoraApplySyncPayload(data.payload || { v: 1, keys: {} }, true);
-  await furimoraPullItemsFromCloud(userId, true);
+  await furimoraPullItemsFromCloud(userId, forceFullItems);
   if (remoteUpdatedAt) {
     setLastRemoteAt(remoteUpdatedAt);
     furimoraSetLastSyncAt(remoteUpdatedAt);
@@ -6103,12 +6242,12 @@ async function furimoraPushToCloud(source = 'manual') {
   }
   const payload = furimoraCollectSyncPayload();
   const expectedRemoteMs = getLastRemoteMergeMs();
+  const stateRef = furimoraFirestoreStateRef(user.uid);
   let updatedAt = new Date().toISOString();
   furimoraPendingPushClientAt = updatedAt;
   let newerRemoteData = null;
   let newerRemoteUpdatedAt = '';
   try {
-    const stateRef = furimoraFirestoreStateRef(user.uid);
     await furimoraFirestore.runTransaction(async (transaction) => {
       const current = await transaction.get(stateRef);
       if (current.exists) {
@@ -6136,7 +6275,7 @@ async function furimoraPushToCloud(source = 'manual') {
   } catch (error) {
     if (error?.code === 'furimora/cloud-newer' && newerRemoteData) {
       try {
-        await furimoraApplyCloudSnapshot(user.uid, newerRemoteData, newerRemoteUpdatedAt, true);
+        await furimoraApplyCloudSnapshot(user.uid, newerRemoteData, newerRemoteUpdatedAt, true, false);
         furimoraPendingPushClientAt = '';
         return { ok: false, reason: 'remote_newer', updatedAt: newerRemoteUpdatedAt };
       } catch (pullError) {
@@ -6155,7 +6294,15 @@ async function furimoraPushToCloud(source = 'manual') {
     return { ok: false, reason: 'error', error };
   }
   try {
-    await furimoraSyncItemsToCloud(user.uid);
+    const itemSyncResult = await furimoraSyncItemsToCloud(user.uid);
+    if (itemSyncResult.count > 0) {
+      await stateRef.set({
+        itemsUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      const markedState = await stateRef.get({ source: 'server' });
+      updatedAt = furimoraLatestStateIso(markedState.data()) || updatedAt;
+      await furimoraPullItemsFromCloud(user.uid, false);
+    }
   } catch (e) {
     console.error('[sync items push]', e);
     furimoraSyncSetBadge('error', furimoraIsQuotaError(e) ? '上限到達' : '失敗');
@@ -6196,7 +6343,7 @@ async function furimoraSyncAfterLogin() {
     return;
   }
   const data = stateSnapshot.exists ? stateSnapshot.data() : null;
-  const remoteUpdatedAt = furimoraTimestampToIso(data?.updatedAt) || furimoraTimestampToIso(data?.clientUpdatedAt);
+  const remoteUpdatedAt = furimoraLatestStateIso(data);
   if (!data) {
     try {
       await furimoraPullItemsFromCloud(user.uid, false);
@@ -6217,7 +6364,7 @@ async function furimoraSyncAfterLogin() {
   // クラウドが新しければローカル未同期の有無にかかわらずクラウドを正本として反映する
   if (remoteT > lastMerged) {
     try {
-      await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, true);
+      await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, true, false);
     } catch (e) {
       console.error('[sync latest pull]', e);
       furimoraSyncSetBadge('error', '失敗');
@@ -6259,9 +6406,9 @@ async function furimoraForcePullFromCloud() {
     showToast('クラウドにデータがありません');
     return;
   }
-  const remoteUpdatedAt = furimoraTimestampToIso(data.updatedAt) || furimoraTimestampToIso(data.clientUpdatedAt);
+  const remoteUpdatedAt = furimoraLatestStateIso(data);
   try {
-    await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, false);
+    await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, false, true);
   } catch (e) {
     console.error('[sync items pull]', e);
     furimoraSyncSetBadge('error', '失敗');
