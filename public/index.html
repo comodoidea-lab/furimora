@@ -1939,6 +1939,7 @@ function furimoraGetFirebaseAutoSync() {
   const legacy = localStorage.getItem(FURIMORA_LEGACY_SUPABASE_AUTO_SYNC_KEY);
   if (legacy != null) {
     localStorage.setItem(FURIMORA_FIREBASE_AUTO_SYNC_KEY, legacy);
+    localStorage.removeItem(FURIMORA_LEGACY_SUPABASE_AUTO_SYNC_KEY);
     return legacy === '1';
   }
   return true;
@@ -2340,8 +2341,10 @@ async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
   });
   localStorage.setItem('furimora_items', JSON.stringify(ITEMS));
   furimoraSaveItemTombstones(tombstones);
+  syncScheduleFromItems();
   loadStats();
   renderAlerts();
+  renderCalendar();
   renderItems();
 }
 function scheduleSyncPush() {
@@ -2386,6 +2389,9 @@ function loadStorageData() {
     ACTIVITIES  = JSON.parse(localStorage.getItem('furimora_activities') || '[]');
     QUEUE       = JSON.parse(localStorage.getItem('furimora_queue') || '[]');
     SCHEDULE_DATA = JSON.parse(localStorage.getItem('furimora_schedule') || '{}');
+    if (normalizeScheduleData()) {
+      localStorage.setItem('furimora_schedule', JSON.stringify(SCHEDULE_DATA));
+    }
     NOTIFICATIONS = JSON.parse(localStorage.getItem('furimora_notifications') || '[]');
   } catch { ALERTS=[]; ACTIVITIES=[]; QUEUE=[]; SCHEDULE_DATA={}; NOTIFICATIONS=[]; }
 }
@@ -2942,6 +2948,7 @@ function onTemplateSelect() {
 
 function loadItems() {
   try { ITEMS = JSON.parse(localStorage.getItem('furimora_items') || '[]'); } catch { ITEMS = []; }
+  syncScheduleFromItems();
 }
 function saveItems() {
   let prevItems = [];
@@ -2974,6 +2981,7 @@ function saveItems() {
   });
   if (tombChanged) furimoraSaveItemTombstones(tombstones);
   localStorage.setItem('furimora_items', JSON.stringify(ITEMS));
+  syncScheduleFromItems();
   notifyLocalDataChanged();
   maybeRenderAnalytics();
 }
@@ -3272,6 +3280,17 @@ function renderItems() {
     const thumbTitle = hasMercari ? 'メルカリで開く' : 'URLを設定（タップ）';
     const curP = Number(item.currentPrice) || 0;
     const startP = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || 0;
+    const minP = Number(item.minPrice) || 0;
+    const isAtMinPrice = minP > 0 && curP <= minP;
+    const minPriceBadge = isAtMinPrice
+      ? `<span class="inline-flex items-center gap-0.5 rounded-full bg-tertiary-container px-1.5 py-0.5 text-[9px] font-black text-on-tertiary-container whitespace-nowrap"><span class="material-symbols-outlined text-[11px] leading-none">price_check</span>最安値</span>`
+      : '';
+    const discountButton = isAtMinPrice
+      ? `<button type="button" disabled title="最低価格に到達しています" class="flex-1 min-w-[72px] text-[10px] font-bold text-on-surface-variant bg-surface-container px-2 py-1.5 rounded-full cursor-not-allowed">最安値</button>`
+      : `<button onclick="openDiscountItemModal(${item.id})" class="flex-1 min-w-[72px] text-[10px] font-bold text-primary bg-primary/10 px-2 py-1.5 rounded-full">値下げ</button>`;
+    const discountButtonList = isAtMinPrice
+      ? `<button type="button" disabled title="最低価格に到達しています" class="text-[11px] font-bold text-on-surface-variant bg-surface-container px-3 py-1.5 rounded-full whitespace-nowrap cursor-not-allowed">最安値</button>`
+      : `<button onclick="openDiscountItemModal(${item.id})" class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full whitespace-nowrap">値下げ</button>`;
     const showDisc = startP > curP && curP >= 0;
     const pct = showDisc && startP > 0 ? Math.round((1 - curP / startP) * 100) : null;
     const discHtml = showDisc
@@ -3290,14 +3309,17 @@ function renderItems() {
           <p class="text-[10px] text-on-surface-variant line-clamp-1">${item.condition||''}</p>
           <div class="flex items-end justify-between gap-1 flex-wrap mt-auto pt-1">
             <div class="flex flex-col min-w-0">
-              <span class="font-headline font-bold text-base text-primary leading-none">¥${curP.toLocaleString()}</span>
+              <div class="flex items-center gap-1 flex-wrap">
+                <span class="font-headline font-bold text-base text-primary leading-none">¥${curP.toLocaleString()}</span>
+                ${minPriceBadge}
+              </div>
               ${discHtml ? `<div class="flex items-center gap-1 mt-0.5">${discHtml}</div>` : ''}
             </div>
             ${daysBadge}
           </div>
           <div class="flex flex-wrap gap-1.5 mt-2">
             <button onclick="openRelistItemModal(${item.id})" class="flex-1 min-w-[72px] text-[10px] font-bold text-white bg-signature-gradient px-2 py-1.5 rounded-full">再出品</button>
-            <button onclick="openDiscountItemModal(${item.id})" class="flex-1 min-w-[72px] text-[10px] font-bold text-primary bg-primary/10 px-2 py-1.5 rounded-full">値下げ</button>
+            ${discountButton}
             <button type="button" data-item-more-btn onclick="toggleItemMoreMenu(event, ${item.id})" class="text-[10px] font-bold text-on-surface-variant bg-surface-container px-2 py-1.5 rounded-full min-w-[2.5rem]">…</button>
           </div>
         </div>
@@ -3314,13 +3336,14 @@ function renderItems() {
         <p class="text-[11px] text-on-surface-variant">${item.condition||''}</p>
         <div class="flex items-center gap-2 mt-1 flex-wrap">
           <span class="font-headline font-bold text-base text-primary">¥${curP.toLocaleString()}</span>
+          ${minPriceBadge}
           ${showDisc ? `<span class="text-[11px] text-on-surface-variant line-through">¥${startP.toLocaleString()}</span>${pct != null ? `<span class="text-[10px] font-bold text-error">${pct}%</span>` : ''}` : ''}
           ${daysBadge}
         </div>
       </div>
       <div class="flex flex-col gap-1.5 flex-shrink-0">
         <button onclick="openRelistItemModal(${item.id})" class="text-[11px] font-bold text-white bg-signature-gradient px-3 py-1.5 rounded-full whitespace-nowrap">再出品</button>
-        <button onclick="openDiscountItemModal(${item.id})" class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full whitespace-nowrap">値下げ</button>
+        ${discountButtonList}
         <button type="button" data-item-more-btn onclick="toggleItemMoreMenu(event, ${item.id})" class="text-[11px] font-bold text-on-surface-variant bg-surface-container px-3 py-1.5 rounded-full">・・・</button>
       </div>
     </div>`;
@@ -4038,6 +4061,36 @@ function scheduleKeyFromDate(d) {
   return `${y}-${m}-${day}`;
 }
 
+function scheduleKeyFromParts(year, monthIndex, day) {
+  return scheduleKeyFromDate(new Date(year, monthIndex, day));
+}
+
+function normalizeScheduleData() {
+  if (!SCHEDULE_DATA || typeof SCHEDULE_DATA !== 'object' || Array.isArray(SCHEDULE_DATA)) {
+    SCHEDULE_DATA = {};
+    return true;
+  }
+  const normalized = {};
+  let changed = false;
+  for (const [rawKey, rows] of Object.entries(SCHEDULE_DATA)) {
+    const date = parseScheduleDateKey(rawKey);
+    if (!date) {
+      normalized[rawKey] = rows;
+      continue;
+    }
+    const key = scheduleKeyFromDate(date);
+    if (key !== rawKey) changed = true;
+    if (!Array.isArray(rows)) {
+      changed = true;
+      continue;
+    }
+    if (!Array.isArray(normalized[key])) normalized[key] = [];
+    normalized[key].push(...rows);
+  }
+  if (changed) SCHEDULE_DATA = normalized;
+  return changed;
+}
+
 function parseItemListedDate(item) {
   const raw = (item && item.listedAt) ? String(item.listedAt) : '';
   const d = raw ? new Date(raw + 'T12:00:00') : new Date();
@@ -4059,6 +4112,7 @@ function upsertScheduleFromItem(item) {
   if (!item || item.id == null) return;
   if (!SCHEDULE_DATA || typeof SCHEDULE_DATA !== 'object') SCHEDULE_DATA = {};
   removeScheduleEntriesForItem(item.id);
+  if (item.status === 'sold') return;
 
   const listed = parseItemListedDate(item);
   const startPrice = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || 0;
@@ -4067,11 +4121,16 @@ function upsertScheduleFromItem(item) {
   const step = Math.max(1, parseInt(item.discountAmount, 10) || 100);
   const freq = Math.max(1, parseInt(item.discountFreqDays, 10) || 1);
   const baseName = item.title || '商品';
+  const safeItemId = String(item.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+  let eventIndex = 0;
 
   const pushEvent = (dateObj, payload) => {
     const key = scheduleKeyFromDate(dateObj);
     if (!Array.isArray(SCHEDULE_DATA[key])) SCHEDULE_DATA[key] = [];
-    SCHEDULE_DATA[key].push(payload);
+    SCHEDULE_DATA[key].push({
+      id: `sc_item_${safeItemId}_${key}_${eventIndex++}`,
+      ...payload,
+    });
   };
 
   pushEvent(new Date(listed), {
@@ -4102,6 +4161,27 @@ function upsertScheduleFromItem(item) {
       dayOffset += freq;
     }
   }
+}
+
+function syncScheduleFromItems() {
+  if (!SCHEDULE_DATA || typeof SCHEDULE_DATA !== 'object' || Array.isArray(SCHEDULE_DATA)) {
+    SCHEDULE_DATA = {};
+  }
+  const before = JSON.stringify(SCHEDULE_DATA);
+  for (const key of Object.keys(SCHEDULE_DATA)) {
+    const rows = Array.isArray(SCHEDULE_DATA[key]) ? SCHEDULE_DATA[key] : [];
+    const manualRows = rows.filter((row) => row?.itemId == null);
+    if (manualRows.length) SCHEDULE_DATA[key] = manualRows;
+    else delete SCHEDULE_DATA[key];
+  }
+  for (const item of (Array.isArray(ITEMS) ? ITEMS : [])) {
+    upsertScheduleFromItem(item);
+  }
+  const changed = before !== JSON.stringify(SCHEDULE_DATA);
+  if (changed) {
+    localStorage.setItem('furimora_schedule', JSON.stringify(SCHEDULE_DATA));
+  }
+  return changed;
 }
 
 
@@ -4807,7 +4887,7 @@ function renderCalendar() {
   for (let d = 1; d <= daysInMonth; d++) {
     const isToday = today.getFullYear()===calYear && today.getMonth()===calMonth && today.getDate()===d;
     const isSel = selectedCalDay === d;
-    const key = `${calYear}-${calMonth+1}-${d}`;
+    const key = scheduleKeyFromParts(calYear, calMonth, d);
     const hasEv = SCHEDULE_DATA[key]?.length > 0;
     let cls = 'aspect-square flex flex-col items-center justify-center rounded-xl text-sm cursor-pointer transition-all active:scale-90 ';
     if (isSel) cls += 'bg-primary text-white font-bold shadow-md shadow-primary/25 scale-105 ';
@@ -4840,7 +4920,7 @@ function renderScheduleForDay() {
   const weekDays = ['日','月','火','水','木','金','土'];
   const dateObj = new Date(calYear, calMonth, selectedCalDay);
   lbl.textContent = `${calMonth+1}月${selectedCalDay}日 (${weekDays[dateObj.getDay()]}) の予定`;
-  const key = `${calYear}-${calMonth+1}-${selectedCalDay}`;
+  const key = scheduleKeyFromParts(calYear, calMonth, selectedCalDay);
   const items = SCHEDULE_DATA[key] || [];
   let touched = false;
   for (const it of items) {
@@ -4895,7 +4975,7 @@ function saveScheduleItemFromModal() {
   const type = (document.getElementById('schedule-add-type')?.value || 'メモ').trim();
   const titleInput = (document.getElementById('schedule-add-title')?.value || '').trim();
   const time = (document.getElementById('schedule-add-time')?.value || '09:00').trim() || '09:00';
-  const key = `${calYear}-${calMonth + 1}-${selectedCalDay}`;
+  const key = scheduleKeyFromParts(calYear, calMonth, selectedCalDay);
   const fallbackTitle = type === '値下げ' ? '手動値下げ' : (type === '再出品' ? '手動再出品' : 'メモ');
   const name = titleInput || fallbackTitle;
   const icon = type === '値下げ' ? 'trending-down' : (type === '再出品' ? 'refresh-cw' : 'file-pen-line');
@@ -6953,7 +7033,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (NOTIFICATIONS.length > 0) {
     document.querySelectorAll('.notif-badge').forEach(b => b.classList.remove('hidden'));
   }
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update())
+      .catch(() => {});
+  }
 
   furimoraInitFirebase().then(() => {
     furimoraWireSyncButtons();
