@@ -707,6 +707,16 @@ tailwind.config = {
           <input id="items-search" type="text" placeholder="タイトル検索..." oninput="renderItems()"
             class="w-full min-w-0 bg-surface-container-lowest border-none rounded-full py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none shadow-sm"/>
         </div>
+        <label class="relative flex-shrink-0">
+          <span class="sr-only">日付順に並べ替え</span>
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">sort</span>
+          <select id="items-sort-order" onchange="setItemSortOrder(this.value)" aria-label="日付順に並べ替え"
+            class="appearance-none bg-surface-container-lowest border-none rounded-full py-2.5 pl-10 pr-9 text-xs font-bold text-on-surface shadow-sm focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer">
+            <option value="date-desc">日付が新しい順</option>
+            <option value="date-asc">日付が古い順</option>
+          </select>
+          <span class="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">expand_more</span>
+        </label>
         <div class="inline-flex rounded-xl border border-surface-container-high bg-surface-container-low p-0.5 flex-shrink-0" role="group" aria-label="表示切替">
           <button type="button" id="items-view-list-btn" onclick="setItemsViewMode('list')" title="リスト表示"
             class="p-2 rounded-lg transition-colors text-on-surface-variant hover:bg-surface-container" aria-pressed="true">
@@ -2588,9 +2598,13 @@ let itemMenuTargetId = null;
 let itemUrlEditId = null;
 /** 在庫一覧: 'list' | 'grid' */
 let itemsViewMode = 'list';
+/** 在庫一覧: 日付の新しい順 | 古い順 */
+let itemSortOrder = 'date-desc';
 try {
   const _iv = localStorage.getItem('furimora_items_view');
   if (_iv === 'grid' || _iv === 'list') itemsViewMode = _iv;
+  const _is = localStorage.getItem('furimora_items_sort');
+  if (_is === 'date-desc' || _is === 'date-asc') itemSortOrder = _is;
 } catch {}
 /** item-confirm-modal: 'sold' | 'delete' */
 let itemConfirmType = null;
@@ -3183,6 +3197,23 @@ function setItemFilter(f) {
   renderItems();
 }
 
+function setItemSortOrder(order) {
+  itemSortOrder = order === 'date-asc' ? 'date-asc' : 'date-desc';
+  try { localStorage.setItem('furimora_items_sort', itemSortOrder); } catch {}
+  renderItems();
+}
+
+function getItemSortDateMs(item) {
+  const preferred = item?.status === 'sold'
+    ? [item.soldAt, item.listedAt, item.createdAt, item.updatedAt]
+    : [item?.listedAt, item?.createdAt, item?.updatedAt];
+  for (const value of preferred) {
+    const ms = new Date(value || 0).getTime();
+    if (Number.isFinite(ms) && ms > 0) return ms;
+  }
+  return 0;
+}
+
 function renderItems() {
   loadItems();
   const search = (document.getElementById('items-search')?.value || '').toLowerCase();
@@ -3195,6 +3226,10 @@ function renderItems() {
     if (itemFilter === 'relisted') return item.status === 'relisted';
     if (itemFilter === 'sold') return item.status === 'sold';
     return true;
+  }).sort((a, b) => {
+    const diff = getItemSortDateMs(a) - getItemSortDateMs(b);
+    if (diff !== 0) return itemSortOrder === 'date-asc' ? diff : -diff;
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
   });
 
   const active = ITEMS.filter(i => i.status === 'active');
@@ -6908,6 +6943,8 @@ document.addEventListener('DOMContentLoaded', () => {
   enableTapClearNumberInputs('new-item-modal');
   enableTapClearNumberInputs('discount-item-modal');
   furimoraResetSyncSignature();
+  const itemSortSelect = document.getElementById('items-sort-order');
+  if (itemSortSelect) itemSortSelect.value = itemSortOrder;
   setItemsViewMode(itemsViewMode);
   const _pathBoot = window.location.pathname || '/';
   const _bootAnalytics = /\/analytics\/?$/.test(_pathBoot);
