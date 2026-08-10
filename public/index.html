@@ -314,7 +314,10 @@ tailwind.config = {
   <div class="flex-1 max-w-md min-w-0">
     <div class="relative flex items-center">
       <span class="material-symbols-outlined absolute left-3 text-on-surface-variant text-xl">search</span>
-      <input type="text" placeholder="商品を検索..." class="w-full bg-surface-container border-none rounded-full py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 transition-all outline-none"/>
+      <input id="header-search" type="text" placeholder="商品を検索..." autocomplete="off"
+        oninput="headerSearch(this.value)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();headerSearch(this.value);}"
+        class="w-full bg-surface-container border-none rounded-full py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 transition-all outline-none"/>
     </div>
   </div>
   <div class="flex items-center gap-4 ml-auto">
@@ -1872,7 +1875,6 @@ const FURIMORA_ITEMS_TOMBSTONES_KEY = 'furimora_items_tombstones';
 const FURIMORA_ITEMS_DIRTY_KEY = 'furimora_items_dirty_v1';
 const FURIMORA_ITEMS_LAST_REMOTE_AT = 'furimora_items_last_remote_at';
 const FURIMORA_FIREBASE_AUTO_SYNC_KEY = 'furimora_firebase_auto_sync';
-const FURIMORA_LEGACY_SUPABASE_AUTO_SYNC_KEY = 'furimora_supabase_auto_sync';
 const FURIMORA_FIREBASE_MAGIC_EMAIL_KEY = 'furimora_firebase_magic_email';
 const FURIMORA_BACKUP_FORMAT = 'furimora_backup_v1';
 let furimoraBackupImportFile = null;
@@ -1946,12 +1948,6 @@ function furimoraGetAutomationSettings() {
 function furimoraGetFirebaseAutoSync() {
   const current = localStorage.getItem(FURIMORA_FIREBASE_AUTO_SYNC_KEY);
   if (current != null) return current === '1';
-  const legacy = localStorage.getItem(FURIMORA_LEGACY_SUPABASE_AUTO_SYNC_KEY);
-  if (legacy != null) {
-    localStorage.setItem(FURIMORA_FIREBASE_AUTO_SYNC_KEY, legacy);
-    localStorage.removeItem(FURIMORA_LEGACY_SUPABASE_AUTO_SYNC_KEY);
-    return legacy === '1';
-  }
   return true;
 }
 function furimoraSetFirebaseAutoSync(on) {
@@ -4621,6 +4617,17 @@ function furimoraSyncBrowserPath(page, navOpts = {}) {
     if (navOpts.replacePath) history.replaceState({ frPage: page }, '', want);
     else history.pushState({ frPage: page }, '', want);
   } catch (e) { /* file:// 等 */ }
+}
+
+// ヘッダーの検索窓。在庫・出品管理へ移動し、そこの「タイトル検索」に反映する。
+// 2026-08-10 まで id もハンドラも無く、入力しても何も起きない飾りだった。
+function headerSearch(value) {
+  const items = document.getElementById('items-search');
+  if (!items) return;
+  const onInventory = document.getElementById('page-relist')?.classList.contains('active');
+  if (!onInventory) navigate('relist');   // navigate 内で renderItems() が走る
+  items.value = value;
+  renderItems();
 }
 
 function navigate(page, navOpts = {}) {
