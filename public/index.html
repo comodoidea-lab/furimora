@@ -7341,8 +7341,13 @@ function enableTapClearNumberInputs(modalId) {
       if (input.value !== '') {
         input.value = '';
         input.dataset.tapToClearCleared = '1';
-        // 既存 oninput ロジック（利益計算など）を再評価
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+        // ここでは input を発火させない。
+        // 発火すると利益計算が「空＝0円」で走り、編集中に負の利益などの
+        // 誤った金額が表示されてしまう（例: 最低価格を消した瞬間に ¥-250）。
+        // 表示は直前の確定値のまま据え置き、実際に数字が入力された時点で
+        // 通常の input イベントによって再計算される。
+        // 入力せずに離れた場合は focusout の復元処理が input を発火するので、
+        // どちらの経路でも最終的な表示は必ず値と整合する。
       }
     }
   });
