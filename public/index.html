@@ -66,6 +66,22 @@ tailwind.config = {
 };
 </script>
 <style>
+  /* 入力クリアボタン（✗）— attachClearButtons() が後付けする */
+  .furi-clear-btn {
+    position: absolute; right: .5rem; top: 50%; transform: translateY(-50%);
+    display: none; align-items: center; justify-content: center;
+    width: 1.5rem; height: 1.5rem; padding: 0;
+    border: none; border-radius: 9999px; background: transparent;
+    color: #79747e; cursor: pointer; z-index: 2;
+    transition: background-color .15s ease;
+  }
+  .furi-clear-btn:hover { background: rgba(0,0,0,.07); }
+  .furi-clear-btn:active { background: rgba(0,0,0,.12); }
+  .furi-clear-btn .material-symbols-outlined { font-size: 1.05rem; line-height: 1; }
+  .furi-has-clear { padding-right: 2.25rem !important; }
+  /* 親に他の入力があって直接 relative にできない場合の包み */
+  .furi-clear-wrap { position: relative; display: block; }
+
   *, *::before, *::after { box-sizing: border-box; }
   html { scroll-behavior: smooth; width: 100%; overflow-x: hidden; }
   body {
@@ -4619,6 +4635,65 @@ function furimoraSyncBrowserPath(page, navOpts = {}) {
   } catch (e) { /* file:// 等 */ }
 }
 
+/* 入力クリアボタン（✗）
+   テキスト系 input に、値があるときだけ ✗ を出して1クリックで消せるようにする。
+   個々の input を書き換えず DOM に後付けする方式。
+   対象外: readonly / disabled / password / 親に複数 input がある場合（配置が壊れるため）。
+   クリア時は input/change を発火させるので、oninput="renderItems()" 等がそのまま動く。 */
+// 親に他の入力が同居していると絶対配置がずれるので、レイアウト用クラスを
+// 引き継いだ span で input だけを包み、それを配置の基準にする。
+const FURI_LAYOUT_CLASS = /^(?:[a-z]+:)?(?:w-full|min-w-0|flex-1|grow|shrink-0|basis-\[?[\w./%-]+\]?|col-span-\d+|mt-\d+)$/;
+function furiWrapInput(inp) {
+  const span = document.createElement('span');
+  span.className = 'furi-clear-wrap';
+  const moved = [...inp.classList].filter((c) => FURI_LAYOUT_CLASS.test(c));
+  moved.forEach((c) => { span.classList.add(c); inp.classList.remove(c); });
+  inp.classList.add('w-full');
+  inp.parentElement.insertBefore(span, inp);
+  span.appendChild(inp);
+  return span;
+}
+
+function attachClearButton(inp) {
+  if (!inp || inp.dataset.clearable === '1') return;
+  if (inp.readOnly || inp.disabled) return;
+  let wrap = inp.parentElement;
+  if (!wrap) return;
+  if (wrap.querySelectorAll('input, textarea, select').length !== 1) wrap = furiWrapInput(inp);
+
+  inp.dataset.clearable = '1';
+  if (getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.tabIndex = -1;
+  btn.className = 'furi-clear-btn';
+  btn.setAttribute('aria-label', '入力をクリア');
+  btn.innerHTML = '<span class="material-symbols-outlined">close</span>';
+
+  const sync = () => { btn.style.display = (inp.value || '') !== '' ? 'flex' : 'none'; };
+
+  btn.addEventListener('mousedown', (e) => e.preventDefault());  // フォーカスを奪わない
+  btn.addEventListener('click', () => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(inp, '');
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+    inp.focus();
+    sync();
+  });
+
+  ['input', 'change', 'focus', 'blur'].forEach((ev) => inp.addEventListener(ev, sync));
+  inp.classList.add('furi-has-clear');
+  wrap.appendChild(btn);
+  sync();
+}
+
+function attachClearButtons(root = document) {
+  root.querySelectorAll('input[type="text"], input[type="search"], input[type="email"], input[type="url"]')
+    .forEach(attachClearButton);
+}
+
 // ヘッダーの検索窓。在庫・出品管理へ移動し、そこの「タイトル検索」に反映する。
 // 2026-08-10 まで id もハンドラも無く、入力しても何も起きない飾りだった。
 function headerSearch(value) {
@@ -7291,6 +7366,7 @@ function enableTapClearNumberInputs(modalId) {
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
+  attachClearButtons();
   document.addEventListener('visibilitychange', furimoraSyncOnVisible);
   if (isIOSDevice()) document.documentElement.classList.add('ios-touch-lock');
   furimoraInitAutomationToggles();
