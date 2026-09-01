@@ -1850,6 +1850,27 @@ tailwind.config = {
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" crossorigin="anonymous"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" crossorigin="anonymous"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js" crossorigin="anonymous"></script>
+<script type="module">
+  // クローン取得の共通層を読み込み、下の classic script から参照できるようにする。
+  // 人間の導線（この PWA / Chrome 拡張）と、エージェントの導線（MCP サーバー）が
+  // 同じ public/js/clone-service.js に着地する。
+  import { createCloneService, createInternalApi } from './js/clone-service.js';
+
+  const PRIMARY = 'https://furimora.vercel.app';
+  const LEGACY = 'https://furimora-assist.vercel.app';
+
+  const service = createCloneService({
+    useRelativeApi: true,          // 同一オリジンの /api/mercari を最優先
+    apiOrigins: [PRIMARY, LEGACY], // 落ちていれば既知の同一実装オリジンへフォールバック
+  });
+  const api = createInternalApi(service);
+
+  window.FurimoraCloneService = service;
+  window.FurimoraInternalApi = api;
+  // MCP サーバー / ローカルエージェントからの参照点
+  window.furimora = Object.assign(window.furimora || {}, { cloneService: service, api });
+</script>
+
 <script>
 // ── Data (localStorage-driven, no hardcoded samples) ──
 let ALERTS = [];
@@ -1857,9 +1878,8 @@ let ACTIVITIES = [];
 let QUEUE = [];
 let SCHEDULE_DATA = {};
 let NOTIFICATIONS = [];
+// 画像プロキシ用。/api/mercari のオリジン一覧は上の <script type="module"> 側が持つ
 const PRIMARY_WEB_ORIGIN = 'https://furimora.vercel.app';
-const LEGACY_WEB_ORIGIN = 'https://furimora-assist.vercel.app';
-const REMOTE_MERCARI_API_ORIGINS = [PRIMARY_WEB_ORIGIN, LEGACY_WEB_ORIGIN];
 
 /** クラウド同期対象（localStorage キー）— API キー類は含めない */
 const FURIMORA_SYNC_KEYS = [
@@ -5336,28 +5356,24 @@ function deleteScheduleItem(key, id) {
   showToast('予定を削除しました');
 }
 
-// ── Clone ──
-function mightContainMercariUrl(s) {
-  return typeof s === 'string' && (/jp\.mercari\.com\/item\/m/i.test(s) || /merc\.li\//i.test(s));
-}
+// クローン取得処理は public/js/clone-service.js（ブラウザ / Node 共用）にある。
+// この HTML の上部にある <script type="module"> が読み込み、FurimoraCloneService /
+// FurimoraInternalApi / window.furimora としてこのスクリプトから参照できるようにする。
 
-function extractMercariDisplayUrl(s) {
-  if (!s || typeof s !== 'string') return '';
-  const jp = s.match(/https:\/\/jp\.mercari\.com\/item\/m\w+/i);
-  if (jp) return jp[0];
-  const li = s.match(/https:\/\/merc\.li\/[a-zA-Z0-9_-]+/i);
-  if (li) return li[0];
-  return '';
-}
+// ── Clone（UI 層）──
+// 取得ロジックは public/js/clone-service.js にある。ここに残すのは DOM とユーザー向け表示だけ。
+function mightContainMercariUrl(s) { return FurimoraCloneService.isMercariUrlLike(s); }
 
-function messageForMercariFailure(res, data) {
-  if (data && data.code === 'BAD_URL') return data.error;
-  if (res.status === 404 || (data && data.error === '商品データを取得できませんでした')) {
-    return 'この商品情報は取得できませんでした（削除・非公開・売り切れ、または一時的な障害の可能性があります）。';
-  }
-  if (res.status === 400) return (data && data.error) ? data.error : 'URLの形式を確認してください。';
-  if (res.status >= 500) return 'サーバーでエラーが発生しました。しばらくしてから再度お試しください。';
-  return (data && data.error) || '商品情報を取得できませんでした。URLを確認してください。';
+function extractMercariDisplayUrl(s) { return FurimoraCloneService.extractUrl(s); }
+
+function messageForMercariFailure(res, data) { return FurimoraCloneService.describeFailure(res, data); }
+
+function ensureCloneSpinStyle() {
+  if (document.getElementById('spin-style')) return;
+  const s = document.createElement('style');
+  s.id = 'spin-style';
+  s.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(s);
 }
 
 function useBannerUrl() {
@@ -5446,71 +5462,33 @@ async function checkClipboardForMercari() {
   } catch {}
 }
 
+/** UI: URL 欄の内容で取得して Step2 へ進む。取得そのものは FurimoraCloneService に委譲。 */
 async function fetchCloneData() {
   const urlInput = document.getElementById('clone-url-input');
   const btn = document.getElementById('clone-fetch-btn');
   const errorEl = document.getElementById('clone-error');
   const raw = urlInput.value.trim();
-  if (!raw) { showCloneError('商品ページのURLを入力するか、クリップボードから貼り付けてください。'); return; }
 
-  const extracted = extractMercariDisplayUrl(raw);
+  const extracted = FurimoraCloneService.extractUrl(raw);
   if (extracted) urlInput.value = extracted;
 
   btn.innerHTML = '<span style="display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;"></span> 取得中...';
   btn.disabled = true;
   errorEl.classList.add('hidden');
+  ensureCloneSpinStyle();
 
-  if (!document.getElementById('spin-style')) {
-    const s = document.createElement('style');
-    s.id = 'spin-style';
-    s.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
-    document.head.appendChild(s);
-  }
-
-  const payload = extracted || raw;
-  if (!mightContainMercariUrl(payload)) {
-    showCloneError('メルカリの商品URLが見つかりません。アドレスバーに表示される「https://jp.mercari.com/item/m…」をコピーするか、共有文の中にURLが含まれるようにしてください。');
+  try {
+    const result = await FurimoraCloneService.fetchItem(raw);
+    if (result.ok) {
+      clonedData = result.data;
+      showCloneStep2(result.data);
+    } else {
+      showCloneError(result.message);
+    }
+  } finally {
     btn.innerHTML = '<span class="material-symbols-outlined text-lg">download</span>データ取得';
     btn.disabled = false;
-    return;
   }
-
-  const encoded = encodeURIComponent(raw);
-  const endpoints = ['/api/mercari?url=' + encoded, ...REMOTE_MERCARI_API_ORIGINS.map((origin) => `${origin}/api/mercari?url=${encoded}`)];
-  let lastUserMsg = '';
-  let success = false;
-  for (const endpoint of endpoints) {
-    try {
-      const res = await fetch(endpoint);
-      const data = await res.json().catch(() => null);
-      if (!data) {
-        lastUserMsg = 'サーバーからの応答を解析できませんでした。';
-        continue;
-      }
-      if (!res.ok) {
-        lastUserMsg = messageForMercariFailure(res, data);
-        continue;
-      }
-      if (data.error) {
-        lastUserMsg = messageForMercariFailure({ status: 404 }, data);
-        continue;
-      }
-      clonedData = data;
-      showCloneStep2(data);
-      success = true;
-      break;
-    } catch (e) {
-      const net = e instanceof TypeError || String(e && e.message || '').includes('Failed to fetch');
-      lastUserMsg = net
-        ? '通信に失敗しました。電波を確認するか、Wi-Fiに切り替えて再度お試しください。'
-        : '商品情報を取得できませんでした。URLを確認してください。';
-    }
-  }
-  if (!success) {
-    showCloneError(lastUserMsg || '商品情報を取得できませんでした。URLを確認してください。');
-  }
-  btn.innerHTML = '<span class="material-symbols-outlined text-lg">download</span>データ取得';
-  btn.disabled = false;
 }
 
 function showCloneError(msg) {
@@ -5520,84 +5498,14 @@ function showCloneError(msg) {
   el.classList.add('flex');
 }
 
-/** clone_data / ブックマークレット用: itemId 推定・欠損時は API で補完 */
-function inferItemIdFromCloneData(d) {
-  if (!d || typeof d !== 'object') return null;
-  if (d.itemId) return String(d.itemId);
-  const u = d.url;
-  if (typeof u === 'string') {
-    const m = u.match(/\/item\/(m\w+)/i);
-    if (m) return m[1];
-  }
-  const imgs = d.images;
-  if (Array.isArray(imgs)) {
-    for (const src of imgs) {
-      const s = String(src);
-      const im = s.match(/(m\d{8,})/);
-      if (im) return im[1];
-    }
-  }
-  return null;
-}
+// 以下は FurimoraCloneService への薄いラッパー（既存の呼び出し箇所の互換維持用）
+function inferItemIdFromCloneData(d) { return FurimoraCloneService.inferItemId(d); }
 
-function normalizeCloneIncoming(d) {
-  if (!d || typeof d !== 'object') return d;
-  const itemId = inferItemIdFromCloneData(d);
-  const url = d.url || (itemId ? `https://jp.mercari.com/item/${itemId}` : '');
-  const rawP = d.currentPrice != null ? d.currentPrice : d.price;
-  let numP = typeof rawP === 'string' ? parseInt(rawP.replace(/[^\d]/g, ''), 10) : Number(rawP);
-  if (!Number.isFinite(numP) || numP < 0) numP = null;
-  return { ...d, itemId: itemId || d.itemId, url: url || d.url, currentPrice: numP, price: numP };
-}
+function normalizeCloneIncoming(d) { return FurimoraCloneService.normalize(d); }
 
-function mergeMercariApiPartial(partial, api) {
-  if (!api || api.error) return partial;
-  const out = { ...api };
-  if (partial.title) out.title = partial.title;
-  if (partial.description) out.description = partial.description;
-  if (Array.isArray(partial.images) && partial.images.length) out.images = partial.images;
-  if (partial.thumbnailUrl) out.thumbnailUrl = partial.thumbnailUrl;
-  const pp = Number(partial.currentPrice ?? partial.price);
-  if (Number.isFinite(pp) && pp > 0) {
-    out.currentPrice = pp;
-    out.price = pp;
-  }
-  if (partial.likesCount != null) out.likesCount = partial.likesCount;
-  ['category', 'condition', 'shippingPayer', 'shippingMethod', 'shippingFrom', 'shippingDays'].forEach((k) => {
-    const v = partial[k];
-    if (v != null && String(v).trim() !== '') out[k] = v;
-  });
-  return out;
-}
+function mergeMercariApiPartial(partial, api) { return FurimoraCloneService.mergePartial(partial, api); }
 
-async function enrichCloneDataFromApi(data) {
-  const norm = normalizeCloneIncoming(data);
-  const url = norm.url || (norm.itemId ? `https://jp.mercari.com/item/${norm.itemId}` : '');
-  if (!url || !/\/item\/m\w+/i.test(url)) return norm;
-
-  const nonEmpty = (v) => v != null && String(v).trim() !== '';
-  const lacksPrice = norm.currentPrice == null || norm.currentPrice === 0;
-  const hasShippingMeta = nonEmpty(norm.shippingPayer) || nonEmpty(norm.shippingMethod) ||
-    nonEmpty(norm.shippingFrom) || nonEmpty(norm.shippingDays);
-  const lacksMeta = !nonEmpty(norm.category) || !nonEmpty(norm.condition) || !hasShippingMeta;
-  if (!lacksPrice && !lacksMeta) return norm;
-
-  const q = encodeURIComponent(url);
-  const endpoints = [`/api/mercari?url=${q}`, ...REMOTE_MERCARI_API_ORIGINS.map((origin) => `${origin}/api/mercari?url=${q}`)];
-  let api = null;
-  for (const ep of endpoints) {
-    try {
-      const res = await fetch(ep);
-      const j = await res.json();
-      if (res.ok && j && !j.error) {
-        api = j;
-        break;
-      }
-    } catch (e) { /* next */ }
-  }
-  if (!api) return norm;
-  return mergeMercariApiPartial(norm, api);
-}
+async function enrichCloneDataFromApi(data) { return FurimoraCloneService.enrich(data); }
 
 function showCloneStep2(data) {
   clonedData = data;
@@ -7437,16 +7345,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (cloneDataParam) {
-    // 全データがエンコードされて渡された場合 → Step2（欠損は /api/mercari で補完）
-    try {
-      const raw = JSON.parse(decodeURIComponent(escape(atob(cloneDataParam))));
-      let data = normalizeCloneIncoming(raw);
+    // 旧 Chrome 拡張の後方互換経路。全データがエンコードされて渡された場合 → Step2
+    // （欠損は /api/mercari で補完する。新規導線としては使わない）
+    const data = FurimoraCloneService.decodeLegacyCloneData(cloneDataParam);
+    if (data) {
       navigate('clone', data.url ? { deepLinkUrl: data.url } : {});
       setTimeout(() => showCloneStep2(data), 80);
-      enrichCloneDataFromApi(data).then((merged) => {
+      FurimoraCloneService.enrich(data).then((merged) => {
         showCloneStep2(merged);
       }).catch(() => {});
-    } catch (e) {
+    } else {
       navigate('clone');
     }
     history.replaceState({}, '', window.location.pathname);

@@ -1,0 +1,117 @@
+{
+  "results": [
+    {
+      "name": "1. Obscura 起動",
+      "ok": true,
+      "detail": "pid あり / http://127.0.0.1:9333"
+    },
+    {
+      "name": "2. CDP (Playwright connectOverCDP) 接続",
+      "ok": true,
+      "detail": "http://127.0.0.1:9333"
+    },
+    {
+      "name": "3. 任意ページを開く",
+      "ok": true,
+      "detail": "http://127.0.0.1:54435/"
+    },
+    {
+      "name": "4. DOM 取得 (evaluate)",
+      "ok": true,
+      "detail": "h1 = \"こんにちは\""
+    },
+    {
+      "name": "4b. getPageHtml()",
+      "ok": true,
+      "detail": "761 bytes"
+    },
+    {
+      "name": "5. テキスト入力 (fill)",
+      "ok": true,
+      "detail": "value = \"フリモーラ\""
+    },
+    {
+      "name": "6. クリック (click)",
+      "ok": true,
+      "detail": "受信: フリモーラ"
+    },
+    {
+      "name": "6b. waitForSelector (非同期DOM追加)",
+      "ok": true,
+      "detail": "こんにちは、フリモーラさん"
+    },
+    {
+      "name": "7. メルカリを開いて Cookie 取得",
+      "ok": true,
+      "detail": "7 件 / 127.0.0.1, jp.mercari.com, mercari.com, web-jp-assets-v2.mercdn.net"
+    },
+    {
+      "name": "7b. setCookies() で任意 Cookie を投入",
+      "ok": true,
+      "detail": "furimora_poc を確認"
+    },
+    {
+      "name": "8. プロセス終了 (SIGTERM) と storage-dir 書き出し",
+      "ok": true,
+      "detail": "cookies.json = 8 件 / 残プロセス: なし"
+    },
+    {
+      "name": "9. 再起動後に Cookie 復元",
+      "ok": true,
+      "detail": "9 件復元 / furimora_poc の値長 9"
+    },
+    {
+      "name": "10. 商品ページを開く",
+      "ok": true,
+      "detail": "https://jp.mercari.com/item/m15031621353"
+    },
+    {
+      "name": "10b. 描画状態を測定",
+      "ok": true,
+      "detail": "main本文 0 文字 / h1=なし / __NEXT_DATA__=false"
+    },
+    {
+      "name": "11. クローンに必要な項目が DOM から取れるか",
+      "ok": false,
+      "detail": "取得できない項目: タイトル(h1), 価格, 説明文, 本文全体"
+    },
+    {
+      "name": "12. Obscura ページから抽出できる範囲",
+      "ok": true,
+      "detail": "2/10 項目: title, images"
+    },
+    {
+      "name": "13. 既存 /api/mercari のベースライン",
+      "ok": true,
+      "detail": "10/10 項目 (source=merged, 画像6枚)"
+    },
+    {
+      "name": "14. Obscura 単体でクローン用データが揃うか",
+      "ok": false,
+      "detail": "不足: currentPrice, description, category, condition, shippingPayer, shippingMethod, shippingFrom, shippingDays"
+    }
+  ],
+  "probe": {
+    "title": "【新品未開封】一番くじ VIVANT ラストワン賞 & F賞 小皿セット - メルカリ",
+    "hasNextData": false,
+    "nextF": 0,
+    "mainTextLen": 0,
+    "h1": null,
+    "priceTestid": null,
+    "descTestid": null,
+    "testids": [
+      "mercari-logo",
+      "search-autocomplete",
+      "chip-search-input",
+      "image-search-button",
+      "search-submit-button",
+      "list-slot",
+      "loading-skeleton",
+      "language-picker-link"
+    ],
+    "ogTitle": "【新品未開封】一番くじ VIVANT ラストワン賞 & F賞 小皿セット by メルカリ",
+    "ogImage": "https://static.mercdn.net/item/detail/orig/photos/m15031621353_1.jpg?1788232033",
+    "ogUrl": "https://jp.mercari.com/item/m15031621353",
+    "imgCount": 0
+  }
+}

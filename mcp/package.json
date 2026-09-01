@@ -1,0 +1,16 @@
+{
+  "name": "furimora-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "フリモーラの内部APIを MCP ツールとして公開するサーバー（stdio）",
+  "bin": { "furimora-mcp": "./server.mjs" },
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.0.0"
+  }
+}

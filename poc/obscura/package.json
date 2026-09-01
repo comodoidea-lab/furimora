@@ -1,0 +1,15 @@
+{
+  "name": "furimora-obscura-poc",
+  "private": true,
+  "type": "module",
+  "description": "Obscura（Rust製ヘッドレスブラウザ）の適合性検証 PoC。本体には未統合。",
+  "scripts": {
+    "setup": "bash scripts/fetch-obscura.sh",
+    "poc": "node run-poc.mjs",
+    "probe:input": "node probe-input.mjs",
+    "probe:key": "node probe-key.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.62.1"
+  }
+}
