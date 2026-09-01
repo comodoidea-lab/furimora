@@ -19,6 +19,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import * as z from 'zod/v4';
 import { createCloneService, createInternalApi } from '../public/js/clone-service.js';
+import { BrowserService, DEFAULT_PROFILE_DIR } from './src/browser-service.mjs';
+import { MercariService, LISTING_TABS } from './src/mercari-service.mjs';
+import { reconcileListings } from '../public/js/reconcile.js';
+import fs from 'node:fs';
 
 const API_ORIGIN = process.env.FURIMORA_API_ORIGIN || 'https://furimora.vercel.app';
 const FALLBACK_ORIGINS = ['https://furimora-assist.vercel.app'];
@@ -109,6 +113,213 @@ server.registerTool(
         ),
       }],
     };
+  }
+);
+
+/**
+ * 認証が要る操作は専用プロファイルの Chrome を都度起動して閉じる。
+ * ログインセッションは userDataDir に永続するので、初回ログイン以降は再利用される。
+ * 例外が出ても必ず閉じる（子プロセスを残さない）。
+ */
+async function withMercari(fn, { headless = true } = {}) {
+  const browser = new BrowserService({ headless });
+  try {
+    await browser.startBrowser();
+    return await fn(new MercariService(browser), browser);
+  } finally {
+    await browser.stopBrowser();
+  }
+}
+
+server.registerTool(
+  'mercari_check_login',
+  {
+    title: 'メルカリのログイン状態を確認',
+    description:
+      'フリモーラ専用のブラウザプロファイルがメルカリにログイン済みかを確認する。読み取りのみ。未ログインなら mercari_login を案内する。',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const r = await withMercari((mercari) => mercari.checkLogin());
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            loggedIn: r.loggedIn,
+            profileDir: DEFAULT_PROFILE_DIR,
+            hint: r.loggedIn ? null : 'mercari_login を実行するとブラウザが開くので、そこで一度ログインしてください（2段階認証は人が通す必要があります）',
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+server.registerTool(
+  'mercari_login',
+  {
+    title: 'メルカリへログインするウィンドウを開く',
+    description:
+      'フリモーラ専用プロファイルのブラウザを画面つきで起動し、メルカリのログインページを開く。認証情報の入力は人間が行う（このツールは入力しない）。ログイン後はセッションがプロファイルに保存され、以降の取得で再利用される。',
+    inputSchema: {
+      wait_seconds: z.number().int().min(30).max(600).default(180)
+        .describe('ログイン完了を待つ秒数。既定 180 秒'),
+    },
+  },
+  async ({ wait_seconds }) => {
+    const browser = new BrowserService({ headless: false });
+    try {
+      await browser.startBrowser();
+      const mercari = new MercariService(browser);
+      await browser.openPage('https://jp.mercari.com/login');
+      const deadline = Date.now() + wait_seconds * 1000;
+      let loggedIn = false;
+      while (Date.now() < deadline) {
+        await browser.waitForTimeout(3000);
+        try { loggedIn = (await mercari.checkLogin()).loggedIn; } catch { /* 遷移中 */ }
+        if (loggedIn) break;
+      }
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            loggedIn,
+            profileDir: DEFAULT_PROFILE_DIR,
+            note: loggedIn ? 'ログイン済み。セッションはプロファイルに保存されました。' : '時間内にログインが確認できませんでした。もう一度実行してください。',
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    } finally {
+      await browser.stopBrowser();
+    }
+  }
+);
+
+server.registerTool(
+  'mercari_get_my_listings',
+  {
+    title: '自分の出品一覧を取得',
+    description:
+      '自分がメルカリに出している商品の一覧を取得する（読み取りのみ。出品や価格変更は行わない）。' +
+      'タブは active=出品中 / in_progress=取引中 / sold=売却済み / history=販売履歴。' +
+      'フリモーラの在庫データと突き合わせて、売却済みの取りこぼしや価格のズレを検出するのに使う。',
+    inputSchema: {
+      tab: z.enum(['active', 'in_progress', 'sold', 'history']).default('active')
+        .describe('取得するタブ。既定は active（出品中）'),
+      max_items: z.number().int().min(1).max(2000).default(1000)
+        .describe('取得の上限件数。既定 1000'),
+    },
+  },
+  async ({ tab, max_items }) => {
+    try {
+      const r = await withMercari(async (mercari) => {
+        const login = await mercari.checkLogin();
+        if (!login.loggedIn) return { needsLogin: true };
+        return mercari.getMyListings({ tab, maxItems: max_items });
+      });
+      if (r.needsLogin) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }],
+        };
+      }
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            tab: r.tab, tabLabel: r.tabLabel, count: r.count,
+            truncated: r.truncated, loadMoreClicks: r.loadMoreClicks, elapsedMs: r.elapsedMs,
+            items: r.items,
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+/** フリモーラのバックアップ JSON から在庫アイテム配列を取り出す */
+function itemsFromBackupFile(filePath) {
+  const root = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const raw = root?.data?.furimora_items;
+  if (raw == null) throw new Error('バックアップに furimora_items が含まれていません');
+  const items = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (!Array.isArray(items)) throw new Error('furimora_items が配列ではありません');
+  return items;
+}
+
+server.registerTool(
+  'furimora_reconcile_listings',
+  {
+    title: '在庫とメルカリの出品を突き合わせる',
+    description:
+      'フリモーラの在庫データとメルカリの実際の出品を突き合わせ、ズレを検出する（読み取りのみ。何も変更しない）。' +
+      '主目的は「メルカリでは売れているのに手元では出品中のまま」の検出。' +
+      'ほかに価格のズレ、メルカリから消えた商品、再出品したのに売却済みのままの商品、手元に無い出品も返す。' +
+      '在庫データは backup_path（設定画面の「バックアップをダウンロード」で保存した JSON）か app_items で渡す。',
+    inputSchema: {
+      backup_path: z.string().optional()
+        .describe('フリモーラのバックアップ JSON のパス。app_items を渡す場合は不要'),
+      app_items: z.array(z.record(z.string(), z.any())).optional()
+        .describe('在庫アイテムの配列。backup_path を渡す場合は不要'),
+      max_items: z.number().int().min(1).max(2000).default(1000)
+        .describe('メルカリ側の取得上限。既定 1000'),
+      price_tolerance: z.number().int().min(0).default(0)
+        .describe('価格差をズレとみなさない許容額。既定 0'),
+    },
+  },
+  async ({ backup_path, app_items, max_items, price_tolerance }) => {
+    try {
+      let local;
+      if (Array.isArray(app_items) && app_items.length) local = app_items;
+      else if (backup_path) local = itemsFromBackupFile(backup_path);
+      else {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [BAD_PARAMS] backup_path か app_items のどちらかが必要です' }] };
+      }
+
+      const r = await withMercari(async (mercari) => {
+        const login = await mercari.checkLogin();
+        if (!login.loggedIn) return { needsLogin: true };
+        const active = await mercari.getMyListings({ tab: 'active', maxItems: max_items });
+        const sold = await mercari.getMyListings({ tab: 'sold', maxItems: max_items });
+        return { active, sold };
+      });
+      if (r.needsLogin) {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }] };
+      }
+
+      const report = reconcileListings({
+        local,
+        remoteActive: r.active.items,
+        remoteSold: r.sold.items,
+        remoteTruncated: r.active.truncated || r.sold.truncated,
+        priceTolerance: price_tolerance,
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            summary: report.summary,
+            取得時間ms: { 出品中: r.active.elapsedMs, 売却済み: r.sold.elapsedMs },
+            売れているのに出品中のまま: report.soldButActive,
+            価格がズレている: report.priceMismatch,
+            メルカリから消えている: report.missingRemotely,
+            再出品したのに売却済みのまま: report.relistedButSold,
+            手元に無い出品: report.missingLocally,
+            メルカリID未設定: report.unlinked,
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [RECONCILE] ${String((e && e.message) || e)}` }] };
+    }
   }
 );
 
