@@ -119,6 +119,24 @@ createCloneService({ apiOrigins: ['...'], fetchImpl: async () => ({ ok: true, js
 
 **MCP 側に取得ロジックを二重に書かないこと。** 追加は必ずこのファイルに入れる。
 
+### MCP サーバー: mcp/
+
+`mcp/server.mjs`（stdio）が `clone-service.js` を import して MCP ツールとして公開する。
+セットアップと詳細は [../mcp/README.md](../mcp/README.md)。
+
+| MCP ツール | 内部オペレーション |
+|---|---|
+| `mercari_get_item` | `mercari.getItem` |
+| `mercari_create_clone_data` | `mercari.createCloneData` |
+| `mercari_extract_url` | `mercari.extractUrl` |
+| `furimora_status` | （`/api/health` への疎通確認のみ） |
+
+`server.mjs` にあるのは MCP の型定義と、内部 API の戻り値を MCP レスポンスへ変換する処理だけ。
+業務ロジックは持たない。`cd mcp && npm run check` でプロトコル越しの動作確認ができる。
+
+**依存は `mcp/package.json` に閉じている**（`@modelcontextprotocol/sdk` と `zod`）。
+ルートの `package.json` は変更していないので、Vercel のデプロイには影響しない。
+
 なお `public/sw.js` は `/js/` を network-first で扱う（cache-first だとこのファイルを更新しても
 古い版が配られ続けるため）。
 
