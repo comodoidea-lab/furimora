@@ -204,6 +204,38 @@ export function parseCategoryPath(s) {
 }
 
 /**
+ * 壊れたカテゴリー経路を直す。**推測はしない。機械的に確定できる崩れだけを直す。**
+ *
+ * 実データで踏んだ崩れ（Chrome 拡張の旧いパンくず抽出が原因。拡張側は修正済み）:
+ *  - 経路がそのまま 2 回繰り返される（"A > B > C > A > B > C"）。実測で下書き 50 件中 50 件
+ *  - 先頭に数字だけの断片が付く（"1 > A > B > C > …"）
+ *
+ * @returns {{path: string[], fixes: string[]}} fixes は直した内容。呼び出し側は必ず人へ見せること
+ */
+export function normalizeCategoryPath(names) {
+  const fixes = [];
+  let out = (names || []).map((x) => String(x).trim()).filter(Boolean);
+
+  // 先頭の数字だけの断片を落とす
+  while (out.length > 1 && /^\d+$/.test(out[0])) {
+    fixes.push(`先頭の「${out[0]}」を除いた（数字だけの断片）`);
+    out = out.slice(1);
+  }
+
+  // 経路がそのまま 2 回繰り返されている場合は前半だけにする
+  if (out.length >= 2 && out.length % 2 === 0) {
+    const half = out.length / 2;
+    const a = out.slice(0, half).join('\u0000');
+    const b = out.slice(half).join('\u0000');
+    if (a === b) {
+      fixes.push(`経路が 2 回繰り返されていたので前半だけにした（${out.length} 段 → ${half} 段）`);
+      out = out.slice(0, half);
+    }
+  }
+  return { path: out, fixes };
+}
+
+/**
  * クローン元の condition（"新品、未使用" 等）を 1〜6 の番号にする。
  * 一致しなければ null を返す。**推測で埋めないこと。**
  */

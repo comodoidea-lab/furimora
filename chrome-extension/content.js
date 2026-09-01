@@ -178,10 +178,36 @@
     data.thumbnailUrl = data.images[0] || null;
 
     // カテゴリ — "出品"など不要なパンくずを除外
+    //
+    // 商品ページはパンくずを **2 回描画する**（同じ href の組が 2 つ並ぶ）。
+    // 素直に全部拾うと "A > B > C > A > B > C" になる（実データの下書き 50 件中 50 件が壊れていた）。
+    // カテゴリのリンクは /search?category_id=N なので、それだけを category_id で重複排除して拾う。
     const EXCLUDE_CRUMBS = new Set(['ホーム', 'メルカリ', 'トップ', '出品', 'すべてのカテゴリ']);
-    const breadcrumbs = [...document.querySelectorAll('nav a, ol li a, [class*="readcrumb"] a, [class*="Breadcrumb"] a')]
-      .map(a => a.textContent.trim())
-      .filter(t => t && !EXCLUDE_CRUMBS.has(t));
+    const crumbTexts = (nodes, keyOf) => {
+      const seen = new Set();
+      const out = [];
+      for (const a of nodes) {
+        const t = a.textContent.trim();
+        if (!t || EXCLUDE_CRUMBS.has(t)) continue;
+        const key = keyOf(a) || t;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(t);
+      }
+      return out;
+    };
+    const catLinks = [...document.querySelectorAll('a[href*="/search?category_id="]')];
+    let breadcrumbs = crumbTexts(catLinks, (a) => {
+      const m = (a.getAttribute('href') || '').match(/category_id=(\d+)/);
+      return m ? m[1] : null;
+    });
+    if (!breadcrumbs.length) {
+      // 旧セレクタへのフォールバック。こちらも文言で重複排除する
+      breadcrumbs = crumbTexts(
+        [...document.querySelectorAll('nav a, ol li a, [class*="readcrumb"] a, [class*="Breadcrumb"] a')],
+        () => null
+      ).filter(t => !/^\d+$/.test(t));
+    }
     data.category = breadcrumbs.join(' > ');
 
     // いいね数

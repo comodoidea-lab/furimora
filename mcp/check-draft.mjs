@@ -13,7 +13,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { BrowserService } from './src/browser-service.mjs';
-import { MercariService, SELL_URLS, SELECTORS, parseCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
+import { MercariService, SELL_URLS, SELECTORS, parseCategoryPath, normalizeCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(HERE, 'server.mjs')], stderr: 'ignore' });
@@ -120,6 +120,31 @@ console.log('\n── 商品URLからの下ごしらえ（読み取りのみ）�
   } else if (r) { fail('下ごしらえ', text(r).slice(0, 140)); }
 }
 
+console.log('\n── 壊れたカテゴリーの正規化（純粋関数）──');
+// Chrome 拡張の旧いパンくず抽出が、経路を 2 回繰り返した文字列を保存していた。
+// 実データのバックアップで下書き 50 件中 50 件が該当した（在庫データは無傷）。
+{
+  const r = normalizeCategoryPath(parseCategoryPath('CD・DVD・ブルーレイ > DVD > アニメ > CD・DVD・ブルーレイ > DVD > アニメ'));
+  JSON.stringify(r.path) === JSON.stringify(['CD・DVD・ブルーレイ', 'DVD', 'アニメ']) && r.fixes.length === 1
+    ? pass('2 回繰り返された経路を直せる', r.fixes[0]) : fail('重複の正規化', JSON.stringify(r));
+}
+{
+  const r = normalizeCategoryPath(parseCategoryPath('1 > 本・雑誌・漫画 > 本 > 文学・小説 > 本・雑誌・漫画 > 本 > 文学・小説'));
+  JSON.stringify(r.path) === JSON.stringify(['本・雑誌・漫画', '本', '文学・小説']) && r.fixes.length === 2
+    ? pass('先頭の数字の断片も落とせる', `${r.fixes.length} 箇所を修正`) : fail('先頭の断片', JSON.stringify(r));
+}
+{
+  const r = normalizeCategoryPath(parseCategoryPath('CD・DVD・ブルーレイ > DVD > 洋画・外国映画'));
+  r.fixes.length === 0 && r.path.length === 3
+    ? pass('壊れていない経路は触らない', '無修正') : fail('正常系', JSON.stringify(r));
+}
+{
+  // 偶然に前後半が一致しうる短い経路を壊さないこと
+  const r = normalizeCategoryPath(['ファッション', 'レディース']);
+  JSON.stringify(r.path) === JSON.stringify(['ファッション', 'レディース']) && r.fixes.length === 0
+    ? pass('別物の 2 段は縮めない') : fail('2 段の扱い', JSON.stringify(r));
+}
+
 console.log('\n── フリモーラの下書きからの下ごしらえ（読み取りのみ）──');
 // 下書きは PWA の localStorage にあるため、バックアップ JSON 経由で渡す。
 // バックアップは localStorage の生文字列を格納する形式（実装に合わせた合成データ）。
@@ -130,7 +155,8 @@ fs.writeFileSync(FIXTURE, JSON.stringify({
     furimora_drafts: JSON.stringify([
       {
         id: 1, title: 'リバー・ランズ・スルー・イット [DVD]', description: '説明文\r\n改行はCRLF',
-        price: '2780', category: 'CD・DVD・ブルーレイ > DVD > 洋画・外国映画',
+        // 実データと同じ「2 回繰り返し」の壊れた値を入れる
+        price: '2780', category: 'CD・DVD・ブルーレイ > DVD > 洋画・外国映画 > CD・DVD・ブルーレイ > DVD > 洋画・外国映画',
         condition: '目立った傷や汚れなし', shippingMethod: 'らくらくメルカリ便',
         shippingDays: '2~3日で発送', url: 'https://jp.mercari.com/item/m51632833579',
       },
@@ -157,6 +183,8 @@ try {
       ? pass('状態・価格・配送の方法を引き継げる', `condition=3 / ¥2780 / らくらくメルカリ便`) : fail('引き継ぎ', JSON.stringify(j.draftInput));
     (j.needsHuman || []).some((x) => /配送の方法/.test(x))
       ? pass('配送の方法も人間の確認対象に載せる', '下書きの値をそのまま使わせない') : fail('needsHuman', JSON.stringify(j.needsHuman));
+    (j.categoryFixes || []).length === 1 && (j.needsHuman || []).some((x) => /崩れを直した/.test(x))
+      ? pass('壊れたカテゴリーを直し、直したことを報告する', j.categoryFixes[0]) : fail('categoryFixes', JSON.stringify(j.categoryFixes));
   }
   {
     const r = await client.callTool({ name: 'mercari_prepare_draft_from_furimora_draft', arguments: { backup_path: FIXTURE, index: 1 } });

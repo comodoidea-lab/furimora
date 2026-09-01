@@ -20,7 +20,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import * as z from 'zod/v4';
 import { createCloneService, createInternalApi } from '../public/js/clone-service.js';
 import { BrowserService, DEFAULT_PROFILE_DIR } from './src/browser-service.mjs';
-import { MercariService, LISTING_TABS, SELECTORS, parseCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
+import { MercariService, LISTING_TABS, SELECTORS, parseCategoryPath, normalizeCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
 import { reconcileListings } from '../public/js/reconcile.js';
 import fs from 'node:fs';
 
@@ -450,7 +450,7 @@ server.registerTool(
       }
 
       const price = Number(String(d.price ?? '').replace(/[^\d]/g, '')) || null;
-      const categoryNames = parseCategoryPath(d.category);
+      const { path: categoryNames, fixes: categoryFixes } = normalizeCategoryPath(parseCategoryPath(d.category));
       const conditionNumber = conditionFromLabel(d.condition);
 
       const resolved = categoryNames.length
@@ -465,6 +465,9 @@ server.registerTool(
       }
 
       const needsHuman = [];
+      if (categoryFixes.length) {
+        needsHuman.push(`カテゴリーの崩れを直した（${categoryFixes.join(' / ')}）。結果が正しいか確認すること`);
+      }
       if (!resolved.ok) needsHuman.push(`カテゴリー（${resolved.message}）`);
       if (conditionNumber == null) needsHuman.push(`商品の状態の番号（「${d.condition ?? ''}」を 1〜6 に対応づけられませんでした）`);
       if (price == null) needsHuman.push('価格（下書きに価格が入っていません）');
@@ -492,6 +495,7 @@ server.registerTool(
               shipping_method: d.shippingMethod ?? null,
             },
             categoryResolution: resolved,
+            categoryFixes,
             conditionMapping: { label: d.condition ?? null, number: conditionNumber, labels: SELECTORS.sell.conditionLabels },
             needsHuman,
             note: 'これは下ごしらえです。**この時点ではメルカリ側に何も作られていません。** ' +
@@ -562,7 +566,7 @@ server.registerTool(
         return { isError: true, content: [{ type: 'text', text: `エラー [${got?.code || 'UNKNOWN'}] ${got?.message || '商品情報を取得できませんでした'}` }] };
       }
       const d = got.data || {};
-      const categoryNames = parseCategoryPath(d.category);
+      const { path: categoryNames, fixes: categoryFixes } = normalizeCategoryPath(parseCategoryPath(d.category));
       const conditionNumber = conditionFromLabel(d.condition);
 
       const resolved = categoryNames.length
@@ -584,6 +588,7 @@ server.registerTool(
         `配送の方法（複製元は「${d.shippingMethod ?? '不明'}」。実物のサイズと重さで判断し直すこと）`,
       ];
       if (!resolved.ok) needsHuman.unshift(`カテゴリー（${resolved.message}）`);
+      if (categoryFixes.length) needsHuman.unshift(`カテゴリーの崩れを直した（${categoryFixes.join(' / ')}）。結果が正しいか確認すること`);
       if (conditionNumber == null) needsHuman.unshift(`商品の状態の番号（「${d.condition ?? ''}」を 1〜6 に対応づけられませんでした）`);
 
       return {
@@ -605,6 +610,7 @@ server.registerTool(
               shipping_method: d.shippingMethod ?? null,
             },
             categoryResolution: resolved,
+            categoryFixes,
             conditionMapping: { label: d.condition ?? null, number: conditionNumber, labels: SELECTORS.sell.conditionLabels },
             needsHuman,
             note: 'これは下ごしらえです。**この時点ではメルカリ側に何も作られていません。** ' +
