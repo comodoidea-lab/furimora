@@ -56,6 +56,7 @@ FURIMORA_API_ORIGIN=http://localhost:3000 node mcp/server.mjs
 | `mercari_check_login` | — | 専用プロファイルがメルカリにログイン済みかを確認 |
 | `mercari_login` | `wait_seconds` | ログイン用のブラウザを開く（入力は人間が行う） |
 | `mercari_get_my_listings` | `tab`, `max_items` | 自分の出品一覧を取得（読み取りのみ） |
+| `furimora_reconcile_listings` | `backup_path` or `app_items` | 在庫とメルカリの出品を突き合わせてズレを検出 |
 
 `url` は共有文のまま渡してよい（`merc.li` 短縮URLも可）。サーバー側で URL 部分を抽出する。
 
@@ -111,3 +112,43 @@ MCP クライアントとして `server.mjs` を実際に起動し、プロト�
   「localhost 限定」よりさらに攻撃面が狭い）
 - 認証情報を扱わない。Cookie もセッションも持たない
 - stdout は JSON-RPC 専用。ログは stderr にのみ出し、商品データや引数の中身は出さない
+
+## 在庫との突き合わせ
+
+`furimora_reconcile_listings` は、フリモーラの在庫データとメルカリの実際の出品を照合する。
+**読み取りのみで、どちらのデータも変更しない。**
+
+在庫データの渡し方は 2 通り:
+
+- `backup_path` — 設定画面の「バックアップをダウンロード」で保存した JSON のパス
+- `app_items` — 在庫アイテムの配列を直接
+
+検出する項目:
+
+| 項目 | 意味 |
+|---|---|
+| 売れているのに出品中のまま | メルカリでは売却済み、手元では出品中 ← **主目的** |
+| 価格がズレている | 両方出品中だが価格が違う（`price_tolerance` で許容差を設定可） |
+| メルカリから消えている | 手元は出品中だが、メルカリのどちらのタブにも無い |
+| 再出品したのに売却済みのまま | 手元は売却済み、メルカリでは出品中 |
+| 手元に無い出品 | メルカリにあるがフリモーラに未登録 |
+| メルカリID未設定 | 商品URLが未設定で突き合わせできない |
+
+**安全側の設計**: メルカリ側の取得が上限で打ち切られた場合（`truncated`）、
+「メルカリから消えている」の判定は**行わない**。まだ読み込んでいないだけの商品を
+「消えた」と誤報告しないため。その旨は `summary.notes` に出る。
+
+### 照合ロジックは他プロジェクトでも使える
+
+`public/js/reconcile.js` は依存ゼロの純粋関数で、フリモーラ固有の型に縛られていない。
+フィールドの読み方は adapter で差し替えられるので、別の在庫管理アプリへそのまま持って行ける。
+
+```js
+import { reconcileListings } from './reconcile.js';
+reconcileListings({
+  local, remoteActive, remoteSold, remoteTruncated,
+  adapter: { id: r => r.sku, price: r => r.listPrice, isActive: r => r.state === 'listed', ... },
+});
+```
+
+単体テストは `node check-reconcile.mjs`（ログイン不要・合成データ・20 項目）。

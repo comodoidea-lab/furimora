@@ -49,5 +49,14 @@ console.log('\n── 異常系 ──');
 const badTab = await client.callTool({ name: 'mercari_get_my_listings', arguments: { tab: 'nope' } });
 badTab.isError ? pass('未知のタブは弾かれる', text(badTab).slice(0, 50)) : fail('未知のタブ', '通ってしまった');
 
+console.log('\n── 照合ツール ──');
+const rc = tools.find((t) => t.name === 'furimora_reconcile_listings');
+rc ? pass('furimora_reconcile_listings', '登録あり') : fail('furimora_reconcile_listings', '未登録');
+const noArgs = await client.callTool({ name: 'furimora_reconcile_listings', arguments: {} });
+noArgs.isError && text(noArgs).includes('BAD_PARAMS')
+  ? pass('入力なしは BAD_PARAMS') : fail('入力なしのガード', text(noArgs).slice(0, 100));
+const badPath = await client.callTool({ name: 'furimora_reconcile_listings', arguments: { backup_path: '/nonexistent/x.json' } });
+badPath.isError ? pass('存在しないバックアップは isError', text(badPath).slice(0, 46)) : fail('不正パスのガード');
+
 await client.close();
 console.log(process.exitCode ? '\n失敗あり\n' : '\nすべて成功\n');

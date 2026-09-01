@@ -21,6 +21,8 @@ import * as z from 'zod/v4';
 import { createCloneService, createInternalApi } from '../public/js/clone-service.js';
 import { BrowserService, DEFAULT_PROFILE_DIR } from './src/browser-service.mjs';
 import { MercariService, LISTING_TABS } from './src/mercari-service.mjs';
+import { reconcileListings } from '../public/js/reconcile.js';
+import fs from 'node:fs';
 
 const API_ORIGIN = process.env.FURIMORA_API_ORIGIN || 'https://furimora.vercel.app';
 const FALLBACK_ORIGINS = ['https://furimora-assist.vercel.app'];
@@ -238,6 +240,85 @@ server.registerTool(
       };
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+/** フリモーラのバックアップ JSON から在庫アイテム配列を取り出す */
+function itemsFromBackupFile(filePath) {
+  const root = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const raw = root?.data?.furimora_items;
+  if (raw == null) throw new Error('バックアップに furimora_items が含まれていません');
+  const items = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (!Array.isArray(items)) throw new Error('furimora_items が配列ではありません');
+  return items;
+}
+
+server.registerTool(
+  'furimora_reconcile_listings',
+  {
+    title: '在庫とメルカリの出品を突き合わせる',
+    description:
+      'フリモーラの在庫データとメルカリの実際の出品を突き合わせ、ズレを検出する（読み取りのみ。何も変更しない）。' +
+      '主目的は「メルカリでは売れているのに手元では出品中のまま」の検出。' +
+      'ほかに価格のズレ、メルカリから消えた商品、再出品したのに売却済みのままの商品、手元に無い出品も返す。' +
+      '在庫データは backup_path（設定画面の「バックアップをダウンロード」で保存した JSON）か app_items で渡す。',
+    inputSchema: {
+      backup_path: z.string().optional()
+        .describe('フリモーラのバックアップ JSON のパス。app_items を渡す場合は不要'),
+      app_items: z.array(z.record(z.string(), z.any())).optional()
+        .describe('在庫アイテムの配列。backup_path を渡す場合は不要'),
+      max_items: z.number().int().min(1).max(2000).default(1000)
+        .describe('メルカリ側の取得上限。既定 1000'),
+      price_tolerance: z.number().int().min(0).default(0)
+        .describe('価格差をズレとみなさない許容額。既定 0'),
+    },
+  },
+  async ({ backup_path, app_items, max_items, price_tolerance }) => {
+    try {
+      let local;
+      if (Array.isArray(app_items) && app_items.length) local = app_items;
+      else if (backup_path) local = itemsFromBackupFile(backup_path);
+      else {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [BAD_PARAMS] backup_path か app_items のどちらかが必要です' }] };
+      }
+
+      const r = await withMercari(async (mercari) => {
+        const login = await mercari.checkLogin();
+        if (!login.loggedIn) return { needsLogin: true };
+        const active = await mercari.getMyListings({ tab: 'active', maxItems: max_items });
+        const sold = await mercari.getMyListings({ tab: 'sold', maxItems: max_items });
+        return { active, sold };
+      });
+      if (r.needsLogin) {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }] };
+      }
+
+      const report = reconcileListings({
+        local,
+        remoteActive: r.active.items,
+        remoteSold: r.sold.items,
+        remoteTruncated: r.active.truncated || r.sold.truncated,
+        priceTolerance: price_tolerance,
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            summary: report.summary,
+            取得時間ms: { 出品中: r.active.elapsedMs, 売却済み: r.sold.elapsedMs },
+            売れているのに出品中のまま: report.soldButActive,
+            価格がズレている: report.priceMismatch,
+            メルカリから消えている: report.missingRemotely,
+            再出品したのに売却済みのまま: report.relistedButSold,
+            手元に無い出品: report.missingLocally,
+            メルカリID未設定: report.unlinked,
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [RECONCILE] ${String((e && e.message) || e)}` }] };
     }
   }
 );
