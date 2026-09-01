@@ -32,7 +32,27 @@ export const SELECTORS = {
   loadMoreText: /もっと見る/,
   /** 商品 ID の形 */
   itemIdPattern: /\b(m\d{9,})\b/,
+
+  // ── 商品編集ページ（/sell/edit/<itemId>）── 2026-09-01 実機確認
+  /** 価格入力。INPUT[name=price] / inputmode=decimal */
+  editPriceInput: '[data-testid="price-text-input"]',
+  /** 保存ボタン「変更する」 */
+  editSubmitButton: '[data-testid="edit-button"]',
+  editSalesFee: '[data-testid="sales-fee"]',
+  editSalesProfit: '[data-testid="sales-profit"]',
+  /** 触れてはいけないボタン。誤操作防止のため名前だけ記録する（コードからは押さない） */
+  dangerousButtons: ['[data-testid="delete-button"]', '[data-testid="suspend-button"]'],
 };
+
+/** メルカリの価格範囲 */
+export const PRICE_LIMITS = { min: 300, max: 9999999 };
+
+/** 販売手数料 10%。見積り用。実際の値はページから読む。 */
+export const FEE_RATE = 0.1;
+
+export function editPageUrl(itemId) {
+  return `${ORIGIN}/sell/edit/${itemId}`;
+}
 
 /**
  * ページ内で実行される抽出関数のソース。
@@ -147,6 +167,111 @@ export class MercariService {
     }
     const loggedIn = state.hasSideMenu && !state.redirectedToLogin;
     return { loggedIn, url: state.url };
+  }
+
+  /**
+   * 価格を変更する。
+   *
+   * **dryRun の既定は true。省略時は絶対に実行しない。**
+   * 実行は dryRun:false を明示したときだけ。1 呼び出しにつき 1 商品のみ。
+   * 削除・一時停止のボタンにはコードから一切触れない。
+   *
+   * @param {object} p
+   * @param {string} p.itemId  m から始まる商品 ID
+   * @param {number} p.newPrice 新しい価格（整数）
+   * @param {boolean} [p.dryRun=true] false のときだけ実際に変更する
+   * @param {number|null} [p.minPrice] 下回ってはいけない価格。下回る指定は拒否する
+   */
+  async updatePrice({ itemId, newPrice, dryRun = true, minPrice = null }) {
+    if (!/^m\d{9,}$/.test(String(itemId || ''))) {
+      return { ok: false, code: 'BAD_ITEM_ID', message: `商品IDの形式が不正です: ${itemId}` };
+    }
+    const price = Number(newPrice);
+    if (!Number.isInteger(price)) {
+      return { ok: false, code: 'BAD_PRICE', message: '価格は整数で指定してください' };
+    }
+    if (price < PRICE_LIMITS.min || price > PRICE_LIMITS.max) {
+      return { ok: false, code: 'PRICE_OUT_OF_RANGE',
+        message: `価格は ${PRICE_LIMITS.min}〜${PRICE_LIMITS.max} の範囲で指定してください（指定: ${price}）` };
+    }
+    if (minPrice != null && price < Number(minPrice)) {
+      return { ok: false, code: 'BELOW_MIN_PRICE',
+        message: `最低価格 ¥${minPrice} を下回る変更は実行しません（指定: ¥${price}）` };
+    }
+
+    await this.browser.openPage(editPageUrl(itemId));
+    try {
+      await this.browser.waitForSelector(SELECTORS.editPriceInput, { timeout: 20000 });
+    } catch {
+      return { ok: false, code: 'EDIT_PAGE_UNAVAILABLE',
+        message: '編集ページを開けませんでした（売却済み・削除済み・ログイン切れの可能性）' };
+    }
+
+    const readState = (sel) => {
+      const q = (x) => document.querySelector(x);
+      const yen = (t) => { const m = String(t || '').match(/([\d,]+)/); return m ? Number(m[1].replace(/,/g, '')) : null; };
+      return {
+        price: Number(String(q(sel.editPriceInput)?.value || '').replace(/[^\d]/g, '')) || null,
+        fee: yen(q(sel.editSalesFee)?.textContent),
+        profit: yen(q(sel.editSalesProfit)?.textContent),
+      };
+    };
+    const before = await this.browser.evaluate(readState, SELECTORS);
+    if (before.price == null) {
+      return { ok: false, code: 'PRICE_UNREADABLE', message: '現在価格を読み取れませんでした' };
+    }
+
+    // 手数料以外の控除（送料など）は現在の表示から逆算する
+    const otherDeduction = (before.fee != null && before.profit != null)
+      ? before.price - before.fee - before.profit : 0;
+    const newFee = Math.floor(price * FEE_RATE);
+    const plan = {
+      itemId,
+      currentPrice: before.price,
+      newPrice: price,
+      diff: price - before.price,
+      direction: price === before.price ? 'なし' : price < before.price ? '値下げ' : '値上げ',
+      currentFee: before.fee,
+      currentProfit: before.profit,
+      estimatedNewFee: newFee,
+      estimatedNewProfit: price - newFee - otherDeduction,
+      minPrice: minPrice != null ? Number(minPrice) : null,
+      editUrl: editPageUrl(itemId),
+    };
+
+    if (price === before.price) {
+      return { ok: true, applied: false, dryRun, plan, note: '現在価格と同じため何もしませんでした' };
+    }
+    if (dryRun) {
+      return { ok: true, applied: false, dryRun: true, plan,
+        note: '確認のみです。実際に変更するには dry_run を false にしてください。' };
+    }
+
+    // ── ここから実際の変更。dryRun:false のときだけ到達する ──
+    await this.browser.fill(SELECTORS.editPriceInput, String(price));
+    const typed = await this.browser.evaluate(
+      (sel) => Number(String(document.querySelector(sel)?.value || '').replace(/[^\d]/g, '')) || null,
+      SELECTORS.editPriceInput);
+    if (typed !== price) {
+      return { ok: false, code: 'FILL_FAILED', plan,
+        message: `価格欄に入力できませんでした（入力後の値: ${typed}）。何も変更していません。` };
+    }
+
+    await this.browser.click(SELECTORS.editSubmitButton);
+    await this.browser.waitForTimeout(5000);
+
+    // 変更後の値を編集ページから読み直して検証する
+    await this.browser.openPage(editPageUrl(itemId));
+    await this.browser.waitForSelector(SELECTORS.editPriceInput, { timeout: 20000 });
+    const after = await this.browser.evaluate(
+      (sel) => Number(String(document.querySelector(sel)?.value || '').replace(/[^\d]/g, '')) || null,
+      SELECTORS.editPriceInput);
+
+    if (after !== price) {
+      return { ok: false, code: 'VERIFY_FAILED', plan, priceAfter: after,
+        message: `変更後の価格が一致しません（期待 ¥${price} / 実際 ¥${after}）。メルカリ側で反映されていない可能性があります。` };
+    }
+    return { ok: true, applied: true, dryRun: false, plan, priceBefore: before.price, priceAfter: after };
   }
 
   /**

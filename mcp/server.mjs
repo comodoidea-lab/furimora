@@ -323,6 +323,49 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  'mercari_update_price',
+  {
+    title: 'メルカリの出品価格を変更',
+    description:
+      '自分の出品 1 件の価格を変更する。**既定は確認のみ（dry_run=true）で、実際には変更しない。** ' +
+      '確認モードでは現在価格・新価格・差額・手数料と利益の見積りを返す。' +
+      '実際に変更するには dry_run に false を明示的に指定する。' +
+      '1 回の呼び出しで変更できるのは 1 商品だけ。削除や出品停止は行わない。',
+    inputSchema: {
+      item_id: z.string().regex(/^m\d{9,}$/, 'm から始まる商品IDを指定してください')
+        .describe('メルカリの商品ID（例: m12345678901）'),
+      new_price: z.number().int().min(300).max(9999999)
+        .describe('新しい価格（円・整数）'),
+      dry_run: z.boolean().default(true)
+        .describe('true（既定）は確認のみで何も変更しない。実際に変更する場合だけ false を指定する'),
+      min_price: z.number().int().min(0).optional()
+        .describe('下回ってはいけない価格。指定するとこれを下回る変更を拒否する'),
+    },
+  },
+  async ({ item_id, new_price, dry_run, min_price }) => {
+    try {
+      const r = await withMercari(async (mercari) => {
+        const login = await mercari.checkLogin();
+        if (!login.loggedIn) return { needsLogin: true };
+        return mercari.updatePrice({
+          itemId: item_id, newPrice: new_price,
+          dryRun: dry_run !== false, minPrice: min_price ?? null,
+        });
+      });
+      if (r.needsLogin) {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }] };
+      }
+      if (!r.ok) {
+        return { isError: true, content: [{ type: 'text', text: `エラー [${r.code}] ${r.message}` }] };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 // stdout は JSON-RPC 専用。ログは必ず stderr へ。
