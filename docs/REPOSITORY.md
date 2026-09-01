@@ -9,14 +9,24 @@
 ```mermaid
 flowchart LR
   Mercari[jp.mercari.com]
-  Ext[Chrome拡張]
+  Entry["URL貼り付け / クリップボード検知 / OS共有・Share Target / iOS共有シート"]
   Web[public/index.html PWA]
+  Svc[FurimoraCloneService]
   API[Vercel Edge api]
+  Ext["Chrome拡張（デスクトップの人間用導線）"]
+  Mercari --> Entry
   Mercari --> Ext
-  Ext -->|clone_data or url| Web
-  Web -->|/api/mercari /api/image-proxy| API
+  Entry -->|mercari_url| Web
+  Ext -->|clone_data| Web
+  Web --> Svc
+  Svc -->|/api/mercari /api/image-proxy| API
   API --> Mercari
 ```
+
+クローンデータの取得は `FurimoraCloneService`（`public/index.html` 内、UI 非依存）に集約されている。
+UI と、将来の MCP サーバー / ローカルエージェント（`window.furimora.api`）は同じ実装を呼ぶ。
+Chrome 拡張は廃止せず、デスクトップの人間用導線として残す。
+導線の役割分担は [clone-entrypoints.md](clone-entrypoints.md) を参照。
 
 ## ルート直下（設定・デプロイ）
 
