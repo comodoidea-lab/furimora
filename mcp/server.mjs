@@ -244,6 +244,22 @@ server.registerTool(
   }
 );
 
+/**
+ * フリモーラのバックアップ JSON から「フリモーラの下書き」を取り出す。
+ *
+ * 下書きは PWA の localStorage（キー `furimora_drafts`）にあり、
+ * MCP サーバー（Node）からは直接読めない。バックアップ JSON 経由で受け渡す。
+ * これは在庫データ（furimora_items）と同じ制約・同じ回避策。
+ */
+function draftsFromBackupFile(filePath) {
+  const root = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const raw = root?.data?.furimora_drafts;
+  if (raw == null) throw new Error('バックアップに furimora_drafts が含まれていません');
+  const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (!Array.isArray(drafts)) throw new Error('furimora_drafts が配列ではありません');
+  return drafts;
+}
+
 /** フリモーラのバックアップ JSON から在庫アイテム配列を取り出す */
 function itemsFromBackupFile(filePath) {
   const root = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -367,6 +383,130 @@ server.registerTool(
 );
 
 server.registerTool(
+  'furimora_list_drafts',
+  {
+    title: 'フリモーラの下書き一覧',
+    description:
+      'フリモーラ（PWA）のクローン機能で作った下書きの一覧を返す（読み取りのみ）。' +
+      '下書きは localStorage にあるため、設定画面の「バックアップをダウンロード」で保存した JSON 経由で渡す。' +
+      'ここで選んだ下書きを mercari_prepare_draft_from_furimora_draft に渡すのが、メルカリの下書きを作る正規の順序。',
+    inputSchema: {
+      backup_path: z.string().describe('フリモーラのバックアップ JSON のパス'),
+    },
+  },
+  async ({ backup_path }) => {
+    try {
+      const drafts = draftsFromBackupFile(backup_path);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            count: drafts.length,
+            drafts: drafts.map((d, index) => ({
+              index, id: d.id ?? null, title: d.title ?? null, price: d.price ?? null,
+              category: d.category ?? null, condition: d.condition ?? null,
+              shippingMethod: d.shippingMethod ?? null,
+              sourceUrl: d.url ?? null, createdAt: d.createdAt ?? null,
+              imageCount: Array.isArray(d.images) ? d.images.length : 0,
+            })),
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [BACKUP] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+server.registerTool(
+  'mercari_prepare_draft_from_furimora_draft',
+  {
+    title: 'フリモーラの下書きから下ごしらえする',
+    description:
+      'フリモーラの下書きを 1 件選び、mercari_create_draft に渡せる引数を組み立てる（読み取りのみ。何も保存しない）。' +
+      '**これがメルカリの下書きを作る正規の順序。** ' +
+      'フリモーラ側で確認・修正を済ませてからメルカリへ流すことで、誤りをメルカリに触る前に直せる。' +
+      'カテゴリーは出品ツリーで解決し、商品の状態はラベルを 1〜6 に対応づける。' +
+      '解決できなかった項目と、人間が確定させるべき項目は needsHuman に列挙する。',
+    inputSchema: {
+      backup_path: z.string().describe('フリモーラのバックアップ JSON のパス'),
+      draft_id: z.union([z.number(), z.string()]).optional()
+        .describe('下書きの id。index と どちらか一方を指定する'),
+      index: z.number().int().min(0).optional()
+        .describe('furimora_list_drafts が返した index。draft_id と どちらか一方を指定する'),
+    },
+  },
+  async ({ backup_path, draft_id, index }) => {
+    try {
+      const drafts = draftsFromBackupFile(backup_path);
+      let d = null;
+      if (draft_id != null) d = drafts.find((x) => String(x.id) === String(draft_id)) || null;
+      else if (index != null) d = drafts[index] ?? null;
+      else {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [BAD_PARAMS] draft_id か index のどちらかが必要です' }] };
+      }
+      if (!d) {
+        return { isError: true, content: [{ type: 'text', text: `エラー [DRAFT_NOT_FOUND] 下書きが見つかりません（${drafts.length} 件中）` }] };
+      }
+
+      const price = Number(String(d.price ?? '').replace(/[^\d]/g, '')) || null;
+      const categoryNames = parseCategoryPath(d.category);
+      const conditionNumber = conditionFromLabel(d.condition);
+
+      const resolved = categoryNames.length
+        ? await withMercari(async (mercari) => {
+            const login = await mercari.checkLogin();
+            if (!login.loggedIn) return { needsLogin: true };
+            return mercari.resolveCategory(categoryNames);
+          })
+        : { ok: false, code: 'NO_CATEGORY', message: 'この下書きにカテゴリーがありません' };
+      if (resolved.needsLogin) {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }] };
+      }
+
+      const needsHuman = [];
+      if (!resolved.ok) needsHuman.push(`カテゴリー（${resolved.message}）`);
+      if (conditionNumber == null) needsHuman.push(`商品の状態の番号（「${d.condition ?? ''}」を 1〜6 に対応づけられませんでした）`);
+      if (price == null) needsHuman.push('価格（下書きに価格が入っていません）');
+      needsHuman.push('商品の状態（実物を見て決める。写真から判定しない）');
+      needsHuman.push('画像（image_paths にローカルのファイルパスを渡す。下書きの画像URLは使えない）');
+      needsHuman.push(`配送の方法（下書きは「${d.shippingMethod ?? '未設定'}」。実物のサイズと重さで判断し直すこと）`);
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            source: {
+              furimoraDraftId: d.id ?? null, title: d.title ?? null,
+              category: d.category ?? null, condition: d.condition ?? null,
+              shippingMethod: d.shippingMethod ?? null, shippingDays: d.shippingDays ?? null,
+              sourceUrl: d.url ?? null, createdAt: d.createdAt ?? null,
+            },
+            draftInput: {
+              title: d.title ?? null,
+              description: d.description ?? null,
+              price,
+              category_path: resolved.ok ? resolved.categoryPath : null,
+              condition: conditionNumber,
+              image_paths: [],
+              shipping_method: d.shippingMethod ?? null,
+            },
+            categoryResolution: resolved,
+            conditionMapping: { label: d.condition ?? null, number: conditionNumber, labels: SELECTORS.sell.conditionLabels },
+            needsHuman,
+            note: 'これは下ごしらえです。**この時点ではメルカリ側に何も作られていません。** ' +
+                  '発送日数はメルカリ側の既定（1~2日で発送）のままになる。下書きの値はコピーしない ' +
+                  '（複製元自体が間違っていることがあるため）。',
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [PREPARE] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+server.registerTool(
   'mercari_resolve_category',
   {
     title: 'カテゴリーの経路を出品ツリーで解決',
@@ -405,7 +545,9 @@ server.registerTool(
   {
     title: '商品URLから下書きの下ごしらえをする',
     description:
-      '既存の商品URLから、mercari_create_draft にそのまま渡せる引数の下書きを作る（読み取りのみ。何も保存しない）。' +
+      '既存の商品URLから下書きの引数を組み立てる（読み取りのみ。何も保存しない）。' +
+      '**正規の順序はフリモーラの下書きを経由する mercari_prepare_draft_from_furimora_draft。** ' +
+      'こちらはフリモーラ側での確認を挟まないため、内容の確認をより慎重に行うこと。' +
       'クローン元の category を出品ツリーで解決し、condition のラベルを 1〜6 の番号へ対応づける。' +
       '**解決できなかった項目と、人間が確定させるべき項目を needsHuman に列挙して返す。** ' +
       '価格・商品の状態・画像は、返ってきた値をそのまま使わず必ず人間が確定させること。',
@@ -439,6 +581,7 @@ server.registerTool(
         '価格（クローン元の価格をそのまま使わない。最低価格と利益を見て決める）',
         '商品の状態（写真から判定しない。実物を見て決める。生成時は悪い側に寄せる）',
         '画像（image_paths にローカルのファイルパスを渡す。取得元の画像URLは使えない）',
+        `配送の方法（複製元は「${d.shippingMethod ?? '不明'}」。実物のサイズと重さで判断し直すこと）`,
       ];
       if (!resolved.ok) needsHuman.unshift(`カテゴリー（${resolved.message}）`);
       if (conditionNumber == null) needsHuman.unshift(`商品の状態の番号（「${d.condition ?? ''}」を 1〜6 に対応づけられませんでした）`);
@@ -459,12 +602,15 @@ server.registerTool(
               category_path: resolved.ok ? resolved.categoryPath : null,
               condition: conditionNumber,
               image_paths: [],
+              shipping_method: d.shippingMethod ?? null,
             },
             categoryResolution: resolved,
             conditionMapping: { label: d.condition ?? null, number: conditionNumber, labels: SELECTORS.sell.conditionLabels },
             needsHuman,
             note: 'これは下ごしらえです。**この時点ではメルカリ側に何も作られていません。** ' +
-                  'price と condition と image_paths を人間が確定させてから mercari_create_draft を呼んでください。',
+                  'price と condition と image_paths と shipping_method を人間が確定させてから ' +
+                  'mercari_create_draft を呼んでください。**複製元の値をそのまま使わないこと**' +
+                  '（複製元自体が間違っていることがある。実測で発送日数が誤っていた例がある）。',
           }, null, 2),
         }],
       };
@@ -495,11 +641,13 @@ server.registerTool(
         .describe('商品の状態。1=新品、未使用 / 2=未使用に近い / 3=目立った傷や汚れなし / 4=やや傷や汚れあり / 5=傷や汚れあり / 6=全体的に状態が悪い。**大きいほど状態が悪い。推測せず人間が決めた値を渡すこと**'),
       image_paths: z.array(z.string()).default([])
         .describe('画像のローカルファイルパス。省略可（画像なしでも下書きは保存できる）'),
+      shipping_method: z.string().optional()
+        .describe('配送の方法（例: "らくらくメルカリ便"）。省略するとメルカリ側の既定（ゆうゆうメルカリ便）のままになる。一致しない場合は候補を返す'),
       dry_run: z.boolean().default(true)
         .describe('true（既定）は確認のみで何も保存しない。実際に下書きを作る場合だけ false を指定する'),
     },
   },
-  async ({ title, description, price, category_path, condition, image_paths, dry_run }) => {
+  async ({ title, description, price, category_path, condition, image_paths, shipping_method, dry_run }) => {
     try {
       const r = await withMercari(async (mercari) => {
         const login = await mercari.checkLogin();
@@ -508,6 +656,7 @@ server.registerTool(
           title, description, price,
           categoryPath: category_path, condition,
           imagePaths: image_paths ?? [],
+          shippingMethod: shipping_method ?? null,
           dryRun: dry_run !== false,
         });
       });

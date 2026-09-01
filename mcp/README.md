@@ -58,8 +58,10 @@ FURIMORA_API_ORIGIN=http://localhost:3000 node mcp/server.mjs
 | `mercari_get_my_listings` | `tab`, `max_items` | 自分の出品一覧を取得（読み取りのみ） |
 | `furimora_reconcile_listings` | `backup_path` or `app_items` | 在庫とメルカリの出品を突き合わせてズレを検出 |
 | `mercari_update_price` | `item_id`, `new_price`, `dry_run`, `min_price` | 出品 1 件の価格を変更（**既定は確認のみ**） |
+| `furimora_list_drafts` | `backup_path` | フリモーラの下書き一覧（読み取りのみ） |
+| `mercari_prepare_draft_from_furimora_draft` | `backup_path`, `draft_id` or `index` | **正規の順序。** フリモーラの下書きから引数を下ごしらえする |
 | `mercari_resolve_category` | `category` | カテゴリーの経路が出品ツリーに実在するか調べる（読み取りのみ） |
-| `mercari_prepare_draft_from_item` | `url` | 商品URLから下書きの引数を下ごしらえする（読み取りのみ） |
+| `mercari_prepare_draft_from_item` | `url` | 商品URLから直接下ごしらえする（フリモーラ側の確認を挟まない） |
 | `mercari_create_draft` | `title`, `description`, `price`, `category_path`, `condition`, `image_paths`, `dry_run` | メルカリの**下書き**を 1 件作る（**既定は確認のみ。出品はしない**） |
 
 `url` は共有文のまま渡してよい（`merc.li` 短縮URLも可）。サーバー側で URL 部分を抽出する。
@@ -146,7 +148,42 @@ mercari_create_draft({ ..., dry_run:false })
 配送の方法・発送元・発送日数は**メルカリ側の既定値のまま**にする（配送の方法には既定で
 「ゆうゆうメルカリ便」が入っている）。変更が要る場合は保存後に人間が直す。
 
-### クローン元の商品から下ごしらえする
+### 正規の順序はフリモーラの下書きを経由する
+
+```
+① フリモーラの下書き   クローン機能で作り、フリモーラ側で確認・修正する
+② メルカリの下書き     ← mercari_create_draft のゴール。まだ誰にも見えない
+③ 出品する             人間が押す
+```
+
+**確認をメルカリ側でなくフリモーラ側で行うのは、修正のしやすさのため。**
+①を飛ばすと、誤りに気づくのがメルカリに書き込んだ後になる
+（実際に配送の方法が既定のまま保存された事例がある）。
+
+```
+furimora_list_drafts({ backup_path })
+  → 下書き一覧から 1 件選ぶ
+mercari_prepare_draft_from_furimora_draft({ backup_path, draft_id })
+  → draftInput + needsHuman
+mercari_create_draft({ ...draftInput, image_paths, dry_run:false })
+```
+
+#### 下書きの受け渡しはバックアップ JSON 経由
+
+フリモーラの下書きは PWA の **localStorage（`furimora_drafts`）** にあり、
+MCP サーバー（Node）からは直接読めない。設定画面の「バックアップをダウンロード」で
+保存した JSON を `backup_path` で渡す。
+
+**これは在庫データ（`furimora_items`）とまったく同じ制約・同じ回避策。**
+機能を足すたびに同じ手渡しが増えるため、Electron 化（フェーズ0）の判断材料になる。
+
+#### 下書きの値をそのまま使わない
+
+`needsHuman` に価格・商品の状態・画像・配送の方法を必ず載せる。
+**複製元の下書き自体が間違っていることがある**（実測: 発送日数が「2~3日」だったが、
+実際の運用は「1~2日」だった）。発送日数はメルカリ側の既定のままにしており、コピーしない。
+
+### 商品URLから直接下ごしらえする（フリモーラ側の確認を挟まない）
 
 既存の商品URLから `mercari_create_draft` の引数を組み立てるには `mercari_prepare_draft_from_item` を使う。
 **読み取りのみで、メルカリ側には何も作らない。**
@@ -176,6 +213,45 @@ mercari_create_draft({ ...draftInput, price, condition, image_paths })
 mercari_resolve_category({ category: 'ファッション > レディース > トップス' })
   → CATEGORY_PATH_TOO_SHORT + 候補（シャツ・ブラウス / Tシャツ・カットソー / …）
 ```
+
+#### 配送の方法
+
+`shipping_method` に名前を渡すと選択する（例: `"らくらくメルカリ便"`）。
+省略するとメルカリ側の既定（**ゆうゆうメルカリ便**）のままになる。
+
+選択肢は `input[type=radio][name="selectedShippingMethod"]`。
+**ラジオを選ぶだけでは反映されない。「更新する」を押して初めてフォームへ戻る**
+（押さずに戻ると元の配送方法のまま。実測で踏んだ）。
+一致する選択肢が無ければ**推測せず**候補を返す。
+
+```
+らくらくメルカリ便 / ゆうゆうメルカリ便 / 梱包・発送たのメル便
+```
+
+ゆうメール・レターパック等は「その他」（`shipping-service-trigger-button`）の奥にあり、
+まだ対応していない。発送元・発送日数もメルカリ側の既定のままで、変更する口は用意していない。
+
+#### 画像を渡すと AI 出品サポートのウィザードが始まる
+
+**画像を渡すとモーダルが開き、`body` が `position:fixed` になる。**
+閉じないとフォームの要素は「outside of the viewport」で一切押せない。実測の段:
+
+```
+① image-upload-step（出品画像の並べ替え）        → 「次へ」
+② category-select-step（こちらのカテゴリーですか？）→ 「スキップ」
+```
+
+②は AI がカテゴリーを推測してくる画面。**採らずにスキップする**
+（カテゴリーは下書きから確定しており、推測で決めてはいけないため）。
+**未知の段に当たったら押さずに中断する。**
+
+ほかに画像まわりで踏んだもの:
+
+- 画像の行は DnD の都合で DOM に**二重に現れる**。枚数は testid の一意な数で数える
+- 画像を載せるとフォームが縦に伸び、Playwright の自動スクロールだけでは押せない要素が出る。
+  `clickInForm()` が押す前に必ず画面内へスクロールする
+- 複製元の説明文は **CRLF** のことがあるが `textarea` は LF に正規化する。
+  入力側を LF に揃えないと読み直しの照合が必ず食い違う
 
 #### カテゴリーによっては /sell/wizard が挟まる
 

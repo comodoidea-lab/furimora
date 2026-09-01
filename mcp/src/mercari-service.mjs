@@ -69,6 +69,32 @@ export const SELECTORS = {
     submitListing: '[data-testid="list-item-button"]',
 
     /**
+     * 画像を渡すと開くモーダル（写真の並べ替え・削除の画面）。
+     * 行はドラッグ&ドロップの都合で DOM に二重に現れるため、枚数は testid の一意な数で数える。
+     * **開いている間 body が position:fixed になり、後ろのフォームは一切押せない。**
+     * 「次へ」（stepper-next-button）で閉じるまで、フォームの操作は成立しない。
+     * 実測: 実写真 6 枚で必ず開いた。画像を渡さない場合は開かない。
+     */
+    imageListItem: '[data-testid^="image-list-item-"]',
+
+    /**
+     * 画像を渡すと始まる AI 出品サポートのウィザード。**複数ステップある。**
+     * 実測（実写真 6 枚）:
+     *   ① image-upload-step（出品画像の並べ替え）      → 「次へ」
+     *   ② category-select-step（こちらのカテゴリーですか？）→ 「スキップ」
+     * ②はカテゴリーを AI に推測させる画面。**採らずにスキップする。**
+     * カテゴリーは複製元から確定しており、推測で決めてはいけないため。
+     */
+    aiWizard: {
+      modal: '.merModal',
+      scrim: '[data-testid="merModalBaseScrim"]',
+      modalButton: '.merModal button',
+      imageStep: '[data-testid="image-upload-step"]',
+      stepperNext: '[data-testid="stepper-next-button"]',
+      skipLabel: 'スキップ',
+    },
+
+    /**
      * AI 出品サポートのトグル。既定は ON。
      * 写真から商品名・説明文・価格を**自動で書き込む**ため、こちらの入力と衝突しうる。
      * 画像アップロード後に値が上書きされていないか必ず読み直して確認すること。
@@ -114,12 +140,21 @@ export const SELECTORS = {
     },
 
     /**
-     * 配送の方法（/sell/shipping_methods）。
-     * **既定で「ゆうゆうメルカリ便」が入っている**ため、複製ケースでは触らずに済む。
-     * 変更が要る場合の入口は下記。選択肢は素の select ではなくボタン群。
+     * 配送の方法（/sell/shipping_methods）。**既定は「ゆうゆうメルカリ便」。**
+     *
+     * 選択肢は `input[type=radio][name="selectedShippingMethod"]` で、
+     * ラベルは行のテキスト（例:「らくらくメルカリ便匿名追跡補償」）。実測の値:
+     *   14 = らくらくメルカリ便 / 17 = ゆうゆうメルカリ便 / 16 = 梱包・発送たのメル便
+     * **値は決め打ちにしない。** 毎回ページから読んでラベルで突き合わせる。
+     *
+     * **ラジオを選ぶだけでは反映されない。「更新する」を押す必要がある**
+     * （押さずに戻ると元の配送方法のままになる。実測で踏んだ）。
+     * ゆうメール・レターパック等は `shippingServiceTrigger` の奥にあり、未対応。
      */
     shippingServiceGroup: '[data-testid="shipping-service-group"]',
     shippingServiceTrigger: '[data-testid="shipping-service-trigger-button"]',
+    shippingMethodRadio: 'input[type=radio][name="selectedShippingMethod"]',
+    shippingMethodSubmitLabel: '更新する',
 
     /**
      * カテゴリー確定後に**後から生える**要素。確定前には存在しない。
@@ -440,6 +475,131 @@ export class MercariService {
   }
 
   /**
+   * 画像を渡すと始まる AI 出品サポートのウィザードを閉じ、出品フォームへ戻る。
+   *
+   * **画像を渡すとモーダルが開き、body が position:fixed になる。**
+   * 閉じないとフォームの要素は「outside of the viewport」で一切押せない
+   * （実写真 6 枚で再現した。画像を渡さない場合はウィザード自体が出ない）。
+   *
+   * 出品画像の段は「次へ」、AI がカテゴリーを推測してくる段は「スキップ」で抜ける。
+   * **AI の推測は採らない。** 未知の段に当たったら押さずに中断する（勝手に進めない）。
+   *
+   * @returns {Promise<{closed:boolean, steps:number, images:number, skipped:number, unknownStep:string[]|null}>}
+   */
+  async dismissAiListingWizard({ maxSteps = 8, timeoutMs = 90000 } = {}) {
+    const S = SELECTORS.sell;
+    const readState = () => this.browser.evaluate((sel) => {
+      const w = sel.aiWizard;
+      const buttons = [...document.querySelectorAll(w.modalButton)].map((b) => (b.textContent || '').trim());
+      return {
+        modal: !!document.querySelector(w.modal),
+        scrim: !!document.querySelector(w.scrim),
+        bodyFixed: getComputedStyle(document.body).position === 'fixed',
+        imageStep: !!document.querySelector(w.imageStep),
+        hasSkip: buttons.includes(w.skipLabel),
+        hasNext: (() => { const b = document.querySelector(w.stepperNext); return !!b && !b.disabled; })(),
+        images: new Set([...document.querySelectorAll(sel.imageListItem)]
+          .map((e) => e.getAttribute('data-testid'))).size,
+        stepIds: [...new Set([...document.querySelectorAll(`${w.modal} [data-testid]`)]
+          .map((e) => e.getAttribute('data-testid')))].filter((t) => t && /-step$/.test(t)),
+      };
+    }, S);
+
+    let steps = 0, skipped = 0, images = 0, unknownStep = null;
+    const deadline = Date.now() + timeoutMs;
+    while (steps < maxSteps && Date.now() < deadline) {
+      const st = await readState();
+      if (st.images > images) images = st.images;
+      if (!st.modal && !st.scrim && !st.bodyFixed) {
+        return { closed: true, steps, images, skipped, unknownStep: null };
+      }
+      if (st.imageStep && st.hasNext) {
+        await this.browser.click(S.aiWizard.stepperNext);
+      } else if (st.hasSkip) {
+        await this.browser.clickFirstWithText(S.aiWizard.modalButton, S.aiWizard.skipLabel);
+        skipped++;
+      } else {
+        // 知らない段。勝手に進めない
+        unknownStep = st.stepIds;
+        break;
+      }
+      steps++;
+      await this.browser.waitForTimeout(4000);
+    }
+
+    const st = await readState();
+    return {
+      closed: !st.modal && !st.scrim && !st.bodyFixed,
+      steps, images: Math.max(images, st.images), skipped, unknownStep,
+    };
+  }
+
+  /**
+   * 配送の方法を選ぶ。**呼び出し前に出品フォーム（/sell/create）を開いておくこと。**
+   *
+   * ラジオを選ぶだけでは反映されず、「更新する」を押して初めてフォームへ戻る。
+   * 一致する選択肢が無ければ**推測せず**候補を返す。
+   *
+   * @param {string} methodName 例: 'らくらくメルカリ便'
+   */
+  async setShippingMethod(methodName) {
+    const S = SELECTORS.sell;
+    const want = String(methodName || '').replace(/\s+/g, '').trim();
+    if (!want) return { ok: false, code: 'BAD_SHIPPING_METHOD', message: '配送の方法が空です' };
+
+    await this.clickInForm(`${S.shippingMethodPicker} ${S.pickerLink}`);
+    await this.browser.waitForTimeout(3500);
+
+    const options = await this.browser.evaluate((sel) => [...document.querySelectorAll(sel)].map((r) => ({
+      value: r.value,
+      label: ((r.closest('label') || r.closest('li') || r.parentElement)?.textContent || '')
+        .replace(/\s+/g, '').trim(),
+      checked: r.checked,
+    })), S.shippingMethodRadio);
+
+    const hit = options.find((o) => o.label.startsWith(want));
+    if (!hit) {
+      return { ok: false, code: 'SHIPPING_METHOD_NOT_FOUND',
+        message: `配送の方法「${methodName}」が見つかりません`,
+        candidates: options.map((o) => o.label),
+        note: 'ゆうメール・レターパック等は「その他」の奥にあり、まだ対応していません' };
+    }
+
+    if (!hit.checked) {
+      await this.browser.evaluate((arg) => {
+        const r = [...document.querySelectorAll(arg.sel)].find((x) => x.value === arg.value);
+        if (r) (r.closest('label') || r.parentElement).click();
+      }, { sel: S.shippingMethodRadio, value: hit.value });
+      await this.browser.waitForTimeout(1500);
+    }
+
+    // 「更新する」を押さないと反映されない
+    await this.browser.clickFirstWithText('button', S.shippingMethodSubmitLabel);
+    await this.browser.waitForTimeout(5000);
+
+    const applied = await this.browser.evaluate(
+      (sel) => (document.querySelector(sel)?.textContent || '').replace(/\s+/g, ' ').trim(),
+      S.shippingMethodPicker);
+    if (!applied.replace(/\s+/g, '').includes(want)) {
+      return { ok: false, code: 'SHIPPING_METHOD_NOT_APPLIED',
+        message: `「${methodName}」を選びましたが反映されませんでした（実際の表示:「${applied}」）` };
+    }
+    return { ok: true, shippingMethod: methodName, applied, value: hit.value };
+  }
+
+  /**
+   * 出品フォーム上の要素を押す。押す前に必ず画面内へスクロールする。
+   *
+   * 画像を複数枚載せるとフォームが縦に伸び、Playwright の自動スクロールだけでは
+   * 「element is outside of the viewport」で押せなくなる（実写真 6 枚で再現した）。
+   */
+  async clickInForm(selector, { timeout = 30000 } = {}) {
+    await this.browser.scrollIntoView(selector);
+    await this.browser.waitForTimeout(300);
+    return this.browser.click(selector, { timeout });
+  }
+
+  /**
    * 末端カテゴリーを選んだあと /sell/wizard に飛んだ場合、出品画面へ戻る。
    * wizard は製品情報を入力させる**任意**の導線で、素通りしてよい
    * （カテゴリー自体はこの時点で確定している）。飛んでいなければ何もしない。
@@ -536,7 +696,7 @@ export class MercariService {
       return { ok: false, code: 'SELL_FORM_UNAVAILABLE', message: '出品フォームを開けませんでした（ログイン切れの可能性）' };
     }
     await this.browser.waitForTimeout(2000);
-    await this.browser.click(`${SELECTORS.sell.categoryPicker} ${SELECTORS.sell.pickerLink}`);
+    await this.clickInForm(`${SELECTORS.sell.categoryPicker} ${SELECTORS.sell.pickerLink}`);
     await this.browser.waitForTimeout(2500);
     const r = await this.walkCategoryTree(names);
     if (!r.ok) return { ...r, input: names };
@@ -576,12 +736,17 @@ export class MercariService {
    *   （例: ['ファッション','レディース','トップス','シャツ・ブラウス','半袖']）
    * @param {number} p.condition 商品の状態 1〜6。**大きいほど状態が悪い。呼び出し側が必ず明示する**
    * @param {string[]} [p.imagePaths] 画像のローカルパス。省略可（画像なしでも下書きは保存できる）
+   * @param {string|null} [p.shippingMethod] 配送の方法（例: 'らくらくメルカリ便'）。
+   *   省略するとメルカリ側の既定（ゆうゆうメルカリ便）のままになる
    * @param {boolean} [p.dryRun=true] false のときだけ実際に保存する
    */
-  async createDraft({ title, description, price, categoryPath, condition, imagePaths = [], dryRun = true }) {
+  async createDraft({ title, description, price, categoryPath, condition, imagePaths = [],
+    shippingMethod = null, dryRun = true }) {
     // ── 入力の検証。ここを抜けるまでブラウザを触らない ──
-    const name = String(title ?? '').trim();
-    const desc = String(description ?? '').trim();
+    const name = String(title ?? '').replace(/\r\n?/g, '\n').trim();
+    // 複製元の説明文は CRLF のことがあるが、textarea は LF に正規化する。
+    // 入力側を LF に揃えておかないと、読み直しの照合が必ず食い違う（実データで踏んだ）。
+    const desc = String(description ?? '').replace(/\r\n?/g, '\n').trim();
     if (!name) return { ok: false, code: 'BAD_TITLE', message: '商品名が空です' };
     if (!desc) return { ok: false, code: 'BAD_DESCRIPTION', message: '商品説明が空です' };
 
@@ -623,9 +788,24 @@ export class MercariService {
 
     // 画像は先に入れる。AI 出品サポートが ON だと写真から商品名・説明文・価格を
     // 上書きすることがあるため、**このあとに入力し、入力後に必ず読み直す**。
+    let imageStep = null;
     if (images.length) {
       await this.browser.setInputFiles(S.photoUpload, images);
       await this.browser.waitForTimeout(2000 + 2000 * images.length);
+      // 画像を渡すと AI 出品サポートのウィザードが始まる。閉じないとフォームは一切押せない
+      imageStep = await this.dismissAiListingWizard();
+      if (!imageStep.closed) {
+        return { ok: false, code: 'IMAGE_STEP_STUCK',
+          message: imageStep.unknownStep
+            ? `画像のウィザードで未知の段に当たりました（${imageStep.unknownStep.join(', ') || '不明'}）。勝手に進めず中断しました。何も保存していません。`
+            : `画像のウィザードを閉じられませんでした（進めた段数 ${imageStep.steps}）。何も保存していません。`,
+          imageStep };
+      }
+      if (imageStep.images !== images.length) {
+        return { ok: false, code: 'IMAGE_COUNT_MISMATCH',
+          message: `渡した画像 ${images.length} 枚に対し、フォームが認識したのは ${imageStep.images} 枚でした。何も保存していません。`,
+          imageStep };
+      }
     }
 
     // 文字数の上限はページから読む（こちらで決め打ちにしない）
@@ -647,7 +827,7 @@ export class MercariService {
     await this.browser.fill(S.price, String(yen));
 
     // ── カテゴリー。中間はリンク、末端はボタン ──
-    await this.browser.click(`${S.categoryPicker} ${S.pickerLink}`);
+    await this.clickInForm(`${S.categoryPicker} ${S.pickerLink}`);
     await this.browser.waitForTimeout(2500);
     const walked = await this.walkCategoryTree(path);
     if (!walked.ok) return walked;
@@ -659,10 +839,20 @@ export class MercariService {
     }
 
     // ── 商品の状態 ──
-    await this.browser.click(`${S.conditionPicker} ${S.pickerLink}`);
+    await this.clickInForm(`${S.conditionPicker} ${S.pickerLink}`);
     await this.browser.waitForTimeout(2500);
     await this.browser.click(conditionRow(cond));
     await this.browser.waitForTimeout(4000);
+
+    // ── 配送の方法。指定が無ければメルカリ側の既定のままにする ──
+    let shippingResult = null;
+    if (shippingMethod) {
+      shippingResult = await this.setShippingMethod(shippingMethod);
+      if (!shippingResult.ok) {
+        return { ok: false, code: shippingResult.code, message: shippingResult.message,
+          candidates: shippingResult.candidates, note: shippingResult.note };
+      }
+    }
 
     // ── 入力結果を読み直す。AI サポートによる上書きもここで検出する ──
     const state = await this.browser.evaluate((sel) => {
@@ -688,6 +878,7 @@ export class MercariService {
     if (state.price !== yen) mismatches.push(`価格（期待 ${yen} / 実際 ${state.price}）`);
     if (!state.categoryText.includes(path[path.length - 1])) mismatches.push(`カテゴリー（実際「${state.categoryText}」）`);
     if (!state.conditionText.includes(SELECTORS.sell.conditionLabels[cond])) mismatches.push(`商品の状態（実際「${state.conditionText}」）`);
+    if (shippingMethod && !state.shippingText.includes(shippingMethod)) mismatches.push(`配送の方法（実際「${state.shippingText}」）`);
     if (mismatches.length) {
       return { ok: false, code: 'FILL_FAILED',
         message: `入力内容が一致しません: ${mismatches.join(' / ')}。保存せずに中断しました。`,
@@ -705,10 +896,14 @@ export class MercariService {
       conditionLabel: SELECTORS.sell.conditionLabels[cond],
       conditionApplied: state.conditionText,
       shipping: state.shippingText,
+      shippingMethodRequested: shippingMethod,
       imageCount: images.length,
+      imageStep,
       dynamicAttributes: state.dynamicAttributes,
       aiAssistOn: state.aiAssistOn,
-      note: '配送の方法・発送元・発送日数はメルカリ側の既定値のままです。変更が要る場合は保存後に人間が直してください。',
+      note: shippingMethod
+        ? '発送元・発送日数はメルカリ側の既定値のままです。変更が要る場合は保存後に人間が直してください。'
+        : '配送の方法・発送元・発送日数はメルカリ側の既定値のままです。変更が要る場合は shipping_method を指定するか、保存後に人間が直してください。',
     };
 
     if (dryRun) {
@@ -717,7 +912,7 @@ export class MercariService {
     }
 
     // ── ここから実際の保存。dryRun:false のときだけ到達する ──
-    await this.browser.click(S.saveDraft);
+    await this.clickInForm(S.saveDraft);
     await this.browser.waitForTimeout(7000);
 
     // 下書き一覧から自分の下書きを見つける（新しい順ではなく商品名で特定する）

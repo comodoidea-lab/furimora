@@ -9,6 +9,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { BrowserService } from './src/browser-service.mjs';
 import { MercariService, SELL_URLS, SELECTORS, parseCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
@@ -116,6 +118,66 @@ console.log('\n── 商品URLからの下ごしらえ（読み取りのみ）�
     (j.needsHuman || []).length >= 3
       ? pass('人間が確定させる項目を列挙する', `${j.needsHuman.length} 件`) : fail('needsHuman', JSON.stringify(j.needsHuman));
   } else if (r) { fail('下ごしらえ', text(r).slice(0, 140)); }
+}
+
+console.log('\n── フリモーラの下書きからの下ごしらえ（読み取りのみ）──');
+// 下書きは PWA の localStorage にあるため、バックアップ JSON 経由で渡す。
+// バックアップは localStorage の生文字列を格納する形式（実装に合わせた合成データ）。
+const FIXTURE = path.join(os.tmpdir(), `furimora-check-drafts-${process.pid}.json`);
+fs.writeFileSync(FIXTURE, JSON.stringify({
+  format: 'furimora-backup', v: 1,
+  data: {
+    furimora_drafts: JSON.stringify([
+      {
+        id: 1, title: 'リバー・ランズ・スルー・イット [DVD]', description: '説明文\r\n改行はCRLF',
+        price: '2780', category: 'CD・DVD・ブルーレイ > DVD > 洋画・外国映画',
+        condition: '目立った傷や汚れなし', shippingMethod: 'らくらくメルカリ便',
+        shippingDays: '2~3日で発送', url: 'https://jp.mercari.com/item/m51632833579',
+      },
+      {
+        id: 2, title: 'カテゴリーが末端まで無い下書き', description: '説明', price: '1500',
+        category: 'ファッション > レディース > トップス', condition: '謎の状態',
+      },
+    ]),
+  },
+}));
+try {
+  {
+    const r = await client.callTool({ name: 'furimora_list_drafts', arguments: { backup_path: FIXTURE } });
+    const j = JSON.parse(text(r));
+    j.count === 2 && j.drafts[0].shippingMethod === 'らくらくメルカリ便'
+      ? pass('バックアップから下書きを読める', `${j.count} 件`) : fail('下書き一覧', text(r).slice(0, 140));
+  }
+  {
+    const r = await client.callTool({ name: 'mercari_prepare_draft_from_furimora_draft', arguments: { backup_path: FIXTURE, draft_id: 1 } });
+    const j = JSON.parse(text(r));
+    JSON.stringify(j.draftInput?.category_path) === JSON.stringify(['CD・DVD・ブルーレイ', 'DVD', '洋画・外国映画'])
+      ? pass('下書きのカテゴリーを解決できる', j.draftInput.category_path.join(' > ')) : fail('カテゴリー解決', text(r).slice(0, 140));
+    j.draftInput?.condition === 3 && j.draftInput?.price === 2780 && j.draftInput?.shipping_method === 'らくらくメルカリ便'
+      ? pass('状態・価格・配送の方法を引き継げる', `condition=3 / ¥2780 / らくらくメルカリ便`) : fail('引き継ぎ', JSON.stringify(j.draftInput));
+    (j.needsHuman || []).some((x) => /配送の方法/.test(x))
+      ? pass('配送の方法も人間の確認対象に載せる', '下書きの値をそのまま使わせない') : fail('needsHuman', JSON.stringify(j.needsHuman));
+  }
+  {
+    const r = await client.callTool({ name: 'mercari_prepare_draft_from_furimora_draft', arguments: { backup_path: FIXTURE, index: 1 } });
+    const j = JSON.parse(text(r));
+    j.categoryResolution?.code === 'CATEGORY_PATH_TOO_SHORT' && j.draftInput?.condition === null
+      ? pass('解決できない下書きは埋めずに返す', 'カテゴリーは候補つき / 状態は null')
+      : fail('未解決の扱い', text(r).slice(0, 140));
+  }
+  {
+    const r = await client.callTool({ name: 'mercari_prepare_draft_from_furimora_draft', arguments: { backup_path: FIXTURE } });
+    r?.isError ? pass('draft_id も index も無い場合を拒否', text(r).slice(0, 50)) : fail('引数の欠落', text(r).slice(0, 80));
+  }
+} finally {
+  fs.rmSync(FIXTURE, { force: true });
+}
+
+console.log('\n── 配送の方法のガード ──');
+{
+  const { r } = await call({ ...BASE, shipping_method: 'クロネコ便' });
+  r?.isError && /SHIPPING_METHOD_NOT_FOUND/.test(text(r))
+    ? pass('存在しない配送の方法を拒否', text(r).slice(0, 80)) : fail('配送の方法のガード', text(r).slice(0, 140));
 }
 
 console.log('\n── 確認モード（dry_run 省略）──');
