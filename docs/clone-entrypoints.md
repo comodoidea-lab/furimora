@@ -35,7 +35,7 @@ MCP ツールは引数を取るので、`mercari_get_item({url})` のように U
 
 | 環境 | 主導線 | 実装 |
 |---|---|---|
-| デスクトップ（メルカリのページ上） | **Chrome 拡張** | `chrome-extension/` |
+| デスクトップ（メルカリのページ上） | **ブラウザ拡張** | `chrome-extension/` |
 | デスクトップ（アプリ側） | URL 貼り付け / クリップボード自動検知 | `fetchCloneData()` / `checkClipboardForMercari()` |
 | Android | OS 共有・Share Target / クリップボード自動検知 | `manifest.json` の `share_target` / `checkClipboardForMercari()` |
 | iOS | 明示ペースト（ボタン → 長押しペースト → 自動取得） | `pasteAndFetch()` / `onCloneUrlPaste()` |
@@ -45,6 +45,38 @@ MCP ツールは引数を取るので、`mercari_get_item({url})` のように U
 登録できない。`navigator.clipboard.readText()` は毎回システムの「ペースト」許可 UI を出すので、
 自動検知も意図的に無効にしている（`navigate()` 内の `if (!isIOSDevice())`）。
 iOS で共有シートから 1 タップにするには、ショートカット App かネイティブ化（Share Extension）が要る。
+
+## 拡張はどこから読み込まれているか（2026-09-01 実測）
+
+**Chrome ではなく Vivaldi で、リポジトリのフォルダを未パッケージのまま読んでいる。**
+
+```
+~/Library/Application Support/Vivaldi/Profile 1
+  → /Users/tomoya/GitHub/furimora/chrome-extension
+```
+
+つまり `chrome-extension/` を編集すれば、そのまま本人の日常の導線に反映される
+（コピーでも zip でもない）。**反映には `vivaldi://extensions` でリロードが必要。**
+
+ディレクトリ名と manifest の形式は Chrome 拡張のものだが、実際に動いているのは Vivaldi。
+ドキュメントでは「ブラウザ拡張」と呼ぶ。
+
+紛らわしいもの:
+
+- `/Users/tomoya/GitHub/furimoraのコピー/chrome-extension/` — 読み込まれていない
+- `chrome-extension/furimora-chrome-extension.zip` — 配布用。読み込まれていない
+- Chrome（`~/Library/Application Support/Google/Chrome`）には**入っていない**
+
+### パンくずの二重取得（2026-09-01 に修正）
+
+メルカリの商品ページは**パンくずを 2 回描画する**（同じ `href` の組が 2 つ）。
+旧い抽出は両方を拾っており、カテゴリーが `A > B > C > A > B > C` になっていた。
+実データのバックアップ 2 本で、**フリモーラの下書きが全件（50/50・50/50）この崩れ方**を
+していた（在庫データは `category` にパンくずを使っていないため無傷）。
+
+`content.js` は `/search?category_id=N` のリンクだけを `category_id` で重複排除して拾うよう
+修正済み。**拡張をリロードするまで新規クローンは壊れたままになる。**
+保存済みの下書きは MCP 側の `normalizeCategoryPath()` が読み取り時に直す。
 
 ## 拡張と URL 経路のデータ同等性（2026-09-01 実測・5 商品）
 
