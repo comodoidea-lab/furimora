@@ -20,7 +20,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import * as z from 'zod/v4';
 import { createCloneService, createInternalApi } from '../public/js/clone-service.js';
 import { BrowserService, DEFAULT_PROFILE_DIR } from './src/browser-service.mjs';
-import { MercariService, LISTING_TABS } from './src/mercari-service.mjs';
+import { MercariService, LISTING_TABS, SELECTORS, parseCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
 import { reconcileListings } from '../public/js/reconcile.js';
 import fs from 'node:fs';
 
@@ -362,6 +362,114 @@ server.registerTool(
       return { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] };
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+server.registerTool(
+  'mercari_resolve_category',
+  {
+    title: 'カテゴリーの経路を出品ツリーで解決',
+    description:
+      'カテゴリーの経路が、メルカリの出品フォームのカテゴリーツリーに実在するかを調べる（読み取りのみ。何も保存しない）。' +
+      'mercari_create_clone_data が返す category（"A > B > C" 形式）をそのまま渡してよい。' +
+      '末端まで届けば ok。届かない・見つからない場合は、その階層の候補を返す。' +
+      '**末端を推測して勝手に選ぶことはしない。** 候補から選ぶのは人間の役割。',
+    inputSchema: {
+      category: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)])
+        .describe('"ゲーム・おもちゃ・グッズ > キャラクターグッズ > その他" のような文字列、または名前の配列'),
+    },
+  },
+  async ({ category }) => {
+    try {
+      const r = await withMercari(async (mercari) => {
+        const login = await mercari.checkLogin();
+        if (!login.loggedIn) return { needsLogin: true };
+        return mercari.resolveCategory(category);
+      });
+      if (r.needsLogin) {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }] };
+      }
+      if (!r.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+server.registerTool(
+  'mercari_prepare_draft_from_item',
+  {
+    title: '商品URLから下書きの下ごしらえをする',
+    description:
+      '既存の商品URLから、mercari_create_draft にそのまま渡せる引数の下書きを作る（読み取りのみ。何も保存しない）。' +
+      'クローン元の category を出品ツリーで解決し、condition のラベルを 1〜6 の番号へ対応づける。' +
+      '**解決できなかった項目と、人間が確定させるべき項目を needsHuman に列挙して返す。** ' +
+      '価格・商品の状態・画像は、返ってきた値をそのまま使わず必ず人間が確定させること。',
+    inputSchema: {
+      url: URL_ARG,
+    },
+  },
+  async ({ url }) => {
+    try {
+      const got = await api.call('mercari.createCloneData', { url });
+      if (!got || got.ok !== true) {
+        return { isError: true, content: [{ type: 'text', text: `エラー [${got?.code || 'UNKNOWN'}] ${got?.message || '商品情報を取得できませんでした'}` }] };
+      }
+      const d = got.data || {};
+      const categoryNames = parseCategoryPath(d.category);
+      const conditionNumber = conditionFromLabel(d.condition);
+
+      const resolved = categoryNames.length
+        ? await withMercari(async (mercari) => {
+            const login = await mercari.checkLogin();
+            if (!login.loggedIn) return { needsLogin: true };
+            return mercari.resolveCategory(categoryNames);
+          })
+        : { ok: false, code: 'NO_CATEGORY', message: '取得元にカテゴリーがありません' };
+
+      if (resolved.needsLogin) {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }] };
+      }
+
+      const needsHuman = [
+        '価格（クローン元の価格をそのまま使わない。最低価格と利益を見て決める）',
+        '商品の状態（写真から判定しない。実物を見て決める。生成時は悪い側に寄せる）',
+        '画像（image_paths にローカルのファイルパスを渡す。取得元の画像URLは使えない）',
+      ];
+      if (!resolved.ok) needsHuman.unshift(`カテゴリー（${resolved.message}）`);
+      if (conditionNumber == null) needsHuman.unshift(`商品の状態の番号（「${d.condition ?? ''}」を 1〜6 に対応づけられませんでした）`);
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            source: {
+              url: d.url, itemId: d.itemId, title: d.title,
+              currentPrice: d.currentPrice, category: d.category, condition: d.condition,
+              shippingMethod: d.shippingMethod, imageCount: Array.isArray(d.images) ? d.images.length : 0,
+            },
+            draftInput: {
+              title: d.title ?? null,
+              description: d.description ?? null,
+              price: null,
+              category_path: resolved.ok ? resolved.categoryPath : null,
+              condition: conditionNumber,
+              image_paths: [],
+            },
+            categoryResolution: resolved,
+            conditionMapping: { label: d.condition ?? null, number: conditionNumber, labels: SELECTORS.sell.conditionLabels },
+            needsHuman,
+            note: 'これは下ごしらえです。**この時点ではメルカリ側に何も作られていません。** ' +
+                  'price と condition と image_paths を人間が確定させてから mercari_create_draft を呼んでください。',
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [PREPARE] ${String((e && e.message) || e)}` }] };
     }
   }
 );

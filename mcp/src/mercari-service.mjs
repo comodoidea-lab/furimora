@@ -94,6 +94,17 @@ export const SELECTORS = {
     categorySelected: '[data-testid="sell-category"]',
 
     /**
+     * カテゴリーによっては末端を選んだあと /sell/wizard へ飛ぶ。
+     * 「購入者にあなたの商品を見つけやすくしませんか？」という**任意**の製品情報入力の導線で、
+     * 「出品画面に戻る」で素通りできる。カテゴリー自体はこの時点で確定している。
+     * 実測: ゲーム・おもちゃ・グッズ > キャラクターグッズ > その他 で発生。
+     */
+    wizardPath: '/sell/wizard',
+    wizardBackToListing: '[data-testid="back-to-listing-button"]',
+    /** 製品情報の入力へ進むボタン。任意なので押さない */
+    wizardNext: '[data-testid="move-to-next-screen-button"]',
+
+    /**
      * 商品の状態（/sell/conditions）。testid 付きの <a> で 6 択。
      * 番号が大きいほど状態が悪い。**生成時の既定は保守的な側（大きい番号）にする。**
      */
@@ -148,6 +159,27 @@ export const SELECTORS = {
  * **そのため SELECTORS の値は必ず直列化可能なもの（文字列・数値・素のオブジェクト）に限る。**
  * 組み立てが要るセレクタは関数にせず、ここに置く。
  */
+
+/**
+ * クローン元の category（"A > B > C"）を名前の配列にする。
+ * 全角の ＞ と半角の > の両方を区切りとして扱う。
+ */
+export function parseCategoryPath(s) {
+  return String(s || '').split(/[>＞]/).map((x) => x.trim()).filter(Boolean);
+}
+
+/**
+ * クローン元の condition（"新品、未使用" 等）を 1〜6 の番号にする。
+ * 一致しなければ null を返す。**推測で埋めないこと。**
+ */
+export function conditionFromLabel(label) {
+  const want = String(label || '').replace(/\s+/g, '').trim();
+  if (!want) return null;
+  for (const [n, l] of Object.entries(SELECTORS.sell.conditionLabels)) {
+    if (l.replace(/\s+/g, '') === want) return Number(n);
+  }
+  return null;
+}
 
 /** カテゴリー中間階層のリンク（/sell/categories?category_id=N） */
 export function categoryBranchLink(categoryId) {
@@ -408,6 +440,124 @@ export class MercariService {
   }
 
   /**
+   * 末端カテゴリーを選んだあと /sell/wizard に飛んだ場合、出品画面へ戻る。
+   * wizard は製品情報を入力させる**任意**の導線で、素通りしてよい
+   * （カテゴリー自体はこの時点で確定している）。飛んでいなければ何もしない。
+   */
+  async skipSellWizard() {
+    const S = SELECTORS.sell;
+    if (!(await this.browser.getCurrentUrl()).includes(S.wizardPath)) return false;
+    await this.browser.click(S.wizardBackToListing);
+    await this.browser.waitForTimeout(5000);
+    return true;
+  }
+
+  /**
+   * カテゴリー選択ページ（/sell/categories）のツリーを名前でたどる。
+   * **呼び出し前に /sell/categories を開いておくこと**（出品フォームからピッカーを踏んだ直後）。
+   *
+   * **推測はしない。** 名前が一致しなければ、その階層の候補を返して呼び出し側に決めさせる。
+   * 末端に届かない場合も同じ（末端を勝手に選ばない）。
+   * クローン元の商品ページの経路は大分類から始まる（実測: "ゲーム・おもちゃ・グッズ > … "）ので
+   * そのまま渡してよいが、階層数が足りなければ CATEGORY_PATH_TOO_SHORT と候補が返る。
+   *
+   * @param {string[]} names 大分類から末端までの名前
+   */
+  async walkCategoryTree(names) {
+    const S = SELECTORS.sell;
+    const norm = (t) => String(t || '').replace(/\s+/g, '').trim();
+    const readLevel = () => this.browser.evaluate((sel) => {
+      const n = (t) => (t || '').replace(/\s+/g, '').trim();
+      return {
+        url: location.href,
+        branches: [...document.querySelectorAll('main a')]
+          .map((a) => ({ href: a.getAttribute('href') || '', text: n(a.textContent) }))
+          .filter((a) => /category_id=/.test(a.href)),
+        leaves: [...document.querySelectorAll(sel.categoryLeafButton)]
+          .map((b, index) => ({ index, text: n(b.textContent) })),
+      };
+    }, S);
+
+    const taken = [];
+    for (let i = 0; i < names.length; i++) {
+      const want = norm(names[i]);
+      const level = await readLevel();
+      const branch = level.branches.find((b) => b.text === want);
+      const leaf = level.leaves.find((b) => b.text === want);
+      const candidates = level.branches.concat(level.leaves).map((x) => x.text);
+
+      if (!branch && !leaf) {
+        return { ok: false, code: 'CATEGORY_NOT_FOUND',
+          message: `階層 ${taken.length + 1} に「${names[i]}」が見つかりません`,
+          resolvedSoFar: taken, candidates };
+      }
+      if (leaf) {
+        await this.browser.clickNth(S.categoryLeafButton, leaf.index);
+        await this.browser.waitForTimeout(4000);
+        await this.skipSellWizard();
+        taken.push(names[i]);
+        if (i !== names.length - 1) {
+          return { ok: false, code: 'CATEGORY_PATH_TOO_LONG',
+            message: `「${names[i]}」が末端でした。経路の残り（${names.slice(i + 1).join(' > ')}）は指定できません`,
+            resolvedSoFar: taken };
+        }
+        return { ok: true, path: taken };
+      }
+      const id = new URL(branch.href, ORIGIN).searchParams.get('category_id');
+      await this.browser.click(categoryBranchLink(id));
+      await this.browser.waitForTimeout(2500);
+      taken.push(names[i]);
+    }
+
+    // 名前を使い切ったのに末端へ届いていない
+    const level = await readLevel();
+    return { ok: false, code: 'CATEGORY_PATH_TOO_SHORT',
+      message: `「${names[names.length - 1]}」はまだ末端ではありません。さらに下の階層まで指定してください`,
+      resolvedSoFar: taken,
+      candidates: level.branches.concat(level.leaves).map((x) => x.text) };
+  }
+
+  /**
+   * カテゴリーの経路が出品フォームのツリーに実在するかを調べる（読み取りのみ）。
+   * 末端まで届けば ok:true、届かなければその地点の候補を返す。
+   * クローン元の `category`（"A > B > C" 形式）をそのまま渡してよい。
+   */
+  async resolveCategory(categoryPathOrString) {
+    const names = Array.isArray(categoryPathOrString)
+      ? categoryPathOrString.map((x) => String(x).trim()).filter(Boolean)
+      : parseCategoryPath(categoryPathOrString);
+    if (!names.length) {
+      return { ok: false, code: 'BAD_CATEGORY_PATH', message: 'カテゴリーが空です' };
+    }
+    await this.browser.openPage(SELL_URLS.create);
+    try {
+      await this.browser.waitForSelector(SELECTORS.sell.categoryPicker, { timeout: 30000 });
+    } catch {
+      return { ok: false, code: 'SELL_FORM_UNAVAILABLE', message: '出品フォームを開けませんでした（ログイン切れの可能性）' };
+    }
+    await this.browser.waitForTimeout(2000);
+    await this.browser.click(`${SELECTORS.sell.categoryPicker} ${SELECTORS.sell.pickerLink}`);
+    await this.browser.waitForTimeout(2500);
+    const r = await this.walkCategoryTree(names);
+    if (!r.ok) return { ...r, input: names };
+    // 選択直後は描画が終わっていないことがある。反映されるまで待って読み直す
+    const leafName = r.path[r.path.length - 1];
+    let applied = '';
+    for (let i = 0; i < 20; i++) {
+      applied = await this.browser.evaluate(
+        (sel) => (document.querySelector(sel.categoryPicker)?.textContent || '').replace(/\s+/g, ' ').trim(),
+        SELECTORS.sell);
+      if (applied.includes(leafName)) break;
+      await this.browser.waitForTimeout(500);
+    }
+    if (!applied.includes(leafName)) {
+      return { ok: false, code: 'CATEGORY_NOT_APPLIED', input: names, categoryPath: r.path,
+        message: `「${r.path.join(' > ')}」を選びましたが、フォームに反映されませんでした（実際の表示:「${applied}」）` };
+    }
+    return { ok: true, input: names, categoryPath: r.path, categoryApplied: applied };
+  }
+
+  /**
    * メルカリの「下書き」を作る。**出品はしない。**
    *
    * **dryRun の既定は true。省略時は絶対に保存しない。**
@@ -499,43 +649,8 @@ export class MercariService {
     // ── カテゴリー。中間はリンク、末端はボタン ──
     await this.browser.click(`${S.categoryPicker} ${S.pickerLink}`);
     await this.browser.waitForTimeout(2500);
-    for (let i = 0; i < path.length; i++) {
-      const step = path[i];
-      const level = await this.browser.evaluate((sel) => {
-        const norm = (t) => (t || '').replace(/\s+/g, '').trim();
-        const branches = [...document.querySelectorAll('main a')]
-          .map((a) => ({ href: a.getAttribute('href') || '', text: norm(a.textContent) }))
-          .filter((a) => /category_id=/.test(a.href));
-        const leaves = [...document.querySelectorAll(sel.categoryLeafButton)]
-          .map((b, idx) => ({ index: idx, text: norm(b.textContent) }));
-        return { url: location.href, branches, leaves };
-      }, S);
-
-      const want = step.replace(/\s+/g, '');
-      const branch = level.branches.find((b) => b.text === want);
-      const leaf = level.leaves.find((b) => b.text === want);
-
-      if (branch && i < path.length - 1) {
-        await this.browser.click(categoryBranchLink(new URL(branch.href, ORIGIN).searchParams.get('category_id')));
-        await this.browser.waitForTimeout(2500);
-        continue;
-      }
-      if (leaf) {
-        await this.browser.clickNth(S.categoryLeafButton, leaf.index);
-        await this.browser.waitForTimeout(4000);
-        if (i !== path.length - 1) {
-          return { ok: false, code: 'CATEGORY_PATH_TOO_LONG',
-            message: `「${step}」が末端でした。経路の残り（${path.slice(i + 1).join(' > ')}）は指定できません` };
-        }
-        break;
-      }
-      if (branch) {
-        return { ok: false, code: 'CATEGORY_PATH_TOO_SHORT',
-          message: `「${step}」はまだ末端ではありません。さらに下の階層まで指定してください（候補: ${level.branches.concat(level.leaves).map((x) => x.text).slice(0, 20).join(' / ')}）` };
-      }
-      return { ok: false, code: 'CATEGORY_NOT_FOUND',
-        message: `階層 ${i + 1} に「${step}」が見つかりません（候補: ${level.branches.concat(level.leaves).map((x) => x.text).slice(0, 30).join(' / ')}）` };
-    }
+    const walked = await this.walkCategoryTree(path);
+    if (!walked.ok) return walked;
 
     const backOnForm = /\/sell\/create/.test(await this.browser.getCurrentUrl());
     if (!backOnForm) {

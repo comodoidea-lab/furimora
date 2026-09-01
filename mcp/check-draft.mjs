@@ -11,7 +11,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserService } from './src/browser-service.mjs';
-import { MercariService, SELL_URLS, SELECTORS } from './src/mercari-service.mjs';
+import { MercariService, SELL_URLS, SELECTORS, parseCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(HERE, 'server.mjs')], stderr: 'ignore' });
@@ -68,6 +68,54 @@ console.log('\n── 実行時のガード ──');
 {
   const { r } = await call({ ...BASE, category_path: ['ファッション', 'レディース'] });
   r?.isError && /CATEGORY_PATH_TOO_SHORT/.test(text(r)) ? pass('末端まで届かない経路を拒否', text(r).slice(0, 70)) : fail('末端まで届かない経路', text(r).slice(0, 100));
+}
+
+console.log('\n── クローン元との接続（純粋関数）──');
+JSON.stringify(parseCategoryPath('ゲーム・おもちゃ・グッズ > キャラクターグッズ > その他')) === JSON.stringify(['ゲーム・おもちゃ・グッズ', 'キャラクターグッズ', 'その他'])
+  ? pass('category 文字列を配列にできる') : fail('parseCategoryPath');
+JSON.stringify(parseCategoryPath('A ＞ B')) === JSON.stringify(['A', 'B'])
+  ? pass('全角の＞も区切りとして扱う') : fail('parseCategoryPath 全角');
+conditionFromLabel('新品、未使用') === 1 && conditionFromLabel('全体的に状態が悪い') === 6
+  ? pass('状態ラベルを番号に対応づけられる', '新品、未使用=1 / 全体的に状態が悪い=6') : fail('conditionFromLabel');
+conditionFromLabel('謎の状態') === null && conditionFromLabel('') === null
+  ? pass('対応づけられないラベルは null', '推測で埋めない') : fail('conditionFromLabel の未一致');
+
+console.log('\n── カテゴリーの解決（読み取りのみ）──');
+const resolve = async (category) => {
+  try { return await client.callTool({ name: 'mercari_resolve_category', arguments: { category } }); }
+  catch (e) { return { thrown: String((e && e.message) || e) }; }
+};
+{
+  const r = await resolve('ゲーム・おもちゃ・グッズ > キャラクターグッズ > その他');
+  const j = JSON.parse(text(r));
+  j.ok === true && j.categoryApplied?.includes('その他')
+    ? pass('クローン元の経路をそのまま解決できる', j.categoryPath.join(' > ')) : fail('カテゴリー解決', text(r).slice(0, 140));
+}
+{
+  const r = await resolve('ファッション > レディース > トップス');
+  const j = JSON.parse(text(r));
+  j.ok === false && j.code === 'CATEGORY_PATH_TOO_SHORT' && (j.candidates || []).length > 0
+    ? pass('末端に届かない経路は候補を返す', `候補 ${j.candidates.length} 件: ${j.candidates.slice(0, 3).join(' / ')}…`)
+    : fail('末端に届かない経路', text(r).slice(0, 140));
+}
+
+console.log('\n── 商品URLからの下ごしらえ（読み取りのみ）──');
+{
+  const url = process.env.CHECK_ITEM_URL || 'https://jp.mercari.com/item/m15031621353';
+  let r;
+  try { r = await client.callTool({ name: 'mercari_prepare_draft_from_item', arguments: { url } }); }
+  catch (e) { r = null; fail('下ごしらえの呼び出し', String((e && e.message) || e)); }
+  if (r && !r.isError) {
+    const j = JSON.parse(text(r));
+    Array.isArray(j.draftInput?.category_path) && j.draftInput.category_path.length >= 2
+      ? pass('category_path を組み立てられる', j.draftInput.category_path.join(' > ')) : fail('category_path', text(r).slice(0, 140));
+    Number.isInteger(j.draftInput?.condition)
+      ? pass('condition を番号に対応づけられる', `${j.conditionMapping.label} → ${j.draftInput.condition}`) : fail('condition の対応づけ', JSON.stringify(j.conditionMapping));
+    j.draftInput?.price === null
+      ? pass('価格は空のまま返す', 'クローン元の価格を勝手に使わない') : fail('価格', JSON.stringify(j.draftInput?.price));
+    (j.needsHuman || []).length >= 3
+      ? pass('人間が確定させる項目を列挙する', `${j.needsHuman.length} 件`) : fail('needsHuman', JSON.stringify(j.needsHuman));
+  } else if (r) { fail('下ごしらえ', text(r).slice(0, 140)); }
 }
 
 console.log('\n── 確認モード（dry_run 省略）──');

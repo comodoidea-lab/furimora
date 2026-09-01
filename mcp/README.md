@@ -58,6 +58,8 @@ FURIMORA_API_ORIGIN=http://localhost:3000 node mcp/server.mjs
 | `mercari_get_my_listings` | `tab`, `max_items` | 自分の出品一覧を取得（読み取りのみ） |
 | `furimora_reconcile_listings` | `backup_path` or `app_items` | 在庫とメルカリの出品を突き合わせてズレを検出 |
 | `mercari_update_price` | `item_id`, `new_price`, `dry_run`, `min_price` | 出品 1 件の価格を変更（**既定は確認のみ**） |
+| `mercari_resolve_category` | `category` | カテゴリーの経路が出品ツリーに実在するか調べる（読み取りのみ） |
+| `mercari_prepare_draft_from_item` | `url` | 商品URLから下書きの引数を下ごしらえする（読み取りのみ） |
 | `mercari_create_draft` | `title`, `description`, `price`, `category_path`, `condition`, `image_paths`, `dry_run` | メルカリの**下書き**を 1 件作る（**既定は確認のみ。出品はしない**） |
 
 `url` は共有文のまま渡してよい（`merc.li` 短縮URLも可）。サーバー側で URL 部分を抽出する。
@@ -143,6 +145,45 @@ mercari_create_draft({ ..., dry_run:false })
 
 配送の方法・発送元・発送日数は**メルカリ側の既定値のまま**にする（配送の方法には既定で
 「ゆうゆうメルカリ便」が入っている）。変更が要る場合は保存後に人間が直す。
+
+### クローン元の商品から下ごしらえする
+
+既存の商品URLから `mercari_create_draft` の引数を組み立てるには `mercari_prepare_draft_from_item` を使う。
+**読み取りのみで、メルカリ側には何も作らない。**
+
+```
+mercari_prepare_draft_from_item({ url })
+  → draftInput（title / description / category_path / condition）
+  → needsHuman（人間が確定させる項目）
+mercari_create_draft({ ...draftInput, price, condition, image_paths })
+```
+
+やっていること:
+
+| 変換 | 内容 |
+|---|---|
+| `category`（`"A > B > C"`） | 出品ツリーを実際にたどって末端まで解決し、`category_path` にする |
+| `condition`（`"新品、未使用"`） | 1〜6 の番号に対応づける。一致しなければ `null` |
+
+**`price` は必ず `null` で返す。** クローン元の価格をそのまま使わせないため。
+`condition` も対応づけはするが `needsHuman` に必ず載せる（実物を見て決めるもの）。
+画像は取得元の URL では渡せない（`image_paths` はローカルのファイルパス）。
+
+カテゴリーの経路だけを試したい場合は `mercari_resolve_category` を使う。
+末端に届かない場合はその階層の候補を返す。**末端を推測して勝手に選ぶことはしない。**
+
+```
+mercari_resolve_category({ category: 'ファッション > レディース > トップス' })
+  → CATEGORY_PATH_TOO_SHORT + 候補（シャツ・ブラウス / Tシャツ・カットソー / …）
+```
+
+#### カテゴリーによっては /sell/wizard が挟まる
+
+末端を選んだあと「購入者にあなたの商品を見つけやすくしませんか？」という
+製品情報入力の画面（`/sell/wizard`）へ飛ぶことがある（実測: ゲーム・おもちゃ・グッズ >
+キャラクターグッズ > その他）。これは**任意**の導線で、`back-to-listing-button`
+（出品画面に戻る）で素通りできる。カテゴリー自体はこの時点で確定している。
+`skipSellWizard()` が自動でこれを処理する。**製品情報の入力へは進まない。**
 
 ### 安全側の設計
 
