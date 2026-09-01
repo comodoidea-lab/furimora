@@ -53,10 +53,47 @@ FURIMORA_API_ORIGIN=http://localhost:3000 node mcp/server.mjs
 | `mercari_create_clone_data` | `url` | クローン出品用のデータ一式を組み立て、充足度を返す |
 | `mercari_extract_url` | `text` | 共有文・クリップボードの中身から商品URLだけを抽出 |
 | `furimora_status` | — | バックエンド（`/api/health`）への疎通確認 |
+| `mercari_check_login` | — | 専用プロファイルがメルカリにログイン済みかを確認 |
+| `mercari_login` | `wait_seconds` | ログイン用のブラウザを開く（入力は人間が行う） |
+| `mercari_get_my_listings` | `tab`, `max_items` | 自分の出品一覧を取得（読み取りのみ） |
 
 `url` は共有文のまま渡してよい（`merc.li` 短縮URLも可）。サーバー側で URL 部分を抽出する。
 
-**閲覧のみ。** 出品・価格変更・アカウント操作は行わない。メルカリへのログインもしない。
+**閲覧のみ。** 出品・価格変更・削除は行わない。
+
+## 自分の出品一覧（要ログイン）
+
+`mercari_get_my_listings` はフリモーラ専用の Chrome プロファイル
+（`~/.furimora/chrome-profile`）を起動して mypage を読む。**普段使っている Chrome には触れない。**
+
+```
+mercari_check_login        → 未ログインなら loggedIn:false
+mercari_login              → ブラウザが開くので人間が一度ログインする（2段階認証も人間が通す）
+mercari_get_my_listings    → 以降はセッションが再利用される
+```
+
+`tab` は `active`=出品中 / `in_progress`=取引中 / `sold`=売却済み / `history`=販売履歴。
+
+注意: メルカリ側のルート名が直感と食い違っている（実機確認済み）。
+`/mypage/listings/completed` が「売却済み」、`/mypage/listings/sold` が「販売履歴」。
+この対応は `src/mercari-service.mjs` の `LISTING_TABS` に集約してある。
+
+### 取得の速さ（2026-09-01 実測）
+
+初回 50 件が 1 ページに描画され、「もっと見る」1 クリックで +30 件・約 1.0 秒。
+商品詳細ページを 1 件ずつ開く方式ではないので、300 件でも 10 秒程度で済む見込み。
+
+`truncated: true` が返った場合は上限で打ち切っている（`max_items` を上げる）。
+
+### DOM 依存について
+
+メルカリ固有のセレクタと抽出ロジックは `src/mercari-service.mjs` **だけ**に置いている。
+UI 変更で壊れたときは原則このファイルだけを直す。実機で確認した癖:
+
+- 行は `<a href="/item/...">` ではない。商品 ID は要素の属性値（遅延読み込み画像の src 等）に埋まっている
+- `innerText` は非表示要素で空になるため `textContent` を使う
+- 行の `textContent` は連結される（`¥1,9802日前に更新`）ので、価格と更新日はテキストノード単位で拾う
+- 価格は `¥` と数字が別テキストノードに分かれることがある
 
 ## 動作確認
 
