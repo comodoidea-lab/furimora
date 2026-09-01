@@ -42,6 +42,38 @@ export const SELECTORS = {
   editSalesProfit: '[data-testid="sales-profit"]',
   /** 触れてはいけないボタン。誤操作防止のため名前だけ記録する（コードからは押さない） */
   dangerousButtons: ['[data-testid="delete-button"]', '[data-testid="suspend-button"]'],
+
+  // ── 出品フォーム（/sell/create）── 2026-09-01 読み取り調査。まだ未実装。
+  // 「下書きに保存する」が存在するため、出品せず下書きで止める設計が成立する。
+  sell: {
+    /** 画像アップロード。input[type=file] accept=image/* multiple。setInputFiles が使える */
+    photoUpload: '[data-testid="photo-upload"]',
+    title: 'input[name="name"]',
+    description: 'textarea[name="description"]',
+    price: '[data-testid="price-text-input"]',
+    /** ここは素の <select>。値をそのまま選べる */
+    shippingPayer: 'select[name="shippingPayer"]',
+    shippingFromArea: 'select[name="shippingFromArea"]',
+    shippingDuration: 'select[name="shippingDuration"]',
+    /** 下書き保存。フェーズ3のゴールはこのボタン */
+    saveDraft: '[data-testid="save-draft"]',
+    /** 出品実行。フェーズ4まで押さない */
+    submitListing: '[data-testid="list-item-button"]',
+    /**
+     * 未解決: カテゴリ・商品の状態・配送方法はセレクトではなくピッカー。
+     * いずれも href を持たない DIV で、コンテナをクリックしても開かなかった。
+     * 実際のクリック対象は内側の要素と思われる。要追加調査。
+     */
+    categoryPicker: '[data-testid="category-link"]',
+    conditionPicker: '[data-testid="item-condition"]',
+    shippingMethodPicker: '[data-testid="shipping-method-link"]',
+  },
+};
+
+/** 出品フォームの URL */
+export const SELL_URLS = {
+  create: `${ORIGIN}/sell/create`,
+  drafts: `${ORIGIN}/sell/drafts`,
 };
 
 /** メルカリの価格範囲 */

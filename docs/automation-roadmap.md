@@ -219,6 +219,30 @@ CDP の `Input.insertText` も未実装だった。Electron の Chromium は本�
 （状態を良く見積もる → 取引トラブル。発送方法を誤る → 送料超過で赤字、または発送不能）。
 生成時は**保守的な側（状態は悪め）を既定**にする。
 
+#### 出品フォームの調査結果（2026-09-01・読み取りのみ）
+
+`/sell` は出品ホーム。実フォームは **`/sell/create`**、下書き一覧は **`/sell/drafts`**。
+
+**`下書きに保存する`（`[data-testid="save-draft"]`）が存在することを確認した。**
+Web から下書きを作れるので、出品せず下書きで止める設計は成立する。
+
+素直に扱えるもの（セレクタは `mercari-service.mjs` の `SELECTORS.sell` に記録済み）:
+
+| 項目 | 要素 |
+|---|---|
+| 画像 | `[data-testid="photo-upload"]` — `input[type=file]` `accept=image/*` `multiple`。`setInputFiles` が使える |
+| タイトル | `input[name="name"]` |
+| 説明 | `textarea[name="description"]` |
+| 価格 | `[data-testid="price-text-input"]` |
+| 送料負担 / 発送元 / 発送日数 | 素の `<select>`（`shippingPayer` / `shippingFromArea` / `shippingDuration`） |
+
+**未解決**: カテゴリ・商品の状態・配送方法はセレクトではなく**ピッカー**。
+いずれも `href` を持たない DIV で、コンテナをクリックしても開かなかった。
+実際のクリック対象は内側の要素と思われる。**ここが 3-a の残りの山。**
+
+なお配送方法には既定値が入っていた（「ゆうゆうメルカリ便」）。
+アカウントの設定が引き継がれるなら、ピッカーを触らずに済むケースがあるかもしれない。
+
 #### 欠品の補充はここより簡単
 
 過去商品を参照して画像だけ差し替えるケースは、説明・カテゴリ・発送方法・価格が
