@@ -13,6 +13,8 @@
  *   /mypage/listings/completed = 「売却済み」   ← completed が売却済み
  *   /mypage/listings/sold      = 「販売履歴」
  */
+import fs from 'node:fs';
+
 export const LISTING_TABS = {
   active:      { path: '/mypage/listings',             label: '出品中' },
   in_progress: { path: '/mypage/listings/in_progress', label: '取引中' },
@@ -43,8 +45,14 @@ export const SELECTORS = {
   /** 触れてはいけないボタン。誤操作防止のため名前だけ記録する（コードからは押さない） */
   dangerousButtons: ['[data-testid="delete-button"]', '[data-testid="suspend-button"]'],
 
-  // ── 出品フォーム（/sell/create）── 2026-09-01 読み取り調査。まだ未実装。
+  // ── 出品フォーム（/sell/create）── 2026-09-01 実機調査。まだ未実装。
   // 「下書きに保存する」が存在するため、出品せず下書きで止める設計が成立する。
+  //
+  // 実機で確認した重要な性質:
+  //  - ピッカー（カテゴリー・商品の状態・配送の方法）は**モーダルではなく別ページ**。
+  //    コンテナの DIV は押せないが、その内側に本物の <a href> がある。
+  //  - ピッカーへ遷移してもフォームの入力は消えない（戻ると保持されている）。
+  //  - 自動保存は起きない。save-draft を押さない限り下書きは 1 件も作られない。
   sell: {
     /** 画像アップロード。input[type=file] accept=image/* multiple。setInputFiles が使える */
     photoUpload: '[data-testid="photo-upload"]',
@@ -59,22 +67,115 @@ export const SELECTORS = {
     saveDraft: '[data-testid="save-draft"]',
     /** 出品実行。フェーズ4まで押さない */
     submitListing: '[data-testid="list-item-button"]',
+
     /**
-     * 未解決: カテゴリ・商品の状態・配送方法はセレクトではなくピッカー。
-     * いずれも href を持たない DIV で、コンテナをクリックしても開かなかった。
-     * 実際のクリック対象は内側の要素と思われる。要追加調査。
+     * AI 出品サポートのトグル。既定は ON。
+     * 写真から商品名・説明文・価格を**自動で書き込む**ため、こちらの入力と衝突しうる。
+     * 画像アップロード後に値が上書きされていないか必ず読み直して確認すること。
      */
-    categoryPicker: '[data-testid="category-link"]',
-    conditionPicker: '[data-testid="item-condition"]',
-    shippingMethodPicker: '[data-testid="shipping-method-link"]',
+    aiListingToggle: '[data-testid="ai-listing-toggle"]',
+
+    // ── ピッカー3種。コンテナは押せない。内側の <a> を押して別ページへ遷移する ──
+    categoryPicker: '[data-testid="category-link"]',      // 内側 <a> → /sell/categories
+    conditionPicker: '[data-testid="item-condition"]',    // 内側 <a> → /sell/conditions
+    shippingMethodPicker: '[data-testid="shipping-method-link"]', // 内側 <a> → /sell/shipping_methods
+    pickerLink: 'a',                                      // 上記コンテナに対する子セレクタ
+
+    /**
+     * カテゴリー選択ページ（/sell/categories）。
+     *  - 中間の階層は <a href="/sell/categories?category_id=N">。href で降りられる
+     *  - **末端は merActionRow の中の <button>**。同じ文言の <a href="/sell/create"> も
+     *    並んでいるが、そちらを押しても選択は反映されない。必ず button を押すこと
+     *  - 1 つの階層に中間リンクと末端ボタンが混在することがある
+     *  - 選択後は /sell/create に戻り、ピッカーにフルパスが入る
+     *    （例: 「ファッション レディース トップス シャツ・ブラウス 半袖」）
+     */
+    categoryLeafButton: 'main .merActionRow button',
+    categorySelected: '[data-testid="sell-category"]',
+
+    /**
+     * 商品の状態（/sell/conditions）。testid 付きの <a> で 6 択。
+     * 番号が大きいほど状態が悪い。**生成時の既定は保守的な側（大きい番号）にする。**
+     */
+    conditionLabels: {
+      1: '新品、未使用', 2: '未使用に近い', 3: '目立った傷や汚れなし',
+      4: 'やや傷や汚れあり', 5: '傷や汚れあり', 6: '全体的に状態が悪い',
+    },
+
+    /**
+     * 配送の方法（/sell/shipping_methods）。
+     * **既定で「ゆうゆうメルカリ便」が入っている**ため、複製ケースでは触らずに済む。
+     * 変更が要る場合の入口は下記。選択肢は素の select ではなくボタン群。
+     */
+    shippingServiceGroup: '[data-testid="shipping-service-group"]',
+    shippingServiceTrigger: '[data-testid="shipping-service-trigger-button"]',
+
+    /**
+     * カテゴリー確定後に**後から生える**要素。確定前には存在しない。
+     *  - ブランド欄
+     *  - カテゴリー固有の属性セレクト（name="dynamicAttributes.<uuid>.[0]"）。
+     *    実測ではレディース>トップス>シャツ・ブラウス>半袖 で 6 本生えた。
+     *    下書き保存に必須かどうかは未確認。
+     */
+    brandLink: '[data-testid="brand-link"]',
+    attributeSelect: '[data-testid="attribute-select"]',
+    dynamicAttributeSelects: 'select[name^="dynamicAttributes."]',
+  },
+
+  // ── 下書き ── 2026-09-01 実データで保存まで確認（人間の承認のもと 1 件だけ作成）
+  //
+  // 確認できたこと:
+  //  - **画像なしでも下書きは保存できる**（一覧では NOIMAGE と表示される）
+  //  - **dynamicAttributes は 6 本すべて空でも保存できる。下書きには必須ではない**
+  //  - タイトル・説明・価格・カテゴリー（フルパス）・商品の状態・配送の方法はすべて保持される
+  //  - save-draft を押すと /mypage/drafts へ遷移する
+  draft: {
+    /** 下書き一覧。/sell/drafts は /mypage/drafts へ転送される */
+    listPath: '/mypage/drafts',
+    list: '[data-testid="draft-list"]',
+    listItem: '[data-testid="draft-item"]',
+    /** 各行のリンクは /sell/draft/<draftId>。ID の取り出しは parseDraftId() */
+    itemLink: 'a[href^="/sell/draft/"]',
+    /** 下書き編集ページ（/sell/draft/<draftId>）のボタン */
+    overwrite: '[data-testid="overwrite-draft"]',
+    /** 触れてはいけないボタン。下書きから出品してしまう。フェーズ4まで押さない */
+    dangerousButtons: ['[data-testid="list-draft-button"]', '[data-testid="delete-draft"]'],
   },
 };
+
+/**
+ * SELECTORS は `browser.evaluate(fn, SELECTORS)` でページへ丸ごと渡す。
+ * **そのため SELECTORS の値は必ず直列化可能なもの（文字列・数値・素のオブジェクト）に限る。**
+ * 組み立てが要るセレクタは関数にせず、ここに置く。
+ */
+
+/** カテゴリー中間階層のリンク（/sell/categories?category_id=N） */
+export function categoryBranchLink(categoryId) {
+  return `main a[href="/sell/categories?category_id=${categoryId}"]`;
+}
+
+/** 商品の状態の行。n は 1〜6。大きいほど状態が悪い */
+export function conditionRow(n) {
+  return `[data-testid="condition-${n}-row"]`;
+}
 
 /** 出品フォームの URL */
 export const SELL_URLS = {
   create: `${ORIGIN}/sell/create`,
-  drafts: `${ORIGIN}/sell/drafts`,
+  /** /sell/drafts は /mypage/drafts へ転送される */
+  drafts: `${ORIGIN}/mypage/drafts`,
 };
+
+/** 下書き一覧の行の href から下書き ID を取り出す。取れなければ null */
+export function parseDraftId(href) {
+  const m = String(href || '').match(/\/sell\/draft\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+/** 下書き編集ページ（保存済みの下書きを開き直す） */
+export function draftPageUrl(draftId) {
+  return `${ORIGIN}/sell/draft/${draftId}`;
+}
 
 /** メルカリの価格範囲 */
 export const PRICE_LIMITS = { min: 300, max: 9999999 };
@@ -304,6 +405,250 @@ export class MercariService {
         message: `変更後の価格が一致しません（期待 ¥${price} / 実際 ¥${after}）。メルカリ側で反映されていない可能性があります。` };
     }
     return { ok: true, applied: true, dryRun: false, plan, priceBefore: before.price, priceAfter: after };
+  }
+
+  /**
+   * メルカリの「下書き」を作る。**出品はしない。**
+   *
+   * **dryRun の既定は true。省略時は絶対に保存しない。**
+   * dryRun でもフォームへの入力とカテゴリー選択は実際に行う（メルカリ側には何も残らない。
+   * 自動保存が無いことは実データで確認済み）。つまり dryRun は「保存直前までの通し稽古」であり、
+   * カテゴリーの経路が実在するかどうかまで確かめられる。
+   *
+   * 1 回の呼び出しで作る下書きは 1 件だけ。
+   * 「出品する」（list-item-button / list-draft-button）にはコードから一切触れない。
+   *
+   * @param {object} p
+   * @param {string} p.title 商品名
+   * @param {string} p.description 商品説明
+   * @param {number} p.price 価格（整数）
+   * @param {string[]} p.categoryPath カテゴリーの経路。名前の配列
+   *   （例: ['ファッション','レディース','トップス','シャツ・ブラウス','半袖']）
+   * @param {number} p.condition 商品の状態 1〜6。**大きいほど状態が悪い。呼び出し側が必ず明示する**
+   * @param {string[]} [p.imagePaths] 画像のローカルパス。省略可（画像なしでも下書きは保存できる）
+   * @param {boolean} [p.dryRun=true] false のときだけ実際に保存する
+   */
+  async createDraft({ title, description, price, categoryPath, condition, imagePaths = [], dryRun = true }) {
+    // ── 入力の検証。ここを抜けるまでブラウザを触らない ──
+    const name = String(title ?? '').trim();
+    const desc = String(description ?? '').trim();
+    if (!name) return { ok: false, code: 'BAD_TITLE', message: '商品名が空です' };
+    if (!desc) return { ok: false, code: 'BAD_DESCRIPTION', message: '商品説明が空です' };
+
+    const yen = Number(price);
+    if (!Number.isInteger(yen)) return { ok: false, code: 'BAD_PRICE', message: '価格は整数で指定してください' };
+    if (yen < PRICE_LIMITS.min || yen > PRICE_LIMITS.max) {
+      return { ok: false, code: 'PRICE_OUT_OF_RANGE',
+        message: `価格は ${PRICE_LIMITS.min}〜${PRICE_LIMITS.max} の範囲で指定してください（指定: ${yen}）` };
+    }
+
+    const path = Array.isArray(categoryPath) ? categoryPath.map((x) => String(x).trim()).filter(Boolean) : [];
+    if (path.length < 2) {
+      return { ok: false, code: 'BAD_CATEGORY_PATH',
+        message: 'カテゴリーは大分類から末端までの経路を配列で指定してください（例: ["ファッション","レディース","トップス","シャツ・ブラウス","半袖"]）' };
+    }
+
+    const cond = Number(condition);
+    if (!Number.isInteger(cond) || cond < 1 || cond > 6) {
+      return { ok: false, code: 'BAD_CONDITION',
+        message: '商品の状態は 1〜6 で明示してください（大きいほど状態が悪い）。推測で決めてはいけません' };
+    }
+
+    const images = Array.isArray(imagePaths) ? imagePaths.map(String) : [];
+    const missing = images.filter((f) => !fs.existsSync(f));
+    if (missing.length) {
+      return { ok: false, code: 'IMAGE_NOT_FOUND', message: `画像が見つかりません: ${missing.join(', ')}` };
+    }
+
+    // ── 出品フォームを開く ──
+    const S = SELECTORS.sell;
+    await this.browser.openPage(SELL_URLS.create);
+    try {
+      await this.browser.waitForSelector(S.title, { timeout: 30000 });
+    } catch {
+      return { ok: false, code: 'SELL_FORM_UNAVAILABLE',
+        message: '出品フォームを開けませんでした（ログイン切れの可能性）' };
+    }
+    await this.browser.waitForTimeout(2500);
+
+    // 画像は先に入れる。AI 出品サポートが ON だと写真から商品名・説明文・価格を
+    // 上書きすることがあるため、**このあとに入力し、入力後に必ず読み直す**。
+    if (images.length) {
+      await this.browser.setInputFiles(S.photoUpload, images);
+      await this.browser.waitForTimeout(2000 + 2000 * images.length);
+    }
+
+    // 文字数の上限はページから読む（こちらで決め打ちにしない）
+    const limits = await this.browser.evaluate((sel) => ({
+      title: document.querySelector(sel.title)?.maxLength ?? -1,
+      description: document.querySelector(sel.description)?.maxLength ?? -1,
+    }), S);
+    if (limits.title > 0 && name.length > limits.title) {
+      return { ok: false, code: 'TITLE_TOO_LONG',
+        message: `商品名が長すぎます（${name.length} 文字 / 上限 ${limits.title} 文字）` };
+    }
+    if (limits.description > 0 && desc.length > limits.description) {
+      return { ok: false, code: 'DESCRIPTION_TOO_LONG',
+        message: `商品説明が長すぎます（${desc.length} 文字 / 上限 ${limits.description} 文字）` };
+    }
+
+    await this.browser.fill(S.title, name);
+    await this.browser.fill(S.description, desc);
+    await this.browser.fill(S.price, String(yen));
+
+    // ── カテゴリー。中間はリンク、末端はボタン ──
+    await this.browser.click(`${S.categoryPicker} ${S.pickerLink}`);
+    await this.browser.waitForTimeout(2500);
+    for (let i = 0; i < path.length; i++) {
+      const step = path[i];
+      const level = await this.browser.evaluate((sel) => {
+        const norm = (t) => (t || '').replace(/\s+/g, '').trim();
+        const branches = [...document.querySelectorAll('main a')]
+          .map((a) => ({ href: a.getAttribute('href') || '', text: norm(a.textContent) }))
+          .filter((a) => /category_id=/.test(a.href));
+        const leaves = [...document.querySelectorAll(sel.categoryLeafButton)]
+          .map((b, idx) => ({ index: idx, text: norm(b.textContent) }));
+        return { url: location.href, branches, leaves };
+      }, S);
+
+      const want = step.replace(/\s+/g, '');
+      const branch = level.branches.find((b) => b.text === want);
+      const leaf = level.leaves.find((b) => b.text === want);
+
+      if (branch && i < path.length - 1) {
+        await this.browser.click(categoryBranchLink(new URL(branch.href, ORIGIN).searchParams.get('category_id')));
+        await this.browser.waitForTimeout(2500);
+        continue;
+      }
+      if (leaf) {
+        await this.browser.clickNth(S.categoryLeafButton, leaf.index);
+        await this.browser.waitForTimeout(4000);
+        if (i !== path.length - 1) {
+          return { ok: false, code: 'CATEGORY_PATH_TOO_LONG',
+            message: `「${step}」が末端でした。経路の残り（${path.slice(i + 1).join(' > ')}）は指定できません` };
+        }
+        break;
+      }
+      if (branch) {
+        return { ok: false, code: 'CATEGORY_PATH_TOO_SHORT',
+          message: `「${step}」はまだ末端ではありません。さらに下の階層まで指定してください（候補: ${level.branches.concat(level.leaves).map((x) => x.text).slice(0, 20).join(' / ')}）` };
+      }
+      return { ok: false, code: 'CATEGORY_NOT_FOUND',
+        message: `階層 ${i + 1} に「${step}」が見つかりません（候補: ${level.branches.concat(level.leaves).map((x) => x.text).slice(0, 30).join(' / ')}）` };
+    }
+
+    const backOnForm = /\/sell\/create/.test(await this.browser.getCurrentUrl());
+    if (!backOnForm) {
+      return { ok: false, code: 'CATEGORY_NOT_APPLIED',
+        message: 'カテゴリー選択後に出品フォームへ戻りませんでした。何も保存していません。' };
+    }
+
+    // ── 商品の状態 ──
+    await this.browser.click(`${S.conditionPicker} ${S.pickerLink}`);
+    await this.browser.waitForTimeout(2500);
+    await this.browser.click(conditionRow(cond));
+    await this.browser.waitForTimeout(4000);
+
+    // ── 入力結果を読み直す。AI サポートによる上書きもここで検出する ──
+    const state = await this.browser.evaluate((sel) => {
+      const t = (q) => (document.querySelector(q)?.textContent || '').replace(/\s+/g, ' ').trim();
+      return {
+        title: document.querySelector(sel.title)?.value ?? null,
+        description: document.querySelector(sel.description)?.value ?? null,
+        price: Number(String(document.querySelector(sel.price)?.value || '').replace(/[^\d]/g, '')) || null,
+        categoryText: t(sel.categoryPicker),
+        conditionText: t(sel.conditionPicker),
+        shippingText: t(sel.shippingMethodPicker),
+        photoCount: document.querySelectorAll(`${sel.photoUpload} , [data-testid="photo-upload"]`).length,
+        dynamicAttributes: [...document.querySelectorAll(sel.dynamicAttributeSelects)]
+          .map((e) => ({ name: e.getAttribute('name'), value: e.value })),
+        aiAssistOn: /AI出品サポートがON/.test(document.body.textContent || ''),
+        saveDraftDisabled: document.querySelector(sel.saveDraft)?.disabled ?? null,
+      };
+    }, S);
+
+    const mismatches = [];
+    if (state.title !== name) mismatches.push(`商品名（期待「${name}」/ 実際「${state.title}」）`);
+    if (state.description !== desc) mismatches.push('商品説明');
+    if (state.price !== yen) mismatches.push(`価格（期待 ${yen} / 実際 ${state.price}）`);
+    if (!state.categoryText.includes(path[path.length - 1])) mismatches.push(`カテゴリー（実際「${state.categoryText}」）`);
+    if (!state.conditionText.includes(SELECTORS.sell.conditionLabels[cond])) mismatches.push(`商品の状態（実際「${state.conditionText}」）`);
+    if (mismatches.length) {
+      return { ok: false, code: 'FILL_FAILED',
+        message: `入力内容が一致しません: ${mismatches.join(' / ')}。保存せずに中断しました。`,
+        state };
+    }
+
+    const plan = {
+      title: name,
+      description: desc.length > 80 ? desc.slice(0, 80) + '…' : desc,
+      descriptionLength: desc.length,
+      price: yen,
+      categoryPath: path,
+      categoryApplied: state.categoryText,
+      condition: cond,
+      conditionLabel: SELECTORS.sell.conditionLabels[cond],
+      conditionApplied: state.conditionText,
+      shipping: state.shippingText,
+      imageCount: images.length,
+      dynamicAttributes: state.dynamicAttributes,
+      aiAssistOn: state.aiAssistOn,
+      note: '配送の方法・発送元・発送日数はメルカリ側の既定値のままです。変更が要る場合は保存後に人間が直してください。',
+    };
+
+    if (dryRun) {
+      return { ok: true, saved: false, dryRun: true, plan,
+        note: '確認のみです。メルカリ側には何も保存していません（自動保存は起きません）。実際に下書きを作るには dry_run を false にしてください。' };
+    }
+
+    // ── ここから実際の保存。dryRun:false のときだけ到達する ──
+    await this.browser.click(S.saveDraft);
+    await this.browser.waitForTimeout(7000);
+
+    // 下書き一覧から自分の下書きを見つける（新しい順ではなく商品名で特定する）
+    await this.browser.openPage(SELL_URLS.drafts);
+    await this.browser.waitForTimeout(5000);
+    const found = await this.browser.evaluate((arg) => {
+      const rows = [...document.querySelectorAll(arg.sel.draft.itemLink)];
+      const hit = rows.find((a) => (a.textContent || '').includes(arg.title));
+      return hit ? { href: hit.getAttribute('href'), text: (hit.textContent || '').trim().slice(0, 120) } : null;
+    }, { sel: SELECTORS, title: name });
+
+    if (!found) {
+      return { ok: false, code: 'DRAFT_NOT_FOUND',
+        message: '保存後に下書き一覧で見つかりませんでした。保存に失敗した可能性があります。', plan };
+    }
+    const draftId = parseDraftId(found.href);
+
+    // 保存された中身を開き直して検証する
+    await this.browser.openPage(draftPageUrl(draftId));
+    await this.browser.waitForSelector(S.title, { timeout: 30000 });
+    await this.browser.waitForTimeout(5000);
+    const saved = await this.browser.evaluate((sel) => {
+      const t = (q) => (document.querySelector(q)?.textContent || '').replace(/\s+/g, ' ').trim();
+      return {
+        title: document.querySelector(sel.title)?.value ?? null,
+        description: document.querySelector(sel.description)?.value ?? null,
+        price: Number(String(document.querySelector(sel.price)?.value || '').replace(/[^\d]/g, '')) || null,
+        categoryText: t(sel.categoryPicker),
+        conditionText: t(sel.conditionPicker),
+      };
+    }, S);
+
+    const bad = [];
+    if (saved.title !== name) bad.push('商品名');
+    if (saved.description !== desc) bad.push('商品説明');
+    if (saved.price !== yen) bad.push(`価格（期待 ${yen} / 実際 ${saved.price}）`);
+    if (!saved.categoryText.includes(path[path.length - 1])) bad.push('カテゴリー');
+    if (!saved.conditionText.includes(SELECTORS.sell.conditionLabels[cond])) bad.push('商品の状態');
+    if (bad.length) {
+      return { ok: false, code: 'VERIFY_FAILED', plan, draftId, draftUrl: draftPageUrl(draftId), saved,
+        message: `保存後の内容が一致しません: ${bad.join(' / ')}。下書きは作られているので中身を確認してください。` };
+    }
+
+    return { ok: true, saved: true, dryRun: false, plan, draftId,
+      draftUrl: draftPageUrl(draftId), savedContent: saved,
+      note: '**下書きです。出品はしていません。** 出品するかどうかは人間が判断してください。' };
   }
 
   /**

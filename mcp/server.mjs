@@ -366,6 +366,56 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  'mercari_create_draft',
+  {
+    title: 'メルカリの下書きを作る',
+    description:
+      'メルカリの出品フォームを埋めて「下書き」を 1 件作る。**出品はしない。** ' +
+      '**既定は確認のみ（dry_run=true）で、メルカリ側には何も保存しない。** ' +
+      '確認モードでもフォーム入力とカテゴリー選択は実際に行うため、カテゴリーの経路が実在するかまで検証できる' +
+      '（メルカリに自動保存は無い）。実際に下書きを保存するには dry_run に false を明示する。' +
+      '1 回の呼び出しで作る下書きは 1 件だけ。「出品する」ボタンには一切触れない。' +
+      '商品の状態は推測せず、必ず人間が決めた値を渡すこと。',
+    inputSchema: {
+      title: z.string().min(1).describe('商品名'),
+      description: z.string().min(1).describe('商品説明'),
+      price: z.number().int().min(300).max(9999999).describe('価格（円・整数）'),
+      category_path: z.array(z.string().min(1)).min(2)
+        .describe('カテゴリーの経路を大分類から末端まで名前で指定する（例: ["ファッション","レディース","トップス","シャツ・ブラウス","半袖"]）。経路が違うと候補を返す'),
+      condition: z.number().int().min(1).max(6)
+        .describe('商品の状態。1=新品、未使用 / 2=未使用に近い / 3=目立った傷や汚れなし / 4=やや傷や汚れあり / 5=傷や汚れあり / 6=全体的に状態が悪い。**大きいほど状態が悪い。推測せず人間が決めた値を渡すこと**'),
+      image_paths: z.array(z.string()).default([])
+        .describe('画像のローカルファイルパス。省略可（画像なしでも下書きは保存できる）'),
+      dry_run: z.boolean().default(true)
+        .describe('true（既定）は確認のみで何も保存しない。実際に下書きを作る場合だけ false を指定する'),
+    },
+  },
+  async ({ title, description, price, category_path, condition, image_paths, dry_run }) => {
+    try {
+      const r = await withMercari(async (mercari) => {
+        const login = await mercari.checkLogin();
+        if (!login.loggedIn) return { needsLogin: true };
+        return mercari.createDraft({
+          title, description, price,
+          categoryPath: category_path, condition,
+          imagePaths: image_paths ?? [],
+          dryRun: dry_run !== false,
+        });
+      });
+      if (r.needsLogin) {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }] };
+      }
+      if (!r.ok) {
+        return { isError: true, content: [{ type: 'text', text: `エラー [${r.code}] ${r.message}` }] };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 // stdout は JSON-RPC 専用。ログは必ず stderr へ。
