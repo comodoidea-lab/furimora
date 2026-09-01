@@ -1,5 +1,5 @@
 // Service Worker for フリモーラ
-const CACHE_NAME = 'furimora-v4';
+const CACHE_NAME = 'furimora-v5';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -38,8 +38,10 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // HTML: network-first (常に最新のHTMLを取得)
-  if (url.pathname === '/' || url.pathname.endsWith('.html')) {
+  // HTML と アプリのJSモジュール: network-first (常に最新のコードを取得)
+  // /js/ は index.html から読む共通ロジック（clone-service.js 等）。cache-first だと
+  // 更新しても古い版が配られ続けるため、HTML と同じ扱いにする。
+  if (url.pathname === '/' || url.pathname.endsWith('.html') || url.pathname.startsWith('/js/')) {
     event.respondWith(
       fetch(event.request).then(response => {
         if (response.ok) {

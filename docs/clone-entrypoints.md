@@ -92,19 +92,35 @@ iOS で共有シートから 1 タップにするには、ショートカット 
 例外はすべて `{ok:false, code, message}` に畳んで返す
 （`EMPTY_INPUT` / `BAD_URL` / `FETCH_FAILED` / `BAD_PARAMS` / `UNKNOWN_OPERATION` / `INTERNAL_ERROR`）。
 
-### 未解決: この API はページの中にしかない
-
-`FurimoraCloneService` は `public/index.html` にインラインで書かれているため、
-別プロセスの MCP サーバーからは呼べない。MCP を載せる前に、独立ファイルへ切り出して
-ページと MCP サーバーの両方から読み込む形にする必要がある。
+### 実装場所: public/js/clone-service.js（ブラウザ / Node 共用の ESM）
 
 ```
 public/js/clone-service.js
-   ├── public/index.html   が <script> で読む   ← 人間の導線
-   └── MCP サーバー         が import する        ← エージェントの導線
+   ├── public/index.html   の <script type="module"> が読む   ← 人間の導線
+   └── MCP サーバー         が import する                      ← エージェントの導線
 ```
 
-これをやらないと MCP 側に同じ取得ロジックを二重に書くことになる。
+環境差はコンストラクタ引数だけで吸収する。ビルド手順は無い。
+
+```js
+// ブラウザ（同一オリジンの /api/mercari を最優先、落ちていれば既知オリジンへ）
+createCloneService({ useRelativeApi: true, apiOrigins: [PRIMARY, LEGACY] })
+
+// Node / MCP サーバー
+createCloneService({ apiOrigins: ['https://furimora.vercel.app'] })
+
+// テスト（fetch を差し替え可能）
+createCloneService({ apiOrigins: ['...'], fetchImpl: async () => ({ ok: true, json: async () => ({...}) }) })
+```
+
+`createInternalApi(service)` が `list()` / `call(name, params)` を持つディスパッチャを返す。
+純関数（`extractUrl` / `normalize` / `completeness` 等）は個別に named export しているので
+単体テストから直接呼べる。
+
+**MCP 側に取得ロジックを二重に書かないこと。** 追加は必ずこのファイルに入れる。
+
+なお `public/sw.js` は `/js/` を network-first で扱う（cache-first だとこのファイルを更新しても
+古い版が配られ続けるため）。
 
 ## やらないこと
 
