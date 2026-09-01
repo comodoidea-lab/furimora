@@ -196,12 +196,45 @@ async function fetchFromMercariApi(itemId) {
   }
 }
 
+/** 連続する重複を除いて ' > ' で連結する */
+function joinCategoryParts(parts) {
+  const clean = parts.map((p) => (p == null ? '' : String(p).trim())).filter(Boolean);
+  const deduped = clean.filter((p, i) => i === 0 || p !== clean[i - 1]);
+  return deduped.join(' > ');
+}
+
+/**
+ * n階層カテゴリからパスを組み立てる。
+ * parent_categories_ntiers が祖先（root → 親）の順、item_category_ntiers が末端。
+ * 末端が最後の祖先と同じこともあるため joinCategoryParts で重複を潰す。
+ */
+function buildNtiersCategory(item) {
+  const ancestors = item.parent_categories_ntiers || item.parentCategoriesNtiers;
+  if (!Array.isArray(ancestors) || !ancestors.length) return '';
+  const leafObj = item.item_category_ntiers || item.itemCategoryNtiers;
+  const parts = ancestors.map((c) => (c && typeof c === 'object' ? c.name : c));
+  if (leafObj && typeof leafObj === 'object' && leafObj.name) parts.push(leafObj.name);
+  return joinCategoryParts(parts);
+}
+
 /**
  * メルカリ item からカテゴリパス文字列を組み立てる。
- * API は item.categories が空で item_category（root / parent / name）のみ返すことがある。
+ *
+ * 優先順:
+ *  1. n階層カテゴリ（parent_categories_ntiers + item_category_ntiers）— 最も深い。
+ *     item_category だけだと末端が 1 段浅くなる。
+ *     例) item_category         → テレビ・オーディオ・カメラ > カメラ > フィルムカメラ
+ *         ntiers               → テレビ・オーディオ・カメラ > カメラ > フィルムカメラ > 一眼レフカメラ(フィルム)
+ *  2. categories 配列
+ *  3. item_category（root / parent / name）
+ *  4. category.name
  */
 function buildCategoryString(item) {
   if (!item || typeof item !== 'object') return '';
+
+  const ntiers = buildNtiersCategory(item);
+  if (ntiers) return ntiers;
+
   const cats =
     item.categories || item.itemCategoryGroupList || item.category_list || [];
   if (Array.isArray(cats) && cats.length) {
@@ -216,12 +249,8 @@ function buildCategoryString(item) {
   }
   const ic = item.item_category || item.itemCategory;
   if (ic && typeof ic === 'object') {
-    const parts = [];
-    if (ic.root_category_name) parts.push(String(ic.root_category_name));
-    if (ic.parent_category_name) parts.push(String(ic.parent_category_name));
-    if (ic.name) parts.push(String(ic.name));
-    const deduped = parts.filter((p, i) => i === 0 || p !== parts[i - 1]);
-    return deduped.join(' > ');
+    const joined = joinCategoryParts([ic.root_category_name, ic.parent_category_name, ic.name]);
+    if (joined) return joined;
   }
   if (item.category && typeof item.category === 'object' && item.category.name) {
     return String(item.category.name);
