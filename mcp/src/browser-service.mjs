@@ -81,6 +81,25 @@ export class BrowserService {
   async click(selector, o = {}) { return this.page.click(selector, o); }
   async fill(selector, value, o = {}) { return this.page.fill(selector, value, o); }
   async waitForSelector(selector, o = {}) { return this.page.waitForSelector(selector, o); }
+  /** 同じセレクタに一致する要素のうち index 番目を押す。文言が重複する行を選ぶときに使う */
+  async clickNth(selector, index, o = {}) { return this.page.locator(selector).nth(index).click(o); }
+  /**
+   * 要素を画面の中央へスクロールする。
+   * 画像を何枚も載せてページが伸びると、Playwright の自動スクロールだけでは
+   * 「element is outside of the viewport」で押せなくなることがある（実測）。
+   */
+  async scrollIntoView(selector) {
+    await this.page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (el) el.scrollIntoView({ block: 'center', inline: 'center' });
+    }, selector);
+  }
+  /** selector に一致する要素のうち、文言を含む最初のものを押す */
+  async clickFirstWithText(selector, text, o = {}) {
+    return this.page.locator(selector).filter({ hasText: text }).first().click(o);
+  }
+  /** input[type=file] へファイルを渡す。パスは呼び出し側で存在確認しておくこと */
+  async setInputFiles(selector, files) { return this.page.setInputFiles(selector, files); }
   async waitForTimeout(ms) { return this.page.waitForTimeout(ms); }
 
   /** 診断用。Cookie の値そのものは絶対に返さない（ログにも出さない）。 */
