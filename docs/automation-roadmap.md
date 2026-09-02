@@ -629,6 +629,26 @@ Vivaldi のタブで開くのをやめ、こちらを使う形にする。ここ
 （モバイルの PWA は今も 2 クライアント目だが、人間の速度でしか触らないので競合しない。
 機械が秒単位で書きに行くのとは別物。）
 
+#### PoC 実施済み（2026-09-03）— 3 項目とも通った
+
+`poc/electron/`（**PoC 限定。製品コードではない**）。Electron 33.4.11 / Chromium 130。
+
+| | 結果 |
+|---|---|
+| `https://furimora.vercel.app` が開くか | ✅ |
+| ログインが通るか | ✅ `provider: google.com` |
+| `executeJavaScript` で `furimora_drafts` が読めるか | ✅ 83,945 bytes / 50 件 |
+
+**「MCP から localStorage が読めない」制約は Electron では消える。実証済み。**
+Firestore 同期も効いており、Vivaldi で作った下書きがそのまま降りてくる。
+
+**警戒していた `disallowed_useragent` は起きなかった。** Google は Electron を受け入れた。
+代わりに**パスキー（WebAuthn のハイブリッド認証・BLE）が Electron で通らない**。
+「別の方法を試す」で回避可能。セッションは persist に残るので初回だけの問題だが、
+**セッションが切れたとき素直に入り直せない**のは運用上の弱点。残件。
+
+詳細と踏んだもの（COOP 警告 17 件・50 件上限で下書きが 1 件消えた件）は `poc/electron/README.md`。
+
 #### 未検証・リスク
 
 - Electron は Chromium を同梱するので**実行ファイルの容量は増える**（概算 150〜250 MB）。

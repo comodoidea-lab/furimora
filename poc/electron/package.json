@@ -1,0 +1,10 @@
+{
+  "name": "furimora-electron-poc",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "フェーズ0の PoC。3項目を確かめて結果を記録するだけ。製品コードではない",
+  "main": "main.mjs",
+  "scripts": { "start": "electron ." },
+  "devDependencies": { "electron": "^33.0.0" }
+}
