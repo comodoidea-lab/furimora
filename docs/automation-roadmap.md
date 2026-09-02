@@ -545,18 +545,97 @@ SELECTORS の外へ出すこと。
 
 下書きが安定して正しく作れるようになってから判断する。**現状は不要な可能性が高い。**
 
-### フェーズ 0（並行可）: Electron 化そのもの
+### フェーズ 0: Electron 化 ← **やる（2026-09-03 決定）**
 
-上記とは独立した作業。ここで作業の性質が変わる。
+#### 決め手は「制御権」であって使い勝手ではない
 
-| 項目 | 内容 |
+外部の Chrome プロファイルを使うかぎり、**キャッシュ方針もウィンドウ方針も同期の書き手の数も
+Chrome 側の持ち物であって、こちらのものにならない。** 実測（2026-09-03）:
+
+| | |
 |---|---|
-| ビルド基盤 | electron-builder、macOS / Windows 両方のパッケージング |
-| 署名 | macOS の公証（Apple Developer 必要）、Windows のコード署名 |
-| 更新 | 自動アップデートの仕組み |
-| 保守 | Electron 本体のセキュリティ更新への追従 |
+| `~/.chrome-mercari-automation` | **881 MB**（値下げルーティン用） |
+| `~/.furimora/chrome-profile` | 137 MB |
+| 881 MB の内訳 | Cache 308 / Code Cache 198 / Service Worker 120 / IndexedDB 78 = **704 MB がキャッシュ類** |
 
-**静的 PWA + Vercel から、配布物を持つプロダクトに変わる。**
+Cookie の実体はごく僅かで、残りは Chrome が勝手に貯めた派生データ。消しても同じだけまた貯まる。
+
+```js
+// ~/.claude/skills/playwright-ops/lib/browser.mjs:266
+headless: options.headless ?? false,       // 既定で headful
+```
+```xml
+<!-- com.comodoidea.mercari-cdp.plist -->
+<key>RunAtLoad</key><true/>                 <!-- ログイン時 -->
+<key>StartCalendarInterval</key>            <!-- 毎朝 09:00 と 09:30 -->
+<key>ProcessType</key><string>Interactive</string>
+```
+
+**設計としてそうなっている。** 前面に出るのは不具合ではなく仕様。
+
+Electron なら両方こちらの持ち物になる。`session` を握れるのでキャッシュを持たない構成にできる。
+`BrowserWindow` を `show: false` で作れば、**そもそも前面に出てくる概念が無い。**
+
+同じ理屈が同期にも効く。`users/{uid}/app/state` は 1 ドキュメントで、競合に負けた側は
+`furimoraApplySyncPayload(payload, /* replaceLocal */ true)` で同期キーを消してクラウド版に
+置き換える。**エージェント用に 2 人目の書き手を足す設計は、いつか必ずデータを飛ばす。**
+Electron が「デスクトップのフリモーラそのもの」になれば書き手は 1 人のままで済む。
+
+#### 決定的だった事実: 機能が止まっている
+
+**自動値下げのルーティンは現在停止されている。鬱陶しいから。**
+フェーズ2（価格変更）は実装もデータ検証も済んでいるのに使われていない。
+届け方のせいで、作った機能が回収できていない。これは快適さの問題ではない。
+
+#### 配布要件は「配布すると決めたとき」に送る
+
+以前ここに書いていた見積もりは**全部「配布」の要件**だった。
+自分のマシンで動かすだけなら、いずれも初日には要らない。
+
+| 項目 | いつ |
+|---|---|
+| electron-builder / パッケージング | 配布すると決めたとき |
+| macOS の公証・Windows のコード署名 | 同上 |
+| 自動アップデート | 同上 |
+| Electron 本体のセキュリティ更新 | 実際に使い始めてから追う |
+
+**「静的 PWA + Vercel から配布物を持つプロダクトに変わる」という以前の書き方が、
+フェーズ0 を実際より高く見せていた。** 変わるのは配布形態ではなく、エージェント側のホストだけ。
+
+#### 最小構成
+
+**UI は作り直さない。`BrowserWindow` でデプロイ済みの本番を開く。**
+ローカルに `public/` をバンドルすると `/api/*` と Firebase の authDomain が壊れるが、
+`https://furimora.vercel.app` をそのまま開くなら現状の実装が無改修で動く。
+
+```
+Electron メインプロセス
+├── BrowserWindow → https://furimora.vercel.app（今の UI。無改修）
+│     └── メインプロセスから executeJavaScript で localStorage / DOM を触る
+│        → 「MCP から読めない・書けない」が両方消える
+├── MCP サーバー   → mcp/server.mjs をそのまま載せる（実装済み）
+├── FurimoraService → クローン作成画面を駆動して furimora_drafts を作る
+│     #clone-url-input → fetchCloneData() → 価格/状態/配送方法 → createClone()
+│     **アプリ自身の保存経路を通るので統計・アクティビティ・同期も正しく更新される**
+└── 非表示 BrowserWindow（メルカリ専用・独立 partition）→ 既存の MercariService
+```
+
+#### 「完了」の定義
+
+**Electron がデスクトップのフリモーラそのものになること。**
+Vivaldi のタブで開くのをやめ、こちらを使う形にする。ここが曖昧だと Vivaldi と Electron の
+2 クライアントになり、同期の書き手が 2 人という元の問題がそのまま残る。
+
+（モバイルの PWA は今も 2 クライアント目だが、人間の速度でしか触らないので競合しない。
+機械が秒単位で書きに行くのとは別物。）
+
+#### 未検証・リスク
+
+- Electron は Chromium を同梱するので**実行ファイルの容量は増える**（概算 150〜250 MB）。
+  ただしキャッシュ方針を握れるため、881 MB のような育ち方はさせずに済む。合計で減るかは未検証
+- 既存の CDP ルーティン（`playwright-ops` / 別リポジトリ）をどう畳むかは別作業。
+  現在は停止中なので急がない
+- ブラウザ操作そのものは無くならない。無くなるのは**外部ブラウザの管理**
 
 ## リスク
 
@@ -593,5 +672,7 @@ SELECTORS の外へ出すこと。
 
 1. Electron か Tauri か（Tauri は WebView2/WKWebView を使うため、Windows と macOS で
    ブラウザ挙動が変わる。メルカリ操作の安定性では Electron が有利）
-2. Electron 化を先にやるか、フェーズ 1 を先に CDP でプロトタイプするか
-3. 書き込み自動化に踏み込むかどうか（リスクの節を参照）
+2. ~~Electron 化を先にやるか、フェーズ 1 を先に CDP でプロトタイプするか~~
+   → **フェーズ1〜3 は CDP で完了済み。Electron 化をやると決定（2026-09-03）**
+3. ~~書き込み自動化に踏み込むかどうか~~ → **踏み込み済み**（価格変更・下書き作成とも実運用）
+4. 配布するかどうか。**しないなら署名・公証・自動更新は永久に不要**
