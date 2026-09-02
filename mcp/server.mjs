@@ -22,6 +22,7 @@ import { createCloneService, createInternalApi } from '../public/js/clone-servic
 import { BrowserService, DEFAULT_PROFILE_DIR } from './src/browser-service.mjs';
 import { MercariService, LISTING_TABS, SELECTORS, parseCategoryPath, normalizeCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
 import { reconcileListings } from '../public/js/reconcile.js';
+import { callApp, appIsRunning, readJsonArrayFromApp, SOCKET_PATH as APP_SOCKET } from './src/furimora-app-client.mjs';
 import fs from 'node:fs';
 
 const API_ORIGIN = process.env.FURIMORA_API_ORIGIN || 'https://furimora.vercel.app';
@@ -121,6 +122,37 @@ server.registerTool(
  * ログインセッションは userDataDir に永続するので、初回ログイン以降は再利用される。
  * 例外が出ても必ず閉じる（子プロセスを残さない）。
  */
+server.registerTool(
+  'furimora_app_status',
+  {
+    title: 'フリモーラ Desktop の状態',
+    description:
+      'フリモーラ Desktop（Electron）が起動しているかを返す（読み取りのみ）。' +
+      '起動していれば backup_path なしで下書き・在庫を読める。作業の頭で呼ぶと切り分けが早い。',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const info = await callApp('ping', {}, { timeoutMs: 3000 });
+      let auth = null;
+      try { auth = await callApp('auth_state', {}, { timeoutMs: 5000 }); } catch { /* ウィンドウが閉じている */ }
+      return { content: [{ type: 'text', text: JSON.stringify({ running: true, socket: APP_SOCKET, ...info, auth }, null, 2) }] };
+    } catch (e) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            running: false, socket: APP_SOCKET,
+            code: e?.code || 'APP_ERROR',
+            message: String((e && e.message) || e),
+            hint: 'cd electron && npm start で起動する。起動していなくても backup_path 経由なら動く',
+          }, null, 2),
+        }],
+      };
+    }
+  }
+);
+
 async function withMercari(fn, { headless = true } = {}) {
   const browser = new BrowserService({ headless });
   try {
@@ -260,6 +292,25 @@ function draftsFromBackupFile(filePath) {
   return drafts;
 }
 
+/**
+ * 下書きの取得元を決める。
+ *
+ * **フリモーラ Desktop（Electron）が起動していれば、そこから直接読む。**
+ * 起動していなければ従来どおりバックアップ JSON を使う。
+ * backup_path が明示されたときは、そちらを優先する（再現性のため）。
+ */
+async function resolveDrafts(backupPath) {
+  if (backupPath) return { drafts: draftsFromBackupFile(backupPath), source: 'backup', backupPath };
+  try {
+    return { drafts: await readJsonArrayFromApp('furimora_drafts'), source: 'app' };
+  } catch (e) {
+    const hint = e?.code === 'APP_NOT_RUNNING'
+      ? 'フリモーラ Desktop（electron/）を起動するか、backup_path を渡してください'
+      : String((e && e.message) || e);
+    throw new Error(`下書きを取得できません: ${hint}`);
+  }
+}
+
 /** フリモーラのバックアップ JSON から在庫アイテム配列を取り出す */
 function itemsFromBackupFile(filePath) {
   const root = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -388,19 +439,22 @@ server.registerTool(
     title: 'フリモーラの下書き一覧',
     description:
       'フリモーラ（PWA）のクローン機能で作った下書きの一覧を返す（読み取りのみ）。' +
-      '下書きは localStorage にあるため、設定画面の「バックアップをダウンロード」で保存した JSON 経由で渡す。' +
-      'ここで選んだ下書きを mercari_prepare_draft_from_furimora_draft に渡すのが、メルカリの下書きを作る正規の順序。',
+      '**フリモーラ Desktop（electron/）が起動していれば backup_path は不要**で、localStorage から直接読む。' +
+      '起動していない場合のみ、設定画面の「バックアップをダウンロード」で保存した JSON のパスを渡す。' +
+      'ここで選んだ下書きを mercari_prepare_draft_from_furimora_draft に渡す。',
     inputSchema: {
-      backup_path: z.string().describe('フリモーラのバックアップ JSON のパス'),
+      backup_path: z.string().optional()
+        .describe('フリモーラのバックアップ JSON のパス。Desktop が起動していれば省略できる'),
     },
   },
   async ({ backup_path }) => {
     try {
-      const drafts = draftsFromBackupFile(backup_path);
+      const { drafts, source } = await resolveDrafts(backup_path);
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
+            source,
             count: drafts.length,
             drafts: drafts.map((d, index) => ({
               index, id: d.id ?? null, title: d.title ?? null, price: d.price ?? null,
@@ -429,7 +483,8 @@ server.registerTool(
       'カテゴリーは出品ツリーで解決し、商品の状態はラベルを 1〜6 に対応づける。' +
       '解決できなかった項目と、人間が確定させるべき項目は needsHuman に列挙する。',
     inputSchema: {
-      backup_path: z.string().describe('フリモーラのバックアップ JSON のパス'),
+      backup_path: z.string().optional()
+        .describe('フリモーラのバックアップ JSON のパス。Desktop が起動していれば省略できる'),
       draft_id: z.union([z.number(), z.string()]).optional()
         .describe('下書きの id。index と どちらか一方を指定する'),
       index: z.number().int().min(0).optional()
@@ -438,7 +493,7 @@ server.registerTool(
   },
   async ({ backup_path, draft_id, index }) => {
     try {
-      const drafts = draftsFromBackupFile(backup_path);
+      const { drafts } = await resolveDrafts(backup_path);
       let d = null;
       if (draft_id != null) d = drafts.find((x) => String(x.id) === String(draft_id)) || null;
       else if (index != null) d = drafts[index] ?? null;

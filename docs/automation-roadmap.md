@@ -649,6 +649,32 @@ Firestore 同期も効いており、Vivaldi で作った下書きがそのま�
 
 詳細と踏んだもの（COOP 警告 17 件・50 件上限で下書きが 1 件消えた件）は `poc/electron/README.md`。
 
+#### 本体の第1段 — 下書きを生きたアプリから読む（2026-09-03・実装済み）
+
+```
+electron/main.mjs      デスクトップのフリモーラ。requestSingleInstanceLock で二重起動を禁じる
+electron/control.mjs   Unix ドメインソケット（~/.furimora/app.sock・0600）。**ネットワークは listen しない**
+mcp/src/furimora-app-client.mjs   MCP から叩くクライアント
+```
+
+`furimora_list_drafts` / `mercari_prepare_draft_from_furimora_draft` の **`backup_path` を
+任意にした。省略すると起動中の Desktop から直接読む**（`source: "app"`）。
+起動していなければ従来どおりバックアップ JSON を使う（`source: "backup"`）。
+**既存の呼び方は無改修で動く。** `npm run check` 15 ツール全通過。
+
+`furimora_app_status` を追加。起動の有無・URL・ログイン状態を返す（UID とメールの中身は返さない）。
+
+実測: `backup_path` なしで下書き 50 件を取得。**バックアップ JSON の手渡しが不要になった。**
+在庫データと下書きで 2 回出ていた制約のうち、下書き側がこれで消えた。
+
+##### 設計上の要点
+
+- **書き手を 1 人に保つ**ために `requestSingleInstanceLock()` を使う。ここは譲れない
+- ページに Node を渡さない（`contextIsolation: true` / preload 無し）。
+  操作はメインプロセスの `executeJavaScript` だけで行う
+- 制御チャネルは Unix ソケットのみ。`mcp/server.mjs` が stdio しか使わないのと同じ方針
+- 操作（`ops`）は**必要になったものだけ**足す。いまは `ping` / `read_storage` / `auth_state` の 3 つ
+
 #### 未検証・リスク
 
 - Electron は Chromium を同梱するので**実行ファイルの容量は増える**（概算 150〜250 MB）。
