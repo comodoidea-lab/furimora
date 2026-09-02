@@ -1889,6 +1889,24 @@ const FURIMORA_SYNC_KEYS = [
 ];
 // 旧クライアント互換用（新クライアントでは基本的に取り込まない）
 const FURIMORA_LEGACY_SYNC_WRITE_KEYS = ['furimora_items'];
+
+/**
+ * 下書きの保持件数。unshift してから切るので、超えた分は最古から消える。
+ *
+ * **効いてくる上限は localStorage（5MB）ではなく Firestore の 1 ドキュメント 1 MiB。**
+ * 同期は FURIMORA_SYNC_KEYS を users/{uid}/app/state の 1 ドキュメントへまとめて書くため、
+ * 下書きだけで枠を使い切ると同期が丸ごと壊れる（furimora_items は別コレクションなので無関係）。
+ * 実測（2026-09-03）: 下書き 1 件 ≒ 2,844 bytes / 50 件で state は 309 KB（29.5%）。
+ *   150 件 → 594 KB (57%)  ← ここ。schedule と activities の伸びしろを残す
+ *   300 件 → 1,020 KB (97%) 危険 / 500 件 → 1,589 KB 超過
+ * 増やすときは必ず furimoraMeasureSyncPayload() で実測してから決めること。
+ */
+const FURIMORA_DRAFTS_MAX = 150;
+
+/** Firestore の 1 ドキュメント上限。超えると invalid-argument で書き込みが落ちる */
+const FURIMORA_STATE_DOC_LIMIT = 1048576;
+/** この割合を超えたら警告する */
+const FURIMORA_STATE_DOC_WARN = Math.floor(FURIMORA_STATE_DOC_LIMIT * 0.8);
 let furimoraFirebaseAuth = null;
 let furimoraFirestore = null;
 let furimoraSyncPushTimer = null;
@@ -1898,6 +1916,8 @@ let furimoraPendingPushClientAt = '';
 let furimoraSyncAfterLoginLastTs = 0;
 let furimoraSyncInProgress = false;
 let furimoraLastSyncSignature = '';
+/** サイズ警告は1セッション1回だけ出す */
+let furimoraSyncSizeWarned = false;
 let furimoraWebPushVapidPublicKey = '';
 let furimoraAutoPushDiscountRunning = false;
 let furimoraAutoPushRelistRunning = false;
@@ -5949,7 +5969,7 @@ function createClone() {
       title, price, description, category, condition,
       createdAt: new Date().toISOString()
     });
-    try { localStorage.setItem('furimora_drafts', JSON.stringify(drafts.slice(0, 50))); } catch {}
+    try { localStorage.setItem('furimora_drafts', JSON.stringify(drafts.slice(0, FURIMORA_DRAFTS_MAX))); } catch {}
     // 統計更新
     let s = {};
     try { s = JSON.parse(localStorage.getItem('furimora_stats') || '{}'); } catch {}
@@ -6143,6 +6163,43 @@ function furimoraCollectSyncPayload() {
   return { v: 1, keys };
 }
 
+/**
+ * state ドキュメントが 1 MiB を超えた場合。Firestore は resource-exhausted ではなく
+ * invalid-argument で返すため、furimoraIsQuotaError() では拾えない。
+ * 「上限リセット待ち」ではなくデータを減らす必要があるので、メッセージを分ける。
+ */
+function furimoraIsDocTooLargeError(error) {
+  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || error || '').toLowerCase();
+  if (message.includes('furimora/state-too-large')) return true;
+  if (!code.includes('invalid-argument') && !code.includes('invalid_argument')) return false;
+  return message.includes('too large') ||
+    message.includes('maximum allowed size') ||
+    message.includes('1048576') ||
+    message.includes('bytes');
+}
+
+/** 同期バッジの文言。原因ごとに出し分ける */
+function furimoraSyncBadgeLabel(error) {
+  if (furimoraIsDocTooLargeError(error)) return 'サイズ超過';
+  return furimoraIsQuotaError(error) ? '上限到達' : '失敗';
+}
+
+/**
+ * push 前に state ドキュメントの実サイズを見積もる。
+ * Firestore の数え方に合わせ、文字列は UTF-8 バイト数 + 1、フィールド名も同様に数える。
+ */
+function furimoraMeasureSyncPayload(payload) {
+  const enc = new TextEncoder();
+  const strBytes = (v) => enc.encode(String(v == null ? '' : v)).length + 1;
+  let total = 32; // ドキュメントのオーバーヘッド
+  total += strBytes('payload') + strBytes('v') + 8 + strBytes('keys') + 32;
+  total += strBytes('updatedAt') + 8 + strBytes('clientUpdatedAt') + 30 + strBytes('itemsUpdatedAt') + 8;
+  const keys = (payload && payload.keys) || {};
+  Object.keys(keys).forEach((k) => { total += strBytes(k) + strBytes(keys[k]); });
+  return total;
+}
+
 function furimoraIsQuotaError(error) {
   const code = String(error?.code || '').toLowerCase();
   const message = String(error?.message || error || '').toLowerCase();
@@ -6153,6 +6210,9 @@ function furimoraIsQuotaError(error) {
 }
 
 function furimoraSyncErrorMessage(error, fallback = '同期に失敗しました') {
+  if (furimoraIsDocTooLargeError(error)) {
+    return '同期データが Firestore の上限（1 MiB）を超えました。下書き・履歴・スケジュールを減らしてください';
+  }
   if (furimoraIsQuotaError(error)) {
     return 'Firestore の利用上限に達しています。上限リセット後に再試行してください';
   }
@@ -6231,6 +6291,28 @@ async function furimoraPushToCloud(source = 'manual') {
     return { ok: false, reason: 'not_logged_in' };
   }
   const payload = furimoraCollectSyncPayload();
+
+  // 送る前に実サイズを測る。1 MiB を超えると Firestore が invalid-argument で弾くので、
+  // 書きに行かず手前で止める（壊れてから気づくのでは遅い）。
+  const payloadBytes = furimoraMeasureSyncPayload(payload);
+  if (payloadBytes > FURIMORA_STATE_DOC_LIMIT) {
+    const err = new Error(
+      `furimora/state-too-large: ${payloadBytes.toLocaleString()} bytes > ${FURIMORA_STATE_DOC_LIMIT.toLocaleString()}`
+    );
+    console.error('[sync push]', err);
+    furimoraSyncSetBadge('error', 'サイズ超過');
+    furimoraSyncSetStatus(furimoraSyncErrorMessage(err));
+    showToast(furimoraSyncErrorMessage(err));
+    furimoraPendingPushClientAt = '';
+    return { ok: false, reason: 'too_large', bytes: payloadBytes, error: err };
+  }
+  if (payloadBytes > FURIMORA_STATE_DOC_WARN && !furimoraSyncSizeWarned) {
+    // 警告は1セッション1回だけ。同期のたびに出すと邪魔になる
+    furimoraSyncSizeWarned = true;
+    const pct = Math.round((payloadBytes / FURIMORA_STATE_DOC_LIMIT) * 100);
+    showToast(`同期データが上限の ${pct}% です（${Math.round(payloadBytes / 1024).toLocaleString()} KB / 1 MiB）。下書きや履歴の整理をおすすめします`);
+  }
+
   const expectedRemoteMs = getLastRemoteMergeMs();
   const stateRef = furimoraFirestoreStateRef(user.uid);
   let updatedAt = new Date().toISOString();
@@ -6277,7 +6359,7 @@ async function furimoraPushToCloud(source = 'manual') {
       }
     }
     console.error('[sync push]', error);
-    furimoraSyncSetBadge('error', furimoraIsQuotaError(error) ? '上限到達' : '失敗');
+    furimoraSyncSetBadge('error', furimoraSyncBadgeLabel(error));
     furimoraSyncSetStatus(furimoraSyncErrorMessage(error));
     showToast(furimoraSyncErrorMessage(error));
     furimoraPendingPushClientAt = '';
@@ -6295,7 +6377,7 @@ async function furimoraPushToCloud(source = 'manual') {
     }
   } catch (e) {
     console.error('[sync items push]', e);
-    furimoraSyncSetBadge('error', furimoraIsQuotaError(e) ? '上限到達' : '失敗');
+    furimoraSyncSetBadge('error', furimoraSyncBadgeLabel(e));
     furimoraSyncSetStatus(furimoraSyncErrorMessage(e, '商品同期に失敗しました'));
     showToast(furimoraSyncErrorMessage(e, '商品同期に失敗しました'));
     furimoraPendingPushClientAt = '';
@@ -6327,7 +6409,7 @@ async function furimoraSyncAfterLogin() {
     stateSnapshot = await furimoraFirestoreStateRef(user.uid).get();
   } catch (error) {
     console.error('[sync pull]', error);
-    furimoraSyncSetBadge('error', furimoraIsQuotaError(error) ? '上限到達' : '失敗');
+    furimoraSyncSetBadge('error', furimoraSyncBadgeLabel(error));
     furimoraSyncSetStatus(furimoraSyncErrorMessage(error, '同期データの取得に失敗しました'));
     showToast(furimoraSyncErrorMessage(error, '同期データの取得に失敗しました'));
     return;
