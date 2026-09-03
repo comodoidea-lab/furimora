@@ -1163,9 +1163,33 @@ macOS ネイティブ版 / iOS・Android / ネイティブ通知 / バックグ�
 
 ### 既存ルーティンの扱い
 
-`com.comodoidea.mercari-cdp` と既存 CDP ルーティンは、**Electron 経路の実運用検証が
-十分終わるまで切り戻し手段として残す。** 指示なく削除・無効化・変更しない。
-`mercari-relist-batch` の未コミット変更にも触れない。
+既存 CDP ルーティンは、**Electron 経路の実運用検証が十分終わるまで切り戻し手段として残す。**
+指示なく削除・変更しない。`mercari-relist-batch` の未コミット変更にも触れない。
+
+#### 毎朝の自動起動だけ止めた（2026-09-03・本人の指示）
+
+`com.comodoidea.mercari-cdp` の**自動起動のみ**を無効化した。**切り戻し手段は消していない。**
+
+```bash
+launchctl bootout  gui/$UID ~/Library/LaunchAgents/com.comodoidea.mercari-cdp.plist  # いま停止
+launchctl disable  gui/$UID/com.comodoidea.mercari-cdp                              # 次回ログイン以降も
+# 戻すとき: launchctl enable gui/$UID/com.comodoidea.mercari-cdp && launchctl bootstrap gui/$UID <plist>
+```
+
+**止めてよかった理由**: 毎朝の事前起動は 09:34 の `mercari-price-cut-check` のために
+Chrome を温めておく役目だったが、**その check タスクは 2026-08-18 から `enabled: false`**。
+誰のためでもなく毎朝 Chrome を前面に出していた。
+
+残っているもの: 専用プロファイル `~/.chrome-mercari-automation` / `drivers/cdp.mjs`（既定の経路）/
+`launch-cdp.mjs mercari`（手で 1 回叩けば起動）/ check タスクの自己復旧（規則の例外）。
+
+**注意 1 — コールドスタートの偽陰性**: 起動直後の Chrome では
+`NEEDS_HUMAN`（「商品の編集が見つかりません」）になることがある。セッション切れではなく
+描画が間に合わないだけ（2026-09-03 に実際に踏んだ）。**09:00/09:30 の事前起動はこれを
+避けるためにあった。** check を再有効化するなら、自動起動を戻すか待ち時間を足すこと。
+
+**注意 2 — 使わない切り戻しは腐る**: 専用 Chrome のメルカリセッションは
+2026-09-03 12:25 時点で新鮮だが、動かさなければいずれ切れる。**切り戻し時は再ログインを見込む。**
 
 ## リスク
 
