@@ -233,10 +233,23 @@ server.registerTool(
       await browser.openPage('https://jp.mercari.com/login');
       const deadline = Date.now() + wait_seconds * 1000;
       let loggedIn = false;
+      // **待機中は遷移しない。** checkLogin() は先頭で openPage() するので、
+      // ここから呼ぶと入力中のページを 3 秒おきに引きずって入力できなくなる（実際に踏んだ）
+      // 認証ページを抜けた状態が続いたら「人間の操作が終わった」とみなす。
+      // 遷移の一瞬だけ抜けて見えることがあるので、連続 3 回（約 6 秒）安定してから確定させる
+      let offAuth = 0;
       while (Date.now() < deadline) {
-        await browser.waitForTimeout(3000);
-        try { loggedIn = (await mercari.checkLogin()).loggedIn; } catch { /* 遷移中 */ }
-        if (loggedIn) break;
+        await browser.waitForTimeout(2000);
+        let st = null;
+        try { st = await mercari.probeLoginState(); } catch { /* 遷移中。次の周回で見る */ }
+        if (!st) { offAuth = 0; continue; }
+        if (st.hasSideMenu && !st.onAuthPage) { loggedIn = true; break; }
+        offAuth = st.onAuthPage ? 0 : offAuth + 1;
+        if (offAuth >= 3) { loggedIn = true; break; }
+      }
+      // 確定はここで 1 回だけ。人間の操作が終わってから遷移する
+      if (loggedIn) {
+        try { loggedIn = (await mercari.checkLogin()).loggedIn; } catch { /* 判定できず。下で false のまま返す */ }
       }
       return {
         content: [{

@@ -380,6 +380,24 @@ export class MercariService {
   }
 
   /**
+   * **いま開いているページを見るだけ。遷移しない。**
+   *
+   * ログイン待ちのポーリングには必ずこちらを使うこと。
+   * checkLogin() は先頭で openPage() するので、待機ループから呼ぶと
+   * **人間が入力している最中にページを引きずってしまい、入力できなくなる**（実際に踏んだ）。
+   */
+  async probeLoginState() {
+    return this.browser.evaluate((sel) => ({
+      // loggedInMarker はマイページ配下にしか出ない。ログイン直後はトップに飛ぶので
+      // これだけを頼りにはできない（成功していても false になる）
+      hasSideMenu: !!document.querySelector(sel.loggedInMarker),
+      // 2段階認証の途中もここに含める。抜けたことを「人間の操作が終わった」印にする
+      onAuthPage: /\/(login|signin|sign_in|verify|verification|sms|two_factor|2fa|auth)/.test(location.pathname),
+      url: location.href,
+    }), { loggedInMarker: SELECTORS.loggedInMarker });
+  }
+
+  /**
    * ログイン済みかどうかを判定する。副作用なし（ページを開くだけ）。
    * domcontentloaded 直後は描画が終わっていないため、判定材料が出るまで待つ。
    */
