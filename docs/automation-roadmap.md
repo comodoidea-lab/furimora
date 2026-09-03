@@ -707,13 +707,24 @@ navigate('clone') → resetClone() → #clone-url-input に URL
 - **PWA 経由のカテゴリーは二重化しない。** 拡張のパンくず抽出ではなく `/api/mercari` を
   使うため。実測で `CD・DVD・ブルーレイ > ブルーレイ > 洋画・外国映画` と 1 周だけだった
 
-##### 検証状況
+##### 実データで①→②を通した（2026-09-03・人間の承認のもと 1 件）
 
-`dry_run: true` で通し確認済み（複製元の読み取り・確定値の反映・`needsHuman` の生成）。
-**実際の保存（`dry_run: false`）は未検証。書き込みを伴うので人間の承認を通すこと。**
+`dry_run: false` で下書きを 1 件作り、そのまま②の下ごしらえまで通した。
+
+```
+furimora_create_draft({ url: m91538036883, price: 4300, condition: '目立った傷や汚れなし',
+                        shipping_method: 'ゆうゆうメルカリ便', dry_run: false })
+  → before 50 / after 51 / id 1788395887269。全項目が読み戻しと一致
+mercari_prepare_draft_from_furimora_draft({ index: 0 })   ← backup_path なし
+  → categoryFixes 0 件。カテゴリーは実ツリーで末端まで解決。condition 3 に対応づけ
+```
+
+**バックアップ JSON を一度も経由していない。** ①→②がエージェント側で繋がった。
+`categoryFixes` が 0 件なのは、PWA 経由の取得ではパンくずの二重化が起きないため。
 
 保存後は件数の前後と保存された先頭 1 件を読み戻して検証する。
-上限に張り付いていて件数が増えない場合は `droppedOldest` を返す。
+上限に張り付いていて件数が増えない場合は `droppedOldest` を返す（今回は 51 件になったので
+`FURIMORA_DRAFTS_MAX = 150` が本番で効いていることも同時に確認できた）。
 
 #### 未検証・リスク
 
