@@ -31,6 +31,21 @@ let mainWindow = null;
 let mercariWindow = null;
 let control = null;
 
+/**
+ * クリックの結果として開かれた子ウィンドウ。**route provenance の要。**
+ *
+ * mercari-relist-batch の安全規則は「在庫カードのクリックで開いたタブだけを使う」ことを
+ * 求めている。URL を取り出して開き直すのも、別セッションへ移すのも禁止
+ * （経路の証明が消えるため。実際にこの経路を破って 24 件を落としている）。
+ *
+ * Electron の setWindowOpenHandler は `action: 'allow'` のまま子ウィンドウを作れるので、
+ * **URL を組み立てず、パーティションも上書きせず**に、開かれたウィンドウそのものを掴める。
+ */
+/** @type {Map<string, BrowserWindow>} */
+const capturedWindows = new Map();
+let captureArmed = null;
+let captureSeq = 0;
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -49,9 +64,26 @@ function createWindow() {
   // アプリ外へのリンクは既定のブラウザで開く。ただし Firebase の認証ハンドラだけは
   // アプリ内で開かせる（signInWithPopup が使う。外に出すとログインが完了しない）
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // 捕捉待ちのときは、そのまま開かせて掴む。
+    // **パーティションを上書きしない**（別セッションへ移すと route provenance が消える）
+    if (captureArmed) return { action: 'allow' };
     if (url.includes('/__/auth/')) return { action: 'allow' };
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // 実際に生まれたウィンドウを受け取る。URL ではなくウィンドウ自体を掴むのが要点
+  mainWindow.webContents.on('did-create-window', (child, details) => {
+    if (!captureArmed) {
+      // 捕捉していないのに開いた窓は放置しない（AI 認証の窓などはここに来る）
+      return;
+    }
+    const id = `captured:${++captureSeq}`;
+    capturedWindows.set(id, child);
+    child.on('closed', () => capturedWindows.delete(id));
+    const armed = captureArmed;
+    captureArmed = null;
+    armed.resolve({ id, url: details?.url || child.webContents.getURL() });
   });
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -77,6 +109,11 @@ function createMercariWindow() {
  * @param {{ create?: boolean }} [opts] mercari は必要になった時点で作る
  */
 function requireWindow(target = 'furimora', { create = false } = {}) {
+  if (typeof target === 'string' && target.startsWith('captured:')) {
+    const w = capturedWindows.get(target);
+    if (!w || w.isDestroyed()) throw new Error(`捕捉したウィンドウがありません: ${target}`);
+    return w;
+  }
   if (target === 'mercari') {
     if ((!mercariWindow || mercariWindow.isDestroyed()) && create) return createMercariWindow();
     if (!mercariWindow || mercariWindow.isDestroyed()) throw new Error('メルカリのウィンドウが開いていません');
@@ -181,6 +218,61 @@ const ops = {
     } finally {
       if (!attached) { try { wc.debugger.detach(); } catch { /* 既に外れている */ } }
     }
+  },
+
+  /**
+   * ページ内でクリックし、**その操作の結果として開いたウィンドウ**を掴む。
+   *
+   * URL は一切組み立てない。パーティションも上書きしない。
+   * 返す id を evaluate の target に渡すと、そのウィンドウを操作できる。
+   *
+   * **必ずクリックの前に構える。** 押してから待つと取りこぼす。
+   * CDP 版が「クリック前に存在していたタブ」を除外していた対策
+   * （前の商品のタブを即座に掴んで別商品を触る事故）は、ここでは不要になる。
+   * did-create-window は**新しく生まれた窓でしか発火しない**ので、構造的に起きない。
+   */
+  async click_and_capture({ script, target = 'furimora', timeoutMs = 30000 }) {
+    if (typeof script !== 'string' || !script.trim()) throw new Error('script（文字列）が必要です');
+    if (captureArmed) throw new Error('既に捕捉待ちです。前の捕捉が終わっていません');
+    const win = requireWindow(target);
+
+    let settle;
+    const waited = new Promise((resolve, reject) => {
+      settle = { resolve, reject };
+      captureArmed = settle;
+      setTimeout(() => {
+        if (captureArmed === settle) {
+          captureArmed = null;
+          reject(new Error(`クリックしましたが新しいウィンドウが開きませんでした（${timeoutMs}ms）`));
+        }
+      }, timeoutMs);
+    });
+
+    let clicked;
+    try {
+      clicked = await win.webContents.executeJavaScript(script, true);
+    } catch (e) {
+      if (captureArmed === settle) captureArmed = null;
+      throw e;
+    }
+    const captured = await waited;
+    return { ...captured, clicked };
+  },
+
+  /** 捕捉したウィンドウを閉じる。1 商品ごとに必ず閉じて次へ進む */
+  async close_captured({ id }) {
+    const w = capturedWindows.get(id);
+    if (w && !w.isDestroyed()) w.destroy();
+    capturedWindows.delete(id);
+    return { closed: true };
+  },
+
+  async list_captured() {
+    return {
+      ids: [...capturedWindows.entries()]
+        .filter(([, w]) => w && !w.isDestroyed())
+        .map(([id, w]) => ({ id, url: w.webContents.getURL() })),
+    };
   },
 
   /** ログインなど人間の操作が要るときだけウィンドウを出す */

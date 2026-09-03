@@ -966,6 +966,41 @@ shippingDuration  既定 = 2~3日で発送            ← **実運用が 1~2 日
 実測: 正しい題名→通過 / 誤った題名→MISMATCH / 書き込みで題名なし→拒否 /
 期待旧価格のズレ→MISMATCH。いずれも**価格を変更していない**。
 
+#### route provenance を Electron で満たせることを実証した（2026-09-03）
+
+値下げルーティン（`~/GitHub/mercari-relist-batch`）の移行に向けた土台。
+`click_and_capture` / `close_captured` / `list_captured` を Electron に追加。
+
+```
+click_and_capture({ script })
+  → **クリックの前に構える** → ページ内でクリック → did-create-window で掴む
+  → captured:N を返す。evaluate の target に渡せば操作できる
+```
+
+**URL を一切組み立てず、パーティションも上書きしない。** `setWindowOpenHandler` を
+`action: 'allow'` のままにして、開かれたウィンドウそのものを掴む。
+
+実測: 在庫カード 108 件から先頭をクリック → `captured:1` = `item/m91538036883`、
+h1 がカードのタイトルと一致。
+
+##### CDP 版より構造的に安全になる点
+
+CDP 版は「クリック前に存在していたタブ」を記録して除外していた
+（前の商品のタブを `waitForTarget` が即座に返して別商品を掴む事故・2026-08-08 と同型）。
+**`did-create-window` は新しく生まれた窓でしか発火しないので、この事故は起こり得ない。**
+
+##### ただしメルカリのログインが 1 つ足りない
+
+`window.open` の子ウィンドウは**開いた側のパーティションを引き継ぐ**。
+つまりカードのクリックで開くメルカリのページは `persist:furimora` 側になる。
+実測で、**出品中の自分の商品に「購入手続きへ」が出た**（＝メルカリ未ログイン）。
+
+`persist:mercari` へ上書きすれば通るが、**それは規則違反**
+（F-3「別セッションへ `goto` した時点で route provenance は消える」に該当する）。
+CDP 版が「フリモーラ・メルカリの両方がログイン済み（同一セッション）」としているのは
+このためだった。**忠実な選択は上書きせず、`persist:furimora` にメルカリのログインを足すこと。**
+既存の `persist:mercari` はそのままで、今日作った MCP 経路は影響を受けない。
+
 #### 未検証・リスク
 
 - Electron は Chromium を同梱するので**実行ファイルの容量は増える**（概算 150〜250 MB）。
