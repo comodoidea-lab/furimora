@@ -155,6 +155,12 @@ export const SELECTORS = {
     shippingServiceTrigger: '[data-testid="shipping-service-trigger-button"]',
     shippingMethodRadio: 'input[type=radio][name="selectedShippingMethod"]',
     shippingMethodSubmitLabel: '更新する',
+    /**
+     * ゆうメール・レターパック等を出す「その他」ボタンの文言。
+     * 展開前は「その他ゆうメール、レターパック、普通郵便 (定形、定形外)など」、
+     * 展開後は「その他」になる。**トグルなので、必要なときだけ押すこと。**
+     */
+    shippingMethodMoreLabel: 'その他',
 
     /**
      * カテゴリー確定後に**後から生える**要素。確定前には存在しない。
@@ -638,19 +644,40 @@ export class MercariService {
     await this.clickInForm(`${S.shippingMethodPicker} ${S.pickerLink}`);
     await this.browser.waitForTimeout(3500);
 
-    const options = await this.browser.evaluate((sel) => [...document.querySelectorAll(sel)].map((r) => ({
+    const readOptions = () => this.browser.evaluate((sel) => [...document.querySelectorAll(sel)].map((r) => ({
       value: r.value,
       label: ((r.closest('label') || r.closest('li') || r.parentElement)?.textContent || '')
         .replace(/\s+/g, '').trim(),
       checked: r.checked,
     })), S.shippingMethodRadio);
 
-    const hit = options.find((o) => o.label.startsWith(want));
+    let options = await readOptions();
+    let hit = options.find((o) => o.label.startsWith(want));
+
+    // ゆうメール・レターパック等は「その他」の奥にあり、既定では DOM に出ていない。
+    // **見つからないときだけ展開する。** ボタンはトグルなので、無条件に押すと畳んでしまう。
+    let expanded = false;
+    if (!hit) {
+      const hasMore = await this.browser.evaluate((label) =>
+        !![...document.querySelectorAll('button')].find((b) => (b.textContent || '').replace(/\s+/g, '').startsWith(label)),
+        S.shippingMethodMoreLabel);
+      if (hasMore) {
+        await this.browser.clickFirstWithText('button', S.shippingMethodMoreLabel);
+        await this.browser.waitForTimeout(2500);
+        const before = options.length;
+        options = await readOptions();
+        expanded = options.length > before;
+        hit = options.find((o) => o.label.startsWith(want));
+      }
+    }
+
     if (!hit) {
       return { ok: false, code: 'SHIPPING_METHOD_NOT_FOUND',
         message: `配送の方法「${methodName}」が見つかりません`,
         candidates: options.map((o) => o.label),
-        note: 'ゆうメール・レターパック等は「その他」の奥にあり、まだ対応していません' };
+        note: expanded
+          ? '「その他」も展開して探したが一致しなかった。候補から選び直すこと'
+          : '「その他」の展開ボタンが見つからなかった。候補から選び直すこと' };
     }
 
     if (!hit.checked) {
@@ -672,7 +699,7 @@ export class MercariService {
       return { ok: false, code: 'SHIPPING_METHOD_NOT_APPLIED',
         message: `「${methodName}」を選びましたが反映されませんでした（実際の表示:「${applied}」）` };
     }
-    return { ok: true, shippingMethod: methodName, applied, value: hit.value };
+    return { ok: true, shippingMethod: methodName, applied, value: hit.value, expandedOthers: expanded };
   }
 
   /**
