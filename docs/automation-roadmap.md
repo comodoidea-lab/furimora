@@ -675,6 +675,46 @@ mcp/src/furimora-app-client.mjs   MCP から叩くクライアント
 - 制御チャネルは Unix ソケットのみ。`mcp/server.mjs` が stdio しか使わないのと同じ方針
 - 操作（`ops`）は**必要になったものだけ**足す。いまは `ping` / `read_storage` / `auth_state` の 3 つ
 
+#### 本体の第2段 — ①をエージェントが作る（2026-09-03・dry_run まで検証）
+
+`furimora_create_draft({ url, price, condition, shipping_method, dry_run })`。
+**`dry_run` の既定は true。**
+
+```
+mcp/src/furimora-service.mjs   クローン作成画面の駆動。画面の ID はここに集約する
+electron/main.mjs の evaluate  ページの主世界で JS を評価する op
+```
+
+**アプリ自身の保存経路（`createClone()`）を通す。** localStorage を直接書くと
+統計・アクティビティ・同期シグネチャの更新を迂回してしまう。
+
+```
+navigate('clone') → resetClone() → #clone-url-input に URL
+  → await fetchCloneData()   （アプリ自身の /api/mercari 経由。取得の失敗も画面の
+                               #clone-error で拾える）
+  → #clone-price / #clone-condition-input に確定値
+  → clonedData.shippingMethod を書き換え
+  → createClone()            ← dry_run:false のときだけ
+```
+
+##### 分かったこと
+
+- **配送の方法はクローン作成画面にフォーム欄が無い。** `createClone()` が
+  `...clonedData` を展開して保存するので、`clonedData.shippingMethod` を書き換える。
+  `clonedData` はトップレベルの `let` なので主世界から触れる
+- `#clone-category-input` と `#clone-condition-input` は `readonly`。人間は触れないが
+  `.value` は入る（`createClone()` は `.value` を読む）
+- **PWA 経由のカテゴリーは二重化しない。** 拡張のパンくず抽出ではなく `/api/mercari` を
+  使うため。実測で `CD・DVD・ブルーレイ > ブルーレイ > 洋画・外国映画` と 1 周だけだった
+
+##### 検証状況
+
+`dry_run: true` で通し確認済み（複製元の読み取り・確定値の反映・`needsHuman` の生成）。
+**実際の保存（`dry_run: false`）は未検証。書き込みを伴うので人間の承認を通すこと。**
+
+保存後は件数の前後と保存された先頭 1 件を読み戻して検証する。
+上限に張り付いていて件数が増えない場合は `droppedOldest` を返す。
+
 #### 未検証・リスク
 
 - Electron は Chromium を同梱するので**実行ファイルの容量は増える**（概算 150〜250 MB）。

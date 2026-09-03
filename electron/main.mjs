@@ -86,6 +86,24 @@ const ops = {
     return win.webContents.executeJavaScript(script);
   },
 
+  /**
+   * ページの主世界で JS を評価する。
+   *
+   * ここまでの `read_storage` / `auth_state` は用途を絞った操作だったが、
+   * フォームの駆動は「値を入れて → 非同期の取得を待って → 保存を押す」という
+   * 手順そのものなので、narrow な op に割ると却って読めなくなる。
+   * **どの画面をどう触るかは mcp/src/furimora-service.mjs に集約する**
+   * （メルカリ側のセレクタを mercari-service.mjs に集めているのと同じ方針）。
+   *
+   * ソケットは 0600 のローカル専用で、叩けるのは既に信頼している MCP サーバーだけ。
+   * BrowserService.evaluate が持っている権限と同じ。
+   */
+  async evaluate({ script, userGesture = true }) {
+    if (typeof script !== 'string' || !script.trim()) throw new Error('script（文字列）が必要です');
+    const win = requireWindow();
+    return win.webContents.executeJavaScript(script, userGesture);
+  },
+
   /** ログイン状態。UID もメールアドレスも中身は返さない */
   async auth_state() {
     const win = requireWindow();

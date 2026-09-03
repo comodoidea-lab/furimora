@@ -23,6 +23,7 @@ import { BrowserService, DEFAULT_PROFILE_DIR } from './src/browser-service.mjs';
 import { MercariService, LISTING_TABS, SELECTORS, parseCategoryPath, normalizeCategoryPath, conditionFromLabel } from './src/mercari-service.mjs';
 import { reconcileListings } from '../public/js/reconcile.js';
 import { callApp, appIsRunning, readJsonArrayFromApp, SOCKET_PATH as APP_SOCKET } from './src/furimora-app-client.mjs';
+import { FurimoraService, assertConditionLabel, CONDITION_LABELS } from './src/furimora-service.mjs';
 import fs from 'node:fs';
 
 const API_ORIGIN = process.env.FURIMORA_API_ORIGIN || 'https://furimora.vercel.app';
@@ -468,6 +469,112 @@ server.registerTool(
       };
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `エラー [BACKUP] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+server.registerTool(
+  'furimora_create_draft',
+  {
+    title: 'フリモーラの下書きを作る（①）',
+    description:
+      '商品URLからフリモーラの下書きを作る。**フリモーラ Desktop（electron/）の起動が必要。**' +
+      'クローン作成画面をアプリ自身の保存経路（createClone）で駆動するので、統計・アクティビティ・同期も正しく更新される。' +
+      '**dry_run の既定は true。** 確認モードではフォームを埋めるところまで行い、保存はしない。' +
+      '価格・商品の状態は人間が確定させること（複製元の値をそのまま使わない。複製元自体が間違っていることがある）。',
+    inputSchema: {
+      url: z.string().describe('クローン元のメルカリ商品URL'),
+      price: z.number().int().positive().describe('出品価格。**複製元の価格をそのまま使わない**'),
+      condition: z.string().describe(`商品の状態。次のいずれか: ${CONDITION_LABELS.join(' / ')}`),
+      shipping_method: z.string().optional()
+        .describe('配送の方法。省略すると複製元の値のまま（実物のサイズと重さで判断し直すこと）'),
+      dry_run: z.boolean().default(true).describe('true（既定）なら保存しない。実際に作るときだけ false'),
+    },
+  },
+  async ({ url, price, condition, shipping_method, dry_run = true }) => {
+    const fail = (code, message, extra) => ({
+      isError: true,
+      content: [{ type: 'text', text: `エラー [${code}] ${message}` + (extra ? '\n' + JSON.stringify(extra, null, 2) : '') }],
+    });
+    try {
+      assertConditionLabel(condition);
+    } catch (e) {
+      return fail('BAD_CONDITION', String((e && e.message) || e));
+    }
+    try {
+      const svc = new FurimoraService(callApp);
+
+      const opened = await svc.openCloneScreen(url);
+      if (!opened.ok) return fail(opened.code, opened.message);
+
+      const got = await svc.fetchSource();
+      if (!got.ok) return fail(got.code, got.message);
+
+      const applied = await svc.applyDecisions({ price, condition, shippingMethod: shipping_method });
+      if (!applied.ok) return fail(applied.code, applied.message);
+
+      const needsHuman = [];
+      if (!shipping_method) {
+        needsHuman.push(`配送の方法は複製元のまま（${got.fetched.shippingMethod ?? '不明'}）。実物のサイズと重さで判断し直すこと`);
+      }
+      if (got.fetched.sourcePrice != null && Number(got.fetched.sourcePrice) !== price) {
+        needsHuman.push(`複製元の価格は ¥${got.fetched.sourcePrice}。今回は ¥${price} で作る`);
+      }
+      needsHuman.push('発送元・発送日数は変更していない（複製元自体が誤っていることがある）');
+
+      const plan = { source: got.fetched, decided: applied.current, needsHuman };
+
+      if (dry_run) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              ok: true, saved: false, dryRun: true, plan,
+              note: '確認のみです。フリモーラには何も保存していません（createClone を押していないので自動保存も起きません）。実際に作るには dry_run を false にしてください。',
+            }, null, 2),
+          }],
+        };
+      }
+
+      const res = await svc.save();
+      if (!res.ok) return fail(res.code, res.message, plan);
+
+      const saved = res.saved || {};
+      const bad = [];
+      if (saved.price != null && String(saved.price) !== String(price)) bad.push(`価格（期待 ${price} / 実際 ${saved.price}）`);
+      if (saved.condition && saved.condition !== condition) bad.push(`商品の状態（期待 ${condition} / 実際 ${saved.condition}）`);
+      if (shipping_method && saved.shippingMethod !== shipping_method) bad.push(`配送の方法（期待 ${shipping_method} / 実際 ${saved.shippingMethod}）`);
+
+      // 上限に張り付いていると件数が増えず、最古の1件が黙って消える
+      const droppedOldest = res.after === res.before && res.before > 0;
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            ok: bad.length === 0, saved: true, dryRun: false,
+            verifyFailed: bad.length ? bad : undefined,
+            counts: { before: res.before, after: res.after },
+            droppedOldest: droppedOldest || undefined,
+            droppedOldestNote: droppedOldest
+              ? '下書きが上限に張り付いており、最古の1件が押し出された可能性があります（public/index.html の FURIMORA_DRAFTS_MAX）'
+              : undefined,
+            savedDraft: {
+              id: saved.id ?? null, title: saved.title ?? null, price: saved.price ?? null,
+              category: saved.category ?? null, condition: saved.condition ?? null,
+              shippingMethod: saved.shippingMethod ?? null,
+              imageCount: Array.isArray(saved.images) ? saved.images.length : 0,
+              sourceUrl: saved.url ?? null,
+            },
+            plan,
+            note: '**フリモーラの下書きです。メルカリにはまだ何も作っていません。** 次は mercari_prepare_draft_from_furimora_draft → mercari_create_draft。',
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      const code = e?.code === 'APP_NOT_RUNNING' ? 'APP_NOT_RUNNING' : 'FURIMORA_DRAFT_FAILED';
+      const hint = e?.code === 'APP_NOT_RUNNING' ? '（cd electron && npm start で起動してください）' : '';
+      return fail(code, String((e && e.message) || e) + hint);
     }
   }
 );
