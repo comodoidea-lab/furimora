@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "pack": "electron-builder --dir",
-    "install-app": "npm run pack && rm -rf '/Applications/フリモーラ.app' && cp -R 'dist/mac-arm64/フリモーラ.app' /Applications/ && echo '→ /Applications/フリモーラ.app を入れ替えました'"
+    "install-app": "osascript -e 'quit app \"フリモーラ\"' 2>/dev/null; npm run pack && rm -rf '/Applications/フリモーラ.app' && cp -R 'dist/mac-arm64/フリモーラ.app' /Applications/ && open '/Applications/フリモーラ.app' && echo '→ /Applications/フリモーラ.app を入れ替えて起動しました'"
   },
   "devDependencies": {
     "electron": "^33.0.0",

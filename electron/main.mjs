@@ -121,8 +121,11 @@ function createWindow() {
   // アプリ内で開かせる（signInWithPopup が使う。外に出すとログインが完了しない）
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     // 捕捉待ちのときは、そのまま開かせて掴む。
-    // **パーティションを上書きしない**（別セッションへ移すと route provenance が消える）
-    if (captureArmed) return { action: 'allow' };
+    // **パーティションも URL も上書きしない**（別セッションへ移すと route provenance が消える）。
+    // ただし **show: false で出す。** 日次で何十件も回すと 1 件ごとにウィンドウが前面へ出るため。
+    // 見た目を変えているだけで、クリックの結果として開かれた窓であることは変わらない。
+    // 失敗したときは capture_evidence で中身をログに残す（画面で見る代わり）。
+    if (captureArmed) return { action: 'allow', overrideBrowserWindowOptions: { show: false } };
     if (url.includes('/__/auth/')) return { action: 'allow' };
     shell.openExternal(url);
     return { action: 'deny' };
@@ -346,6 +349,33 @@ const ops = {
     }
     const captured = await waited;
     return { ...captured, clicked };
+  },
+
+  /**
+   * 捕捉したウィンドウの中身を証拠として残す。**読み取りのみ。**
+   *
+   * 捕捉した窓は非表示なので、失敗しても画面で確認できない。
+   * その代わりに URL・タイトル・本文の頭とスクリーンショットをファイルへ落とす。
+   */
+  async capture_evidence({ id, dir }) {
+    const win = requireWindow(id);
+    const info = await win.webContents.executeJavaScript(`(() => ({
+      url: location.href,
+      title: document.title,
+      h1: (document.querySelector('h1')?.innerText || '').trim().slice(0, 120),
+      bodyHead: (document.body?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 600),
+    }))()`);
+    const outDir = dir || path.join(app.getPath('home'), '.furimora', 'evidence');
+    fs.mkdirSync(outDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = path.join(outDir, `${stamp}-${String(id).replace(/[^\w-]/g, '_')}.png`);
+    try {
+      const img = await win.webContents.capturePage();
+      fs.writeFileSync(file, img.toPNG());
+      return { ...info, screenshot: file };
+    } catch (e) {
+      return { ...info, screenshot: null, screenshotError: String((e && e.message) || e) };
+    }
   },
 
   /** 捕捉したウィンドウを閉じる。1 商品ごとに必ず閉じて次へ進む */
