@@ -789,7 +789,14 @@ playwright : loggedIn true  / profileDir ~/.furimora/chrome-profile
 | `click` / `clickFirstWithText` | カテゴリーを実ツリーで末端まで、商品の状態、配送の「更新する」 |
 | `setInputFiles`（CDP `DOM.setFileInputFiles`） | 画像 2 枚。AI ウィザードのモーダルも閉じた |
 
-**未検証は保存クリックのみ。** ただしクリック自体は上記で何度も通っている。
+##### 保存クリックも通した（2026-09-03・人間の承認のもと 1 件）
+
+`mercari_create_draft({ dry_run: false })` を Electron backend で実行し、
+メルカリの下書きを 1 件保存した（`/sell/draft/937829082`・画像なし・検証後に削除）。
+開き直した `savedContent` がタイトル・説明 757 文字・価格・カテゴリー・商品の状態とも一致。
+
+**これで ElectronBrowserService の 11 メソッドすべてが実データで検証済み。**
+残るは「画像あり＋保存」の組み合わせだけ（`setInputFiles` 単体は dry_run で検証済み）。
 
 画像が消えていたケースで `IMAGE_NOT_FOUND` が正しく発火し、**メルカリに触れる前に停止**した。
 
