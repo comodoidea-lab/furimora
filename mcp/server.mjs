@@ -305,7 +305,7 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             tab: r.tab, tabLabel: r.tabLabel, count: r.count,
-            truncated: r.truncated, loadMoreClicks: r.loadMoreClicks, elapsedMs: r.elapsedMs,
+            truncated: r.truncated, exitReason: r.exitReason, loadMoreClicks: r.loadMoreClicks, elapsedMs: r.elapsedMs,
             items: r.items,
           }, null, 2),
         }],

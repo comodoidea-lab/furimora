@@ -1045,6 +1045,8 @@ export class MercariService {
     }
 
     let clicks = 0, truncated = false;
+    // なぜループを抜けたかを残す。黙って少なく返ったときの切り分けに要る
+    let exitReason = 'complete';
     while (items.length < maxItems && clicks < maxLoadMore) {
       // ボタンは読み込み中に一時的に消えることがある。数回確認してから終了と判断する。
       let r = await this.browser.evaluate(clickLoadMoreInPage);
@@ -1055,7 +1057,7 @@ export class MercariService {
           r = await this.browser.evaluate(clickLoadMoreInPage);
           if (r.clicked) { recovered = true; break; }
         }
-        if (!recovered) break;
+        if (!recovered) { exitReason = 'no_load_more'; break; }
       }
       clicks++;
       // 増え始めてからも描画が続くため、増加を確認したあと件数が安定するまで待つ
@@ -1076,14 +1078,24 @@ export class MercariService {
         }
       }
       if (opts.onProgress) opts.onProgress({ loaded: items.length, clicks });
-      if (!grew) break;
+      if (!grew) { exitReason = 'no_growth'; break; }
     }
-    // 上限で打ち切ったかどうかを呼び出し側へ正直に伝える
-    if (clicks >= maxLoadMore || items.length >= maxItems) {
-      const more = await this.browser.evaluate(
-        () => !![...document.querySelectorAll('button, a')].find((b) => /もっと見る/.test(b.textContent || '')));
-      truncated = more;
-    }
+    if (clicks >= maxLoadMore) exitReason = 'max_load_more';
+    else if (items.length >= maxItems) exitReason = 'max_items';
+
+    // **抜けた理由に関わらず、最後に必ず「もっと見る」が残っていないか確かめる。**
+    //
+    // 以前は上限で打ち切ったときしか見ていなかったので、「もっと見るが見つからない」
+    // 「増えなかった」で抜けた場合は truncated:false のまま返っていた。
+    // **黙って少なく返るのに truncated:false** だと、
+    // 「打ち切られていたら消えている判定をしない」という照合側の安全弁がすり抜ける
+    // （実測で売却済み 319 件が 1 件で返ったことがある。再現はしていない）。
+    const hasMore = () => this.browser.evaluate(
+      () => !![...document.querySelectorAll('button, a')].find((b) => /もっと見る/.test(b.textContent || '')));
+    let more = await hasMore();
+    // ボタンは読み込み中に一時的に消える。逆に一瞬だけ見えることもあるので念のため確かめ直す
+    if (more) { await this.browser.waitForTimeout(1500); more = await hasMore(); }
+    truncated = more;
 
     return {
       tab: tabKey,
@@ -1092,6 +1104,7 @@ export class MercariService {
       count: Math.min(items.length, maxItems),
       loadMoreClicks: clicks,
       truncated,
+      exitReason,
       elapsedMs: Date.now() - startedAt,
     };
   }
