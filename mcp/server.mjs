@@ -24,6 +24,7 @@ import { MercariService, LISTING_TABS, SELECTORS, parseCategoryPath, normalizeCa
 import { reconcileListings } from '../public/js/reconcile.js';
 import { callApp, appIsRunning, readJsonArrayFromApp, SOCKET_PATH as APP_SOCKET } from './src/furimora-app-client.mjs';
 import { FurimoraService, assertConditionLabel, CONDITION_LABELS } from './src/furimora-service.mjs';
+import { ElectronBrowserService } from './src/electron-browser-service.mjs';
 import fs from 'node:fs';
 
 const API_ORIGIN = process.env.FURIMORA_API_ORIGIN || 'https://furimora.vercel.app';
@@ -137,7 +138,7 @@ server.registerTool(
       const info = await callApp('ping', {}, { timeoutMs: 3000 });
       let auth = null;
       try { auth = await callApp('auth_state', {}, { timeoutMs: 5000 }); } catch { /* ウィンドウが閉じている */ }
-      return { content: [{ type: 'text', text: JSON.stringify({ running: true, socket: APP_SOCKET, ...info, auth }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ running: true, socket: APP_SOCKET, mercariBackend: USE_ELECTRON_BROWSER ? 'electron' : 'playwright', ...info, auth }, null, 2) }] };
     } catch (e) {
       return {
         content: [{
@@ -154,10 +155,25 @@ server.registerTool(
   }
 );
 
+/**
+ * メルカリ操作のブラウザ backend を選ぶ。
+ *
+ * 既定は従来どおり外部 Chrome + Playwright。
+ * `FURIMORA_BROWSER=electron` を立てると、フリモーラ Desktop の非表示ウィンドウを使う。
+ *
+ * **既定を切り替えていないのは、メルカリ側が書き込み経路だから。**
+ * 読み取り（check_login / get_my_listings）で十分検証してから既定にする。
+ */
+const USE_ELECTRON_BROWSER = process.env.FURIMORA_BROWSER === 'electron';
+
 async function withMercari(fn, { headless = true } = {}) {
-  const browser = new BrowserService({ headless });
+  const browser = USE_ELECTRON_BROWSER
+    ? new ElectronBrowserService(callApp)
+    : new BrowserService({ headless });
   try {
     await browser.startBrowser();
+    // Electron backend では非表示ウィンドウが既定。ログイン等で見せる必要があるときだけ出す
+    if (USE_ELECTRON_BROWSER && !headless) await browser.showWindow(true);
     return await fn(new MercariService(browser), browser);
   } finally {
     await browser.stopBrowser();
@@ -180,7 +196,10 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             loggedIn: r.loggedIn,
-            profileDir: DEFAULT_PROFILE_DIR,
+            backend: USE_ELECTRON_BROWSER ? 'electron' : 'playwright',
+            // Electron backend では Chrome のプロファイルを使わない。嘘の値を出さない
+            profileDir: USE_ELECTRON_BROWSER ? null : DEFAULT_PROFILE_DIR,
+            sessionPartition: USE_ELECTRON_BROWSER ? 'persist:mercari' : null,
             hint: r.loggedIn ? null : 'mercari_login を実行するとブラウザが開くので、そこで一度ログインしてください（2段階認証は人が通す必要があります）',
           }, null, 2),
         }],
@@ -203,9 +222,13 @@ server.registerTool(
     },
   },
   async ({ wait_seconds }) => {
-    const browser = new BrowserService({ headless: false });
+    // Electron backend では非表示ウィンドウを一時的に見せる（別プロセスの Chrome は起動しない）
+    const browser = USE_ELECTRON_BROWSER
+      ? new ElectronBrowserService(callApp)
+      : new BrowserService({ headless: false });
     try {
       await browser.startBrowser();
+      if (USE_ELECTRON_BROWSER) await browser.showWindow(true);
       const mercari = new MercariService(browser);
       await browser.openPage('https://jp.mercari.com/login');
       const deadline = Date.now() + wait_seconds * 1000;
@@ -220,7 +243,10 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             loggedIn,
-            profileDir: DEFAULT_PROFILE_DIR,
+            backend: USE_ELECTRON_BROWSER ? 'electron' : 'playwright',
+            // Electron backend では Chrome のプロファイルを使わない。嘘の値を出さない
+            profileDir: USE_ELECTRON_BROWSER ? null : DEFAULT_PROFILE_DIR,
+            sessionPartition: USE_ELECTRON_BROWSER ? 'persist:mercari' : null,
             note: loggedIn ? 'ログイン済み。セッションはプロファイルに保存されました。' : '時間内にログインが確認できませんでした。もう一度実行してください。',
           }, null, 2),
         }],

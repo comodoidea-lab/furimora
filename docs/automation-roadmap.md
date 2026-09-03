@@ -726,6 +726,51 @@ mercari_prepare_draft_from_furimora_draft({ index: 0 })   ← backup_path なし
 上限に張り付いていて件数が増えない場合は `droppedOldest` を返す（今回は 51 件になったので
 `FURIMORA_DRAFTS_MAX = 150` が本番で効いていることも同時に確認できた）。
 
+#### 本体の第3段 — メルカリ操作を Electron の非表示ウィンドウへ（2026-09-03・opt-in）
+
+`mcp/src/electron-browser-service.mjs`。**`BrowserService` と同じ面を Electron で実装した。
+`MercariService` は無改修で動く**（「下だけ差し替えられる」層分けがここで効いた）。
+
+```
+FURIMORA_BROWSER=electron   ← これを立てたときだけ使う。**既定は従来どおり Playwright**
+```
+
+**既定を切り替えていないのは、メルカリ側が書き込み経路だから。**
+読み取りで十分検証してから既定にする（フェーズ1で読み取りから始めたのと同じ順序）。
+
+`MercariService` が使う 11 メソッドを実装:
+`openPage` / `evaluate` / `waitForSelector` / `click` / `clickNth` / `clickFirstWithText` /
+`fill` / `scrollIntoView` / `setInputFiles` / `getCurrentUrl` / `waitForTimeout`。
+
+##### 実装の勘所
+
+- **`fill` は素直に `.value` を代入しても React が気づかない。** React は value に自前の
+  セッターを被せて変更を追跡しているため、プロトタイプ側のネイティブセッターで書いてから
+  `input` / `change` を bubbles で飛ばす。**ここを間違えると「入れたつもりで空のまま保存される」**
+  という最悪の壊れ方をする。入れた後に必ず読み戻して検証する
+- `evaluate(fn, arg)` は関数を文字列化して送る。**引数は直列化可能なものに限る**
+  （SELECTORS を丸ごと渡している既存の制約と同じ）
+- `setInputFiles` は DOM API では偽装できないので CDP の `DOM.setFileInputFiles` を使う。
+  **外部ブラウザではなく自分のプロセス内の CDP** なので、外部 Chrome の管理は増えない
+- `open_page` は SPA のリダイレクトで `ERR_ABORTED` を投げることがある。
+  URL が変わっていれば遷移は成功しているので握りつぶす
+
+##### 検証状況
+
+`mercari_check_login` を両 backend で実行し、**既定（Playwright）が無傷**であることと、
+Electron backend が機構として動く（遷移して評価して結果を返す）ことを確認した。
+
+```
+electron   : loggedIn false / sessionPartition "persist:mercari"   ← 新規パーティションなので正しい
+playwright : loggedIn true  / profileDir ~/.furimora/chrome-profile
+```
+
+`profileDir` は Electron backend では `null` を返す（使っていないパスを出すと後の調査を誤らせる）。
+
+**未検証**: `persist:mercari` がメルカリ未ログインのため、`mercari_get_my_listings` 以降は
+まだ通していない。ログインは人間が 1 回だけ行う必要がある（`mercari_login` で
+非表示ウィンドウを一時的に見せる）。**書き込み系は当然まだ通していない。**
+
 #### 未検証・リスク
 
 - Electron は Chromium を同梱するので**実行ファイルの容量は増える**（概算 150〜250 MB）。
