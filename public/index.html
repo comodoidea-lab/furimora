@@ -412,8 +412,9 @@ tailwind.config = {
         <p class="text-on-surface-variant text-xs font-semibold">本日の値下げ</p>
         <div>
           <h3 class="font-headline font-black text-3xl tracking-tighter text-primary" id="stat-discount">—</h3>
+          <!-- 実装は予定日にプッシュ通知を送るところまで。メルカリ側の価格変更は人間が行う -->
           <p class="text-[10px] text-on-surface-variant font-medium mt-1 flex items-center gap-1.5">
-            <span class="pulse-dot" style="width:6px;height:6px"></span>自動調整中
+            <span class="pulse-dot" style="width:6px;height:6px"></span>予定を通知（変更は手動）
           </p>
         </div>
       </div>
@@ -6007,7 +6008,21 @@ function createClone() {
       title, price, description, category, condition,
       createdAt: new Date().toISOString()
     });
-    try { localStorage.setItem('furimora_drafts', JSON.stringify(drafts.slice(0, FURIMORA_DRAFTS_MAX))); } catch {}
+    // 上限を超えた分は最古から落ちる。黙って消すと気づけないので、落とした件数を必ず知らせる。
+    const dropped = Math.max(0, drafts.length - FURIMORA_DRAFTS_MAX);
+    const keep = drafts.slice(0, FURIMORA_DRAFTS_MAX);
+    try { localStorage.setItem('furimora_drafts', JSON.stringify(keep)); } catch {}
+    if (dropped > 0) {
+      const oldest = drafts.slice(FURIMORA_DRAFTS_MAX);
+      console.warn('[furimora] 下書きの上限超過で最古を削除しました', {
+        dropped,
+        limit: FURIMORA_DRAFTS_MAX,
+        titles: oldest.map((d) => d && d.title).filter(Boolean),
+      });
+      showToast(`下書きが上限${FURIMORA_DRAFTS_MAX}件に達したため、最古の${dropped}件を削除しました`);
+    } else if (keep.length >= FURIMORA_DRAFTS_MAX - 10) {
+      showToast(`下書きは残り${FURIMORA_DRAFTS_MAX - keep.length}件で上限です`);
+    }
     // 統計更新
     let s = {};
     try { s = JSON.parse(localStorage.getItem('furimora_stats') || '{}'); } catch {}
