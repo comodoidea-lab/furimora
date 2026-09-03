@@ -10,6 +10,7 @@
  */
 import { app, BrowserWindow, Menu, shell } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import { startControlServer } from './control.mjs';
 
 /**
@@ -35,6 +36,28 @@ app.setPath('userData', USER_DATA_DIR);
 /** Dock / メニュー / About に出る名前。package.json の productName と一致させる */
 const APP_NAME = 'フリモーラ';
 app.setName(APP_NAME);
+
+/**
+ * ログイン時に自動起動する。**初回の1回だけ登録する。**
+ *
+ * 毎回 setLoginItemSettings(true) を呼ぶと、システム設定で外しても次の起動で
+ * 勝手に戻ってしまう。**利用者が外した選択を尊重する**ため、印を残して一度きりにする。
+ *
+ * `app.isPackaged` を見ているのは、`npm start`（開発用）で呼ぶと
+ * **Electron.app 自体がログイン項目に登録されてしまう**ため。
+ */
+function registerLoginItemOnce() {
+  if (!app.isPackaged) return;
+  const marker = path.join(USER_DATA_DIR, '.login-item-registered');
+  if (fs.existsSync(marker)) return;
+  try {
+    app.setLoginItemSettings({ openAtLogin: true });
+    fs.writeFileSync(marker, new Date().toISOString());
+    console.log('[furimora-desktop] ログイン項目に登録しました（初回のみ）');
+  } catch (e) {
+    console.error('[furimora-desktop] ログイン項目に登録できません:', String((e && e.message) || e));
+  }
+}
 
 const APP_URL = process.env.FURIMORA_URL || 'https://furimora.vercel.app';
 const PARTITION = 'persist:furimora';
@@ -393,6 +416,7 @@ function buildAppMenu() {
 
 app.whenReady().then(async () => {
   buildAppMenu();
+  registerLoginItemOnce();
   createWindow();
   try {
     control = await startControlServer(ops);
