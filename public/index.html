@@ -630,10 +630,20 @@ tailwind.config = {
           <input id="clone-category-input" type="text" class="w-full bg-surface-container-low border-none rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-primary/20 outline-none" readonly/>
         </div>
 
-        <!-- 商品状態（参照用・コピー不要） -->
+        <!--
+          商品状態。**複製元の値を初期値に入れるが、確定させるのは人間。**
+          複製元は「売れた個体」の状態なので、補充では必ず別物になる。
+          選択肢の文言は**メルカリの表記に合わせる**（「新品、未使用」は読点。
+          中黒にすると出品フォーム側の6択判定で一致しない）。
+        -->
         <div class="p-4 space-y-2">
-          <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider block">商品の状態 <span class="text-[10px] font-normal normal-case text-on-surface-variant/60">（出品フォームで選択）</span></label>
-          <input id="clone-condition-input" type="text" class="w-full bg-surface-container-low border-none rounded-xl px-4 py-2.5 text-sm font-medium outline-none" readonly/>
+          <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider block">商品の状態 <span class="text-[10px] font-normal normal-case text-on-surface-variant/60">（複製元の値。実物を見て選び直せます）</span></label>
+          <select id="clone-condition-input" class="w-full bg-surface-container-low border-none rounded-xl px-4 py-2.5 text-sm font-medium outline-none">
+            <option value="">選択してください</option>
+            <option>新品、未使用</option><option>未使用に近い</option>
+            <option>目立った傷や汚れなし</option><option>やや傷や汚れあり</option>
+            <option>傷や汚れあり</option><option>全体的に状態が悪い</option>
+          </select>
         </div>
 
         <!-- 配送情報（参照用） -->
@@ -5527,6 +5537,34 @@ function mergeMercariApiPartial(partial, api) { return FurimoraCloneService.merg
 
 async function enrichCloneDataFromApi(data) { return FurimoraCloneService.enrich(data); }
 
+/**
+ * 商品状態のセレクトに複製元の値を入れる。
+ *
+ * 複製元の表記が6択に無いことがある（古いデータや「新品・未使用」の中黒など）。
+ * **黙って空にすると元の情報が消える**ので、その場合は値をそのまま選択肢として足す。
+ * 人間が選び直せばよい。
+ */
+function setCloneCondition(value) {
+  const el = document.getElementById('clone-condition-input');
+  if (!el) return;
+  // 前回注入した選択肢は必ず消す。残すと次のクローンの先頭に居座って誤選択の元になる
+  [...el.querySelectorAll('option[data-injected]')].forEach((o) => o.remove());
+  const v = String(value || '').trim();
+  if (!v) { el.value = ''; return; }
+  const known = [...el.options].some((o) => o.value === v);
+  if (!known) {
+    // 複製元の表記が6択に無いことがある（古いデータや「新品・未使用」の中黒など）。
+    // **黙って空にすると元の情報が消える**ので、値をそのまま選択肢として足す。
+    // 人間が選び直せばよい。
+    const opt = document.createElement('option');
+    opt.textContent = v + '（複製元の表記。選び直してください）';
+    opt.value = v;
+    opt.setAttribute('data-injected', '1');
+    el.insertBefore(opt, el.options[1] || null);
+  }
+  el.value = v;
+}
+
 function showCloneStep2(data) {
   clonedData = data;
   document.getElementById('clone-step-1').classList.add('hidden');
@@ -5537,7 +5575,7 @@ function showCloneStep2(data) {
   document.getElementById('clone-title').value = data.title || '';
   document.getElementById('clone-description').value = data.description || '';
   document.getElementById('clone-category-input').value = data.category || '';
-  document.getElementById('clone-condition-input').value = data.condition || '';
+  setCloneCondition(data.condition);
   const curPrice = Number(data.currentPrice ?? data.price);
   document.getElementById('clone-price').value = Number.isFinite(curPrice) && curPrice > 0 ? curPrice : 0;
   updateFeeCalc();
