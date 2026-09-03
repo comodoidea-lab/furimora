@@ -134,6 +134,39 @@ function createWindow() {
     armed.resolve({ id, url: details?.url || child.webContents.getURL() });
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+  return mainWindow;
+}
+
+/**
+ * フリモーラのウィンドウを確実に用意する。
+ *
+ * **macOS ではウィンドウを閉じてもアプリは終了しない**（`window-all-closed` で quit しない）。
+ * そのため「アプリは Dock にいるのに自動化だけ失敗する」という分かりにくい状態が起きうる。
+ * 窓が無ければ作り直し、**読み込みが終わるまで待ってから**返す。
+ * 待たないと、作った直後の空のページに対して evaluate してしまう。
+ */
+async function ensureMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
+  const win = createWindow();
+  if (win.webContents.isLoadingMainFrame()) {
+    await new Promise((resolve) => {
+      const done = () => resolve();
+      win.webContents.once('did-finish-load', done);
+      win.webContents.once('did-fail-load', done);   // 失敗しても呼び出し側で判断させる
+      setTimeout(done, 45000);
+    });
+  }
+  return win;
+}
+
+/**
+ * 対象のウィンドウを返す。フリモーラは閉じられていても作り直す。
+ * @param {'furimora'|'mercari'|string} target
+ */
+async function resolveWindow(target = 'furimora', { create = false } = {}) {
+  if (typeof target === 'string' && target.startsWith('captured:')) return requireWindow(target);
+  if (target === 'mercari') return requireWindow(target, { create });
+  return ensureMainWindow();
 }
 
 function createMercariWindow() {
@@ -192,7 +225,7 @@ const ops = {
    */
   async read_storage({ keys, target = 'furimora' }) {
     if (!Array.isArray(keys) || !keys.length) throw new Error('keys（配列）が必要です');
-    const win = requireWindow(target);
+    const win = await resolveWindow(target);
     const script = `(() => {
       const out = {};
       for (const k of ${JSON.stringify(keys)}) {
@@ -217,7 +250,7 @@ const ops = {
    */
   async evaluate({ script, userGesture = true, target = 'furimora' }) {
     if (typeof script !== 'string' || !script.trim()) throw new Error('script（文字列）が必要です');
-    const win = requireWindow(target, { create: target === 'mercari' });
+    const win = await resolveWindow(target, { create: target === 'mercari' });
     return win.webContents.executeJavaScript(script, userGesture);
   },
 
@@ -228,7 +261,7 @@ const ops = {
    */
   async open_page({ url, target = 'furimora', timeoutMs = 45000 }) {
     if (!url) throw new Error('url が必要です');
-    const win = requireWindow(target, { create: target === 'mercari' });
+    const win = await resolveWindow(target, { create: target === 'mercari' });
     const wc = win.webContents;
     try {
       await Promise.race([
@@ -243,7 +276,7 @@ const ops = {
   },
 
   async current_url({ target = 'furimora' }) {
-    return { url: requireWindow(target).webContents.getURL() };
+    return { url: (await resolveWindow(target)).webContents.getURL() };
   },
 
   /**
@@ -254,7 +287,7 @@ const ops = {
   async set_input_files({ selector, files, target = 'mercari' }) {
     if (!selector) throw new Error('selector が必要です');
     if (!Array.isArray(files) || !files.length) throw new Error('files（配列）が必要です');
-    const wc = requireWindow(target, { create: target === 'mercari' }).webContents;
+    const wc = (await resolveWindow(target, { create: target === 'mercari' })).webContents;
     const attached = wc.debugger.isAttached();
     if (!attached) wc.debugger.attach('1.3');
     try {
@@ -282,7 +315,7 @@ const ops = {
   async click_and_capture({ script, target = 'furimora', timeoutMs = 30000 }) {
     if (typeof script !== 'string' || !script.trim()) throw new Error('script（文字列）が必要です');
     if (captureArmed) throw new Error('既に捕捉待ちです。前の捕捉が終わっていません');
-    const win = requireWindow(target);
+    const win = await resolveWindow(target);
 
     let settle;
     const waited = new Promise((resolve, reject) => {
@@ -332,7 +365,7 @@ const ops = {
       w.hide();
       return { shown: false };
     }
-    const win = requireWindow(target, { create: target === 'mercari' });
+    const win = await resolveWindow(target, { create: target === 'mercari' });
     win.show(); win.focus();
     return { shown: true };
   },
@@ -346,7 +379,7 @@ const ops = {
 
   /** ログイン状態。UID もメールアドレスも中身は返さない */
   async auth_state() {
-    const win = requireWindow('furimora');
+    const win = await resolveWindow('furimora');
     return win.webContents.executeJavaScript(`(() => {
       try {
         const u = (typeof furimoraCurrentUser === 'function') ? furimoraCurrentUser() : null;

@@ -1109,6 +1109,22 @@ electron/dist/                   ← ビルド出力。npm run pack で丸ごと
   `furimoraApplySyncPayload(payload, replaceLocal=true)` で消える
 - **`npm start`（開発用）と `.app` は同時起動できない**（単一インスタンス）。
   開発するときは `.app` を終了してから
+
+##### ウィンドウを閉じてもアプリは終了しない（macOS の標準挙動）
+
+`window-all-closed` で quit していないため、閉じても Dock に残る。終了は ⌘Q だけ。
+
+**そのままだと「アプリは Dock にいるのに自動化だけ失敗する」という分かりにくい状態になる**
+（`requireWindow` が窓の不在で例外を投げていた）。`ensureMainWindow()` で
+**窓が無ければ作り直し、読み込み完了まで待ってから**続行するようにした。
+
+**アプリ側だけ直しても足りなかった。** `drivers/electron.mjs` の `connect()` が
+`ping` の `windowOpen` を見て手前で諦めていたため、窓を閉じた状態では
+`BLOCKED_AUTH` のままだった。ドライバ側も `current_url`（作り直しを伴う）で
+確かめるように直して、ようやく通った。**実際に窓を閉じて試すまで気づけなかった。**
+
+実測: `window.close()` で窓を閉じ（`windowOpen: false` / アプリは生存）、
+その状態から値下げを実行 → 窓が作り直され `DRY_RUN_OK` まで到達。
 - ログイン項目の登録は**未署名でも受理された**（2026-09-03 にシステム設定で確認。
   アイコン付きで「フリモーラ」が入っている）。署名が要るかもと書いていたが不要だった
 
