@@ -1001,6 +1001,56 @@ CDP 版が「フリモーラ・メルカリの両方がログイン済み（同�
 このためだった。**忠実な選択は上書きせず、`persist:furimora` にメルカリのログインを足すこと。**
 既存の `persist:mercari` はそのままで、今日作った MCP 経路は影響を受けない。
 
+#### 値下げルーティンを Electron へ移した（2026-09-03・LIVE 1 件で検証）
+
+`~/GitHub/mercari-relist-batch`（別リポジトリ）。**安全ロジックは 1 文字も変えていない。**
+
+```
+scripts/v2/drivers/{index,cdp,electron}.mjs   ブラウザ操作だけを切り出した
+scripts/v2/price_cut_one.mjs                  接点15箇所をドライバ経由に差し替え
+RELIST_DRIVER=electron                        既定は CDP のまま
+```
+
+差し替えたのは接続・タブ捕捉・`evaluate`（`furi` 9 / `merc` 6）と後始末だけ。
+identity proof・価格欄の特定・台帳・停止条件はそのまま。
+**監査が重複実装を問題視していたので、安全ロジックを 2 本にしない。**
+
+##### 3 経路で同一出力 → LIVE 1 件で VERIFIED
+
+| | dry-run |
+|---|---|
+| 元のコード（CDP） | `DRY_RUN_OK` |
+| リファクタ後（CDP・既定） | 同一 |
+| リファクタ後（electron） | 同一 |
+
+そのうえで人間の承認のもと LIVE を 1 件:
+
+```
+裏切りのサーカス [Blu-ray] m32538141980  ¥4300 → ¥4200
+PLANNED → CARD_CONFIRMED → MERCARI_OPENED(card-click) → IDENTITY_CONFIRMED
+        → MERCARI_SAVED → FURIMORA_RECORDED → VERIFIED
+検証: メルカリ画面 ✓ / フリモーラカード ¥4200 ✓ / 台帳 59eae40b…
+```
+
+**外部 Chrome を一切開かずに完了した。** 前面に出るものも 881 MB のプロファイルも要らない。
+
+##### 途中で分かったこと
+
+- **`node_modules` が無く、そもそも実行できない状態だった**（`npm ci` で復元）。
+  「鬱陶しいから止めている」以前に動かなかった
+- 専用 Chrome は落ちていたので起動した（規則の 1 回だけの例外。`launched: true` を報告に残す）
+- 最初のベースラインが `NEEDS_HUMAN` で落ちたのは**起動直後のコールドな描画**で、
+  セッション切れではなかった。温めた状態で取り直して比較した
+
+##### 残り
+
+- **`--live` を CDP 経路では通していない**（Electron のみ）。既定は CDP のままなので、
+  日次運用を再開するなら先に確認すること
+- `run_day.sh` 経由の日次インターロック（`preflight.sh`）は今回通していない。
+  1 件の検証として直接呼んだ。**日次運用ではそちらを通す**
+- launchd（`com.comodoidea.mercari-cdp`）は毎朝 Chrome を起こしたままになっている。
+  Electron へ寄せ切るなら不要になる
+
 #### 未検証・リスク
 
 - Electron は Chromium を同梱するので**実行ファイルの容量は増える**（概算 150〜250 MB）。
