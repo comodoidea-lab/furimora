@@ -1,0 +1,16 @@
+{
+  "appId": "com.comodoidea.furimora",
+  "productName": "フリモーラ",
+  "directories": { "output": "dist/standard", "buildResources": "build" },
+  "files": [
+    "main.mjs",
+    "control.mjs",
+    "package.json"
+  ],
+  "mac": {
+    "category": "public.app-category.business",
+    "icon": "build/icon.icns",
+    "target": [{ "target": "dir", "arch": ["arm64"] }],
+    "identity": null
+  }
+}

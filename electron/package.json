@@ -8,37 +8,16 @@
   "main": "main.mjs",
   "scripts": {
     "start": "electron .",
-    "pack": "electron-builder --dir",
-    "install-app": "osascript -e 'quit app \"フリモーラ\"' 2>/dev/null; npm run pack && rm -rf '/Applications/フリモーラ.app' && cp -R 'dist/mac-arm64/フリモーラ.app' /Applications/ && open '/Applications/フリモーラ.app' && echo '→ /Applications/フリモーラ.app を入れ替えて起動しました'"
+    "pack": "npm run pack:standard",
+    "pack:standard": "electron-builder --dir --config electron-builder.standard.json",
+    "pack:advanced": "electron-builder --dir --config electron-builder.advanced.json",
+    "verify:standard": "node scripts/verify-build.mjs standard",
+    "verify:advanced": "node scripts/verify-build.mjs advanced",
+    "install-app": "osascript -e 'quit app \"フリモーラ\"' 2>/dev/null; npm run pack:standard && npm run verify:standard && rm -rf '/Applications/フリモーラ.app' && cp -R 'dist/standard/mac-arm64/フリモーラ.app' /Applications/ && open '/Applications/フリモーラ.app' && echo '→ 標準版を /Applications へ入れ替えて起動しました'",
+    "install-app:advanced": "osascript -e 'quit app \"フリモーラ Advanced\"' 2>/dev/null; npm run pack:advanced && npm run verify:advanced && rm -rf '/Applications/フリモーラ Advanced.app' && cp -R 'dist/advanced/mac-arm64/フリモーラ Advanced.app' /Applications/ && open '/Applications/フリモーラ Advanced.app' && echo '→ Advanced 版を入れ替えて起動しました（自動操作は既定で無効）'"
   },
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0"
-  },
-  "build": {
-    "appId": "com.comodoidea.furimora",
-    "productName": "フリモーラ",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "main.mjs",
-      "control.mjs",
-      "package.json"
-    ],
-    "mac": {
-      "category": "public.app-category.business",
-      "icon": "build/icon.icns",
-      "target": [
-        {
-          "target": "dir",
-          "arch": [
-            "arm64"
-          ]
-        }
-      ],
-      "identity": null
-    }
   }
 }

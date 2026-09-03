@@ -1,0 +1,19 @@
+{
+  "appId": "com.comodoidea.furimora.advanced",
+  "productName": "フリモーラ Advanced",
+  "directories": { "output": "dist/advanced", "buildResources": "build" },
+  "files": [
+    "main.mjs",
+    "control.mjs",
+    "consent.mjs",
+    "advanced-state.mjs",
+    "ops/**/*",
+    "package.json"
+  ],
+  "mac": {
+    "category": "public.app-category.business",
+    "icon": "build/icon.icns",
+    "target": [{ "target": "dir", "arch": ["arm64"] }],
+    "identity": null
+  }
+}

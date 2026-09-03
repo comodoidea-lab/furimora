@@ -8,7 +8,7 @@
  * UI は作り直さない。デプロイ済みの本番をそのまま開く
  * （ローカルに public/ を置くと /api/* と Firebase の authDomain が壊れる）。
  */
-import { app, BrowserWindow, Menu, shell } from 'electron';
+import { app, BrowserWindow, Menu, shell, session, dialog } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { startControlServer } from './control.mjs';
@@ -215,6 +215,153 @@ function requireWindow(target = 'furimora', { create = false } = {}) {
   return mainWindow;
 }
 
+/* ─── Advanced（自動操作）の読み込みと有効化 ──────────────────────────────
+ *
+ * 標準ビルドには ops/advanced.mjs も advanced-state.mjs も **同梱しない**
+ * （electron-builder の files で除外）。したがって下の import は失敗し、
+ * ADVANCED_AVAILABLE は false のままになる。設定やフラグで生やす口は無い。
+ *
+ * Advanced ビルドに含まれていても、**インストール直後は登録しない。**
+ * 成果物を取得したこと自体を上級者の資格として扱わない、という方針のため、
+ * 同意画面を通して明示的に有効化されたときだけ ops テーブルへ載せる。
+ */
+let ADVANCED_AVAILABLE = false;
+let advancedState = null;
+let advancedFactory = null;
+let askConsent = null;
+let advancedRegistered = false;
+/** メルカリのウィンドウを無操作で放置する上限。常駐を既定にしない */
+const MERCARI_IDLE_MS = 10 * 60 * 1000;
+let mercariIdleTimer = null;
+
+async function loadAdvanced() {
+  try {
+    const [stateMod, opsMod, consentMod] = await Promise.all([
+      import('./advanced-state.mjs'),
+      import('./ops/advanced.mjs'),
+      import('./consent.mjs'),
+    ]);
+    advancedState = stateMod;
+    advancedFactory = opsMod.createAdvancedOps;
+    askConsent = consentMod.askConsent;
+    advancedState.initAdvancedState(USER_DATA_DIR);
+    ADVANCED_AVAILABLE = true;
+    if (advancedState.isEnabled()) registerAdvancedOps();
+    console.log('[furimora-desktop] Advanced 版 / 自動操作:', advancedRegistered ? '有効' : '無効（既定）');
+  } catch {
+    ADVANCED_AVAILABLE = false;
+    console.log('[furimora-desktop] 標準版 / 自動操作は含まれていません');
+  }
+}
+
+function advancedContext() {
+  return {
+    resolveWindow, requireWindow, capturedWindows,
+    getCaptureArmed: () => captureArmed,
+    setCaptureArmed: (v) => { captureArmed = v; },
+    getMercariWindow: () => mercariWindow,
+    setMercariWindow: (v) => { mercariWindow = v; },
+    getMainWindow: () => mainWindow,
+    touchMercariActivity,
+    userDataDir: USER_DATA_DIR,
+    homeDir: app.getPath('home'),
+  };
+}
+
+function registerAdvancedOps() {
+  if (!ADVANCED_AVAILABLE || advancedRegistered) return;
+  Object.assign(ops, advancedFactory(advancedContext()));
+  advancedRegistered = true;
+}
+
+/** 能力をテーブルから外す。「弾く」ではなく「呼べなくする」 */
+function unregisterAdvancedOps() {
+  if (!advancedRegistered) return;
+  for (const name of ADVANCED_OP_NAMES) delete ops[name];
+  Object.assign(ops, CORE_OP_SNAPSHOT);   // 上書きされた evaluate 等を戻す
+  advancedRegistered = false;
+}
+
+/** 無操作が続いたらメルカリのウィンドウを畳む */
+function touchMercariActivity() {
+  if (mercariIdleTimer) clearTimeout(mercariIdleTimer);
+  mercariIdleTimer = setTimeout(() => {
+    if (mercariWindow && !mercariWindow.isDestroyed()) {
+      console.log('[furimora-desktop] 無操作のためメルカリのウィンドウを閉じます');
+      mercariWindow.destroy();
+    }
+    mercariWindow = null;
+  }, MERCARI_IDLE_MS);
+}
+
+/** メルカリの資格情報を捨てる。無効化＝能力とログインの両方を失う */
+async function clearMercariCredentials() {
+  try {
+    const ses = session.fromPartition(PARTITION);
+    const cookies = await ses.cookies.get({});
+    let removed = 0;
+    for (const c of cookies) {
+      if (!String(c.domain || '').includes('mercari')) continue;
+      const url = `http${c.secure ? 's' : ''}://${String(c.domain).replace(/^\./, '')}${c.path || '/'}`;
+      try { await ses.cookies.remove(url, c.name); removed += 1; } catch { /* 個別の失敗は無視 */ }
+    }
+    await ses.clearStorageData({ origin: 'https://jp.mercari.com' });
+    return { cookiesRemoved: removed };
+  } catch (e) {
+    return { cookiesRemoved: 0, error: String((e && e.message) || e) };
+  }
+}
+
+/** 有効化。同意画面を必ず通す */
+async function enableAdvanced() {
+  if (!ADVANCED_AVAILABLE) throw new Error('この版には自動操作が含まれていません');
+  const res = await askConsent(mainWindow);
+  if (!res.accepted) return { enabled: false, reason: res.reason || 'declined' };
+  advancedState.enable();
+  registerAdvancedOps();
+  advancedState.audit(USER_DATA_DIR, { op: 'advanced_enable', consentHash: advancedState.CONSENT_HASH });
+  return { enabled: true };
+}
+
+/** 無効化。能力を外し、ウィンドウを畳み、資格情報を捨てる */
+async function disableAdvanced() {
+  if (!ADVANCED_AVAILABLE) throw new Error('この版には自動操作が含まれていません');
+  unregisterAdvancedOps();
+  if (mercariIdleTimer) { clearTimeout(mercariIdleTimer); mercariIdleTimer = null; }
+  if (mercariWindow && !mercariWindow.isDestroyed()) mercariWindow.destroy();
+  mercariWindow = null;
+  for (const [id, w] of capturedWindows) { if (w && !w.isDestroyed()) w.destroy(); capturedWindows.delete(id); }
+  const cleared = await clearMercariCredentials();
+  advancedState.disable();
+  advancedState.audit(USER_DATA_DIR, { op: 'advanced_disable', ...cleared });
+  try { app.setLoginItemSettings({ openAtLogin: false }); } catch { /* 環境による */ }
+  return { enabled: false, ...cleared };
+}
+
+/**
+ * 標準版が触れてよい対象かを確かめる。
+ *
+ * **「弾く」ためではなく「標準版には無い」ことを明示するための境界。**
+ * Advanced が有効なときは ops/advanced.mjs の実装がこれらを上書きするので、
+ * ここに来るのは標準版か、Advanced が無効な Advanced 版だけ。
+ */
+function assertFurimoraTarget(target, opName) {
+  if (target === 'furimora') return;
+  const hint = ADVANCED_AVAILABLE
+    ? '「自動操作を有効にする」を実行してください'
+    : 'この版には自動操作は含まれていません（Advanced 版が必要です）';
+  throw new Error(`${opName} が扱えるのは furimora のウィンドウだけです（target=${target}）。${hint}`);
+}
+
+/** フリモーラ自身のオリジンか。外部サイトを開く口を標準版に残さない */
+function assertFurimoraOrigin(url) {
+  let origin;
+  try { origin = new URL(url).origin; } catch { throw new Error(`URL を解釈できません: ${url}`); }
+  if (origin !== new URL(APP_URL).origin) {
+    throw new Error(`標準版が開けるのは ${new URL(APP_URL).origin} だけです（指定: ${origin}）`);
+  }
+}
+
 /** MCP から呼べる操作。増やすときは「必要になったものだけ」足す */
 const ops = {
   async ping() {
@@ -236,6 +383,7 @@ const ops = {
    */
   async read_storage({ keys, target = 'furimora' }) {
     if (!Array.isArray(keys) || !keys.length) throw new Error('keys（配列）が必要です');
+    assertFurimoraTarget(target, 'read_storage');
     const win = await resolveWindow(target);
     const script = `(() => {
       const out = {};
@@ -261,7 +409,10 @@ const ops = {
    */
   async evaluate({ script, userGesture = true, target = 'furimora' }) {
     if (typeof script !== 'string' || !script.trim()) throw new Error('script（文字列）が必要です');
-    const win = await resolveWindow(target, { create: target === 'mercari' });
+    // 標準版が触れるのはフリモーラ自身の画面だけ。メルカリと捕捉ウィンドウは
+    // Advanced の op（ops/advanced.mjs）が有効なときにこの実装を上書きする。
+    assertFurimoraTarget(target, 'evaluate');
+    const win = await resolveWindow(target);
     return win.webContents.executeJavaScript(script, userGesture);
   },
 
@@ -272,7 +423,9 @@ const ops = {
    */
   async open_page({ url, target = 'furimora', timeoutMs = 45000 }) {
     if (!url) throw new Error('url が必要です');
-    const win = await resolveWindow(target, { create: target === 'mercari' });
+    assertFurimoraTarget(target, 'open_page');
+    assertFurimoraOrigin(url);
+    const win = await resolveWindow(target);
     const wc = win.webContents;
     try {
       await Promise.race([
@@ -287,132 +440,8 @@ const ops = {
   },
 
   async current_url({ target = 'furimora' }) {
+    assertFurimoraTarget(target, 'current_url');
     return { url: (await resolveWindow(target)).webContents.getURL() };
-  },
-
-  /**
-   * input[type=file] にファイルを渡す。
-   * DOM API では偽装できないので CDP の DOM.setFileInputFiles を使う。
-   * **外部ブラウザではなく自分のプロセス内の CDP** なので、外部 Chrome の管理は増えない。
-   */
-  async set_input_files({ selector, files, target = 'mercari' }) {
-    if (!selector) throw new Error('selector が必要です');
-    if (!Array.isArray(files) || !files.length) throw new Error('files（配列）が必要です');
-    const wc = (await resolveWindow(target, { create: target === 'mercari' })).webContents;
-    const attached = wc.debugger.isAttached();
-    if (!attached) wc.debugger.attach('1.3');
-    try {
-      const { root } = await wc.debugger.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
-      const { nodeId } = await wc.debugger.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector });
-      if (!nodeId) throw new Error(`要素が見つかりません: ${selector}`);
-      await wc.debugger.sendCommand('DOM.setFileInputFiles', { nodeId, files });
-      return { ok: true, count: files.length };
-    } finally {
-      if (!attached) { try { wc.debugger.detach(); } catch { /* 既に外れている */ } }
-    }
-  },
-
-  /**
-   * ページ内でクリックし、**その操作の結果として開いたウィンドウ**を掴む。
-   *
-   * URL は一切組み立てない。パーティションも上書きしない。
-   * 返す id を evaluate の target に渡すと、そのウィンドウを操作できる。
-   *
-   * **必ずクリックの前に構える。** 押してから待つと取りこぼす。
-   * CDP 版が「クリック前に存在していたタブ」を除外していた対策
-   * （前の商品のタブを即座に掴んで別商品を触る事故）は、ここでは不要になる。
-   * did-create-window は**新しく生まれた窓でしか発火しない**ので、構造的に起きない。
-   */
-  async click_and_capture({ script, target = 'furimora', timeoutMs = 30000 }) {
-    if (typeof script !== 'string' || !script.trim()) throw new Error('script（文字列）が必要です');
-    if (captureArmed) throw new Error('既に捕捉待ちです。前の捕捉が終わっていません');
-    const win = await resolveWindow(target);
-
-    let settle;
-    const waited = new Promise((resolve, reject) => {
-      settle = { resolve, reject };
-      captureArmed = settle;
-      setTimeout(() => {
-        if (captureArmed === settle) {
-          captureArmed = null;
-          reject(new Error(`クリックしましたが新しいウィンドウが開きませんでした（${timeoutMs}ms）`));
-        }
-      }, timeoutMs);
-    });
-
-    let clicked;
-    try {
-      clicked = await win.webContents.executeJavaScript(script, true);
-    } catch (e) {
-      if (captureArmed === settle) captureArmed = null;
-      throw e;
-    }
-    const captured = await waited;
-    return { ...captured, clicked };
-  },
-
-  /**
-   * 捕捉したウィンドウの中身を証拠として残す。**読み取りのみ。**
-   *
-   * 捕捉した窓は非表示なので、失敗しても画面で確認できない。
-   * その代わりに URL・タイトル・本文の頭とスクリーンショットをファイルへ落とす。
-   */
-  async capture_evidence({ id, dir }) {
-    const win = requireWindow(id);
-    const info = await win.webContents.executeJavaScript(`(() => ({
-      url: location.href,
-      title: document.title,
-      h1: (document.querySelector('h1')?.innerText || '').trim().slice(0, 120),
-      bodyHead: (document.body?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 600),
-    }))()`);
-    const outDir = dir || path.join(app.getPath('home'), '.furimora', 'evidence');
-    fs.mkdirSync(outDir, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const file = path.join(outDir, `${stamp}-${String(id).replace(/[^\w-]/g, '_')}.png`);
-    try {
-      const img = await win.webContents.capturePage();
-      fs.writeFileSync(file, img.toPNG());
-      return { ...info, screenshot: file };
-    } catch (e) {
-      return { ...info, screenshot: null, screenshotError: String((e && e.message) || e) };
-    }
-  },
-
-  /** 捕捉したウィンドウを閉じる。1 商品ごとに必ず閉じて次へ進む */
-  async close_captured({ id }) {
-    const w = capturedWindows.get(id);
-    if (w && !w.isDestroyed()) w.destroy();
-    capturedWindows.delete(id);
-    return { closed: true };
-  },
-
-  async list_captured() {
-    return {
-      ids: [...capturedWindows.entries()]
-        .filter(([, w]) => w && !w.isDestroyed())
-        .map(([id, w]) => ({ id, url: w.webContents.getURL() })),
-    };
-  },
-
-  /** ログインなど人間の操作が要るときだけウィンドウを出す */
-  async show_window({ target = 'mercari', show = true }) {
-    // 隠すだけならウィンドウを作らない（後始末で毎回作られてしまう）
-    if (!show) {
-      const w = target === 'mercari' ? mercariWindow : mainWindow;
-      if (!w || w.isDestroyed()) return { shown: false, noWindow: true };
-      w.hide();
-      return { shown: false };
-    }
-    const win = await resolveWindow(target, { create: target === 'mercari' });
-    win.show(); win.focus();
-    return { shown: true };
-  },
-
-  async close_window({ target }) {
-    if (target !== 'mercari') throw new Error('閉じられるのは mercari のウィンドウだけです');
-    if (mercariWindow && !mercariWindow.isDestroyed()) mercariWindow.destroy();
-    mercariWindow = null;
-    return { closed: true };
   },
 
   /** ログイン状態。UID もメールアドレスも中身は返さない */
@@ -426,7 +455,38 @@ const ops = {
       } catch (e) { return { loggedIn: false, error: String((e && e.message) || e) }; }
     })()`);
   },
+
+  /**
+   * 自動操作の状態。標準版は available:false を返す（存在しない）。
+   * Advanced 版でも既定は enabled:false。
+   */
+  async advanced_status() {
+    if (!ADVANCED_AVAILABLE) return { available: false, enabled: false, state: 'not_in_build' };
+    return { ...advancedState.status(), opsRegistered: advancedRegistered };
+  },
+
+  /**
+   * 自動操作を無効にする。**能力とメルカリの資格情報を同時に捨てる。**
+   * 有効化は同意画面を通す必要があるので、ここからはできない（無効化のみ）。
+   */
+  async advanced_disable() {
+    if (!ADVANCED_AVAILABLE) return { available: false, enabled: false, state: 'not_in_build' };
+    const r = await disableAdvanced();
+    return { ...r, opsRegistered: advancedRegistered };
+  },
 };
+
+/** Advanced が上書きしうるコア op を控えておく（無効化時に戻すため） */
+const CORE_OP_SNAPSHOT = Object.freeze({
+  evaluate: ops.evaluate,
+  open_page: ops.open_page,
+  current_url: ops.current_url,
+});
+/** Advanced でしか存在しない op。無効化時に削除する */
+const ADVANCED_OP_NAMES = Object.freeze([
+  'set_input_files', 'click_and_capture', 'capture_evidence',
+  'close_captured', 'list_captured', 'show_window', 'close_window',
+]);
 
 app.on('second-instance', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -482,12 +542,55 @@ function buildAppMenu() {
       ],
     },
     { role: 'windowMenu', label: 'ウィンドウ' },
+    // Advanced 版のときだけメニューに出す。標準版にはこの項目自体が無い
+    ...(ADVANCED_AVAILABLE ? [{
+      label: '詳細',
+      submenu: [
+        {
+          label: advancedRegistered ? '自動操作を無効にする' : '自動操作を有効にする…',
+          click: async () => {
+            try {
+              if (advancedRegistered) {
+                const r = await disableAdvanced();
+                dialog.showMessageBox({
+                  type: 'info', message: '自動操作を無効にしました',
+                  detail: `メルカリのログイン情報も破棄しました（Cookie ${r.cookiesRemoved} 件）。`,
+                });
+              } else {
+                const r = await enableAdvanced();
+                if (r.enabled) {
+                  dialog.showMessageBox({
+                    type: 'info', message: '自動操作を有効にしました',
+                    detail: 'メニューの「詳細」からいつでも無効にできます。無効にすると能力とメルカリのログイン情報を破棄します。',
+                  });
+                }
+              }
+            } catch (e) {
+              dialog.showErrorBox('自動操作の設定', String((e && e.message) || e));
+            }
+            buildAppMenu();   // ラベルを現在の状態に合わせ直す
+          },
+        },
+        {
+          label: 'ログイン時に起動する',
+          type: 'checkbox',
+          enabled: advancedRegistered,
+          checked: (() => { try { return app.getLoginItemSettings().openAtLogin; } catch { return false; } })(),
+          click: (item) => {
+            try { app.setLoginItemSettings({ openAtLogin: item.checked }); } catch { /* 環境による */ }
+          },
+        },
+      ],
+    }] : []),
   ]));
 }
 
 app.whenReady().then(async () => {
+  await loadAdvanced();
   buildAppMenu();
-  registerLoginItemOnce();
+  // ログイン時の自動起動は既定で登録しない。
+  // 常駐する必要があるのは Advanced の定時ルーティンだけで、標準利用者には理由がない。
+  // 有効化した利用者が自分で「ログイン時に起動」を選ぶ形にする。
   createWindow();
   try {
     control = await startControlServer(ops);
