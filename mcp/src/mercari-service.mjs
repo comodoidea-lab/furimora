@@ -38,6 +38,8 @@ export const SELECTORS = {
   // ── 商品編集ページ（/sell/edit/<itemId>）── 2026-09-01 実機確認
   /** 価格入力。INPUT[name=price] / inputmode=decimal */
   editPriceInput: '[data-testid="price-text-input"]',
+  /** 商品名。**書き込み前の同一性検証に使う。** /sell/create と同じ input[name=name] */
+  editTitleInput: 'input[name="name"]',
   /** 保存ボタン「変更する」 */
   editSubmitButton: '[data-testid="edit-button"]',
   editSalesFee: '[data-testid="sales-fee"]',
@@ -438,7 +440,8 @@ export class MercariService {
    * @param {boolean} [p.dryRun=true] false のときだけ実際に変更する
    * @param {number|null} [p.minPrice] 下回ってはいけない価格。下回る指定は拒否する
    */
-  async updatePrice({ itemId, newPrice, dryRun = true, minPrice = null }) {
+  async updatePrice({ itemId, newPrice, dryRun = true, minPrice = null,
+    expectedTitle = null, expectedCurrentPrice = null }) {
     if (!/^m\d{9,}$/.test(String(itemId || ''))) {
       return { ok: false, code: 'BAD_ITEM_ID', message: `商品IDの形式が不正です: ${itemId}` };
     }
@@ -467,6 +470,7 @@ export class MercariService {
       const q = (x) => document.querySelector(x);
       const yen = (t) => { const m = String(t || '').match(/([\d,]+)/); return m ? Number(m[1].replace(/,/g, '')) : null; };
       return {
+        title: q(sel.editTitleInput)?.value ?? null,
         price: Number(String(q(sel.editPriceInput)?.value || '').replace(/[^\d]/g, '')) || null,
         fee: yen(q(sel.editSalesFee)?.textContent),
         profit: yen(q(sel.editSalesProfit)?.textContent),
@@ -477,12 +481,44 @@ export class MercariService {
       return { ok: false, code: 'PRICE_UNREADABLE', message: '現在価格を読み取れませんでした' };
     }
 
+    // ── identity proof（書き込み前の必須ゲート）──
+    //
+    // **itemId から URL を組み立てて開いているだけでは、開いた先が意図した商品である
+    // 保証が無い。** 在庫データの mercariItemId が古い・誤っていれば、別商品の価格を
+    // 黙って書き換えて成功報告することになる。
+    //
+    // 姉妹プロジェクト mercari-relist-batch は、この経路で 24 件を落とした実績がある
+    // （原因は「同一性検証がコード上で無効化されていた」「価格欄の危険なフォールバック」
+    // 「価格欄が React 制御であることへの未対応」の 3 点。監査レポート §1）。
+    // **フォールバックは置かない。外れたら止める。**
+    const norm = (t) => String(t ?? '').replace(/\s+/g, '').trim();
+    if (expectedTitle) {
+      const a = norm(before.title);
+      const b = norm(expectedTitle);
+      if (!a || !b || (!a.includes(b) && !b.includes(a))) {
+        return { ok: false, code: 'MISMATCH',
+          message: `商品名が一致しません。**何も変更していません。**（期待「${expectedTitle}」/ 実際「${before.title ?? '読み取れず'}」）`,
+          itemId, actualTitle: before.title, expectedTitle };
+      }
+    } else if (!dryRun) {
+      // 書き込みのときだけ必須。dry_run は下調べに使えるようにしておく
+      return { ok: false, code: 'IDENTITY_PROOF_REQUIRED',
+        message: 'expected_title が必要です。**開いた先が意図した商品か確かめずに価格を書き換えません。**'
+          + ' dry_run で現在のタイトルを確認し、それを expected_title に渡してください。' };
+    }
+    if (expectedCurrentPrice != null && before.price !== Number(expectedCurrentPrice)) {
+      return { ok: false, code: 'MISMATCH',
+        message: `現在価格が一致しません。**何も変更していません。**（期待 ¥${expectedCurrentPrice} / 実際 ¥${before.price}）`,
+        itemId, actualPrice: before.price, expectedCurrentPrice: Number(expectedCurrentPrice) };
+    }
+
     // 手数料以外の控除（送料など）は現在の表示から逆算する
     const otherDeduction = (before.fee != null && before.profit != null)
       ? before.price - before.fee - before.profit : 0;
     const newFee = Math.floor(price * FEE_RATE);
     const plan = {
       itemId,
+      title: before.title,
       currentPrice: before.price,
       newPrice: price,
       diff: price - before.price,

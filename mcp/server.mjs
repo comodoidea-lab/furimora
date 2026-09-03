@@ -464,7 +464,9 @@ server.registerTool(
       '自分の出品 1 件の価格を変更する。**既定は確認のみ（dry_run=true）で、実際には変更しない。** ' +
       '確認モードでは現在価格・新価格・差額・手数料と利益の見積りを返す。' +
       '実際に変更するには dry_run に false を明示的に指定する。' +
-      '1 回の呼び出しで変更できるのは 1 商品だけ。削除や出品停止は行わない。',
+      '1 回の呼び出しで変更できるのは 1 商品だけ。削除や出品停止は行わない。' +
+      '**書き込み時（dry_run:false）は expected_title が必須。** 開いた先が意図した商品かを確かめずに価格を書き換えない' +
+      '（姉妹プロジェクトはこの検証を欠いた経路で 24 件を落としている）。',
     inputSchema: {
       item_id: z.string().regex(/^m\d{9,}$/, 'm から始まる商品IDを指定してください')
         .describe('メルカリの商品ID（例: m12345678901）'),
@@ -472,11 +474,15 @@ server.registerTool(
         .describe('新しい価格（円・整数）'),
       dry_run: z.boolean().default(true)
         .describe('true（既定）は確認のみで何も変更しない。実際に変更する場合だけ false を指定する'),
+      expected_title: z.string().optional()
+        .describe('期待する商品名。**dry_run:false のときは必須。** 編集ページの商品名と照合し、外れたら MISMATCH で停止する。まず dry_run で実際の商品名を確認し、それを渡す'),
+      expected_current_price: z.number().int().positive().optional()
+        .describe('期待する変更前の価格。渡すと価格欄の現在値と完全一致を要求し、外れたら MISMATCH で停止する'),
       min_price: z.number().int().min(0).optional()
         .describe('下回ってはいけない価格。指定するとこれを下回る変更を拒否する'),
     },
   },
-  async ({ item_id, new_price, dry_run, min_price }) => {
+  async ({ item_id, new_price, dry_run, min_price, expected_title, expected_current_price }) => {
     try {
       const r = await withMercari(async (mercari) => {
         const login = await mercari.checkLogin();
@@ -484,6 +490,8 @@ server.registerTool(
         return mercari.updatePrice({
           itemId: item_id, newPrice: new_price,
           dryRun: dry_run !== false, minPrice: min_price ?? null,
+          expectedTitle: expected_title ?? null,
+          expectedCurrentPrice: expected_current_price ?? null,
         });
       });
       if (r.needsLogin) {
