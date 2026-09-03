@@ -214,7 +214,7 @@ server.registerTool(
             backend,
             // Electron backend では Chrome のプロファイルを使わない。嘘の値を出さない
             profileDir: backend === 'electron' ? null : DEFAULT_PROFILE_DIR,
-            sessionPartition: backend === 'electron' ? 'persist:mercari' : null,
+            sessionPartition: backend === 'electron' ? 'persist:furimora' : null,
             hint: r.loggedIn ? null : 'mercari_login を実行するとブラウザが開くので、そこで一度ログインしてください（2段階認証は人が通す必要があります）',
           }, null, 2),
         }],
@@ -275,7 +275,7 @@ server.registerTool(
             backend,
             // Electron backend では Chrome のプロファイルを使わない。嘘の値を出さない
             profileDir: backend === 'electron' ? null : DEFAULT_PROFILE_DIR,
-            sessionPartition: backend === 'electron' ? 'persist:mercari' : null,
+            sessionPartition: backend === 'electron' ? 'persist:furimora' : null,
             note: loggedIn ? 'ログイン済み。セッションはプロファイルに保存されました。' : '時間内にログインが確認できませんでした。もう一度実行してください。',
           }, null, 2),
         }],

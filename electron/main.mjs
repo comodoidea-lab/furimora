@@ -61,6 +61,8 @@ function registerLoginItemOnce() {
 
 const APP_URL = process.env.FURIMORA_URL || 'https://furimora.vercel.app';
 const PARTITION = 'persist:furimora';
+/** メルカリ用ウィンドウのセッション。**フリモーラと同じにする**（理由は createMercariWindow の説明） */
+const MERCARI_PARTITION = PARTITION;
 
 /** 二重起動を許さない。書き手を 1 人に保つのがこのアプリの存在理由なので、ここは譲れない */
 if (!app.requestSingleInstanceLock()) {
@@ -71,9 +73,15 @@ if (!app.requestSingleInstanceLock()) {
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
 /**
- * メルカリ専用の非表示ウィンドウ。**独立 partition。**
+ * メルカリ専用の非表示ウィンドウ。
  * 外部 Chrome + Playwright を畳むための受け皿（~/.furimora/chrome-profile の置き換え）。
  * `show: false` で作るので、そもそも前面に出てくる概念が無い。
+ *
+ * **セッションはフリモーラと共有する（persist:furimora）。**
+ * 当初は persist:mercari で分けていたが、値下げの経路は
+ * 「在庫カードのクリックで開いたページ」を使うためフリモーラと同じセッションに
+ * メルカリのログインが必要で、結果として**メルカリのログインが 2 つある状態**になっていた。
+ * 片方が切れると値下げか下書きのどちらかだけが壊れる。1 つに寄せて維持対象を減らす。
  */
 /** @type {BrowserWindow | null} */
 let mercariWindow = null;
@@ -175,7 +183,7 @@ function createMercariWindow() {
     show: false,               // 既定で非表示。ログインのときだけ show_window で出す
     title: 'メルカリ（フリモーラ）',
     webPreferences: {
-      partition: 'persist:mercari',   // フリモーラのセッションとは完全に分ける
+      partition: MERCARI_PARTITION,
       contextIsolation: true,
       nodeIntegration: false,
     },
