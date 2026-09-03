@@ -8,7 +8,7 @@
  * UI は作り直さない。デプロイ済みの本番をそのまま開く
  * （ローカルに public/ を置くと /api/* と Firebase の authDomain が壊れる）。
  */
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, Menu, shell } from 'electron';
 import path from 'node:path';
 import { startControlServer } from './control.mjs';
 
@@ -31,6 +31,10 @@ import { startControlServer } from './control.mjs';
  */
 const USER_DATA_DIR = path.join(app.getPath('appData'), 'furimora-desktop');
 app.setPath('userData', USER_DATA_DIR);
+
+/** Dock / メニュー / About に出る名前。package.json の productName と一致させる */
+const APP_NAME = 'フリモーラ';
+app.setName(APP_NAME);
 
 const APP_URL = process.env.FURIMORA_URL || 'https://furimora.vercel.app';
 const PARTITION = 'persist:furimora';
@@ -337,7 +341,58 @@ app.on('second-instance', () => {
   }
 });
 
+/**
+ * macOS のアプリメニュー。
+ *
+ * **既定のメニューを消してはいけない。** 編集メニューの役割（コピー・ペースト・
+ * すべてを選択）が無いと、メルカリやフリモーラのログイン画面で貼り付けができなくなる。
+ * role を使えば OS 標準の挙動がそのまま入る。
+ */
+function buildAppMenu() {
+  if (process.platform !== 'darwin') return;
+  app.setAboutPanelOptions({ applicationName: APP_NAME, applicationVersion: app.getVersion() });
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: APP_NAME,
+      submenu: [
+        { role: 'about', label: `${APP_NAME}について` },
+        { type: 'separator' },
+        { role: 'hide', label: `${APP_NAME}を隠す` },
+        { role: 'hideOthers', label: 'ほかを隠す' },
+        { role: 'unhide', label: 'すべてを表示' },
+        { type: 'separator' },
+        { role: 'quit', label: `${APP_NAME}を終了` },
+      ],
+    },
+    {
+      label: '編集',
+      submenu: [
+        { role: 'undo', label: '取り消す' },
+        { role: 'redo', label: 'やり直す' },
+        { type: 'separator' },
+        { role: 'cut', label: 'カット' },
+        { role: 'copy', label: 'コピー' },
+        { role: 'paste', label: 'ペースト' },
+        { role: 'selectAll', label: 'すべてを選択' },
+      ],
+    },
+    {
+      label: '表示',
+      submenu: [
+        { role: 'reload', label: '再読み込み' },
+        { role: 'toggleDevTools', label: '開発者ツール' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: '実際のサイズ' },
+        { role: 'zoomIn', label: '拡大' },
+        { role: 'zoomOut', label: '縮小' },
+      ],
+    },
+    { role: 'windowMenu', label: 'ウィンドウ' },
+  ]));
+}
+
 app.whenReady().then(async () => {
+  buildAppMenu();
   createWindow();
   try {
     control = await startControlServer(ops);

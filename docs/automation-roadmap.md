@@ -1071,6 +1071,51 @@ Swift / SwiftUI / AppKit による純ネイティブ化は現時点では行わ�
 > 現時点の方針は「**Electron を捨てる前提ではない。しかし Electron に永続的に
 > ロックインされる設計にも積極的にはしない**」。
 
+### 進捗: `フリモーラ.app` ができた（2026-09-03）
+
+```bash
+cd electron && npm run pack      # → dist/mac-arm64/フリモーラ.app
+```
+
+| | 値 |
+|---|---|
+| CFBundleName / DisplayName / Executable | **フリモーラ** |
+| CFBundleIdentifier | **com.comodoidea.furimora** |
+| CFBundleIconFile | icon.icns（`public/icons/icon-512.png` から生成） |
+| 署名 | **していない**（`identity: null`）。自分の Mac で動けばよい段階 |
+| サイズ | 233 MB |
+
+**`.app` から起動して自動化が完走することを確認済み**（フリモーラのログイン維持、
+値下げの identity proof 通過、`DRY_RUN_OK`）。
+
+#### 最初にやったこと — userData のパス固定
+
+**アプリ名を変える前にこれを入れる必要があった。** userData の既定パスは
+`package.json` の `name`（`productName` があればそちら）から決まるため、
+`productName` を「フリモーラ」にした瞬間に
+`~/Library/Application Support/フリモーラ` へ移り、
+
+```
+Partitions/furimora   フリモーラとメルカリの**両方**のログイン ← LIVE 値下げが依存
+Partitions/mercari    MCP 経路のメルカリのログイン
+```
+
+が参照されなくなる。**ログインが 3 つとも消え、実証済みの経路が名前を変えただけで壊れる。**
+`app.setPath('userData', …)` で `furimora-desktop`（156 MB）に固定し、名前と切り離した。
+移設するなら**先にディレクトリを移してから**この値を変える。
+
+#### メニューについて
+
+既定メニューを消すと**編集メニューの役割（コピー・ペースト）が失われ、ログイン画面で
+貼り付けができなくなる。** `role` を使って OS 標準の挙動をそのまま入れている。
+
+#### まだやっていない
+
+- 署名・公証・自動更新（`target: dir` のまま。`dmg` と署名は後から足せる）
+- アイコンの元素材が 512px なので **1024（512@2x）が無い**。Retina で粗く見えるようなら
+  元素材を差し替える
+- `.app` の配置（`/Applications` へ移すかは運用の判断）
+
 ### 最優先事項
 
 2026-09-03 の LIVE 検証で通った経路を壊さないこと。

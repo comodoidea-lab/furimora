@@ -1,10 +1,43 @@
 {
   "name": "furimora-desktop",
+  "productName": "フリモーラ",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "description": "フリモーラ Desktop。デプロイ済みの PWA を開き、MCP から localStorage / DOM を触れるようにする",
   "main": "main.mjs",
-  "scripts": { "start": "electron ." },
-  "devDependencies": { "electron": "^33.0.0" }
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.comodoidea.furimora",
+    "productName": "フリモーラ",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.mjs",
+      "control.mjs",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null
+    }
+  }
 }
