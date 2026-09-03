@@ -731,12 +731,22 @@ mercari_prepare_draft_from_furimora_draft({ index: 0 })   ← backup_path なし
 `mcp/src/electron-browser-service.mjs`。**`BrowserService` と同じ面を Electron で実装した。
 `MercariService` は無改修で動く**（「下だけ差し替えられる」層分けがここで効いた）。
 
-```
-FURIMORA_BROWSER=electron   ← これを立てたときだけ使う。**既定は従来どおり Playwright**
-```
+| `FURIMORA_BROWSER` | 挙動 |
+|---|---|
+| 未設定（**既定**） | Desktop が起動していれば electron、していなければ playwright |
+| `electron` | 常に Electron（起動していなければ失敗する） |
+| `playwright` | 常に外部 Chrome。**切り戻しはこれ** |
 
-**既定を切り替えていないのは、メルカリ側が書き込み経路だから。**
-読み取りで十分検証してから既定にする（フェーズ1で読み取りから始めたのと同じ順序）。
+**Desktop 未起動でも動く形にしてある。** Electron が無いと何もできない道具にすると、
+起動し忘れた日に全部止まる。起動していれば速くて静かなほう、していなければ従来どおり。
+起動判定は 1 プロセス内で 1 回だけ（MCP サーバーはコマンドごとに使い捨て）。
+
+実測での切り替わり:
+
+| Desktop | メルカリ操作 | フリモーラの下書き |
+|---|---|---|
+| 起動中 | electron | 直接読む |
+| 停止中 | **playwright に自動で落ちる**（`loggedIn: true` のまま） | `backup_path` を渡すよう明示的に案内 |
 
 `MercariService` が使う 11 メソッドを実装:
 `openPage` / `evaluate` / `waitForSelector` / `click` / `clickNth` / `clickFirstWithText` /

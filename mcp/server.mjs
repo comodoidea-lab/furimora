@@ -138,7 +138,7 @@ server.registerTool(
       const info = await callApp('ping', {}, { timeoutMs: 3000 });
       let auth = null;
       try { auth = await callApp('auth_state', {}, { timeoutMs: 5000 }); } catch { /* ウィンドウが閉じている */ }
-      return { content: [{ type: 'text', text: JSON.stringify({ running: true, socket: APP_SOCKET, mercariBackend: USE_ELECTRON_BROWSER ? 'electron' : 'playwright', ...info, auth }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ running: true, socket: APP_SOCKET, mercariBackend: await resolveBackend(), ...info, auth }, null, 2) }] };
     } catch (e) {
       return {
         content: [{
@@ -156,24 +156,38 @@ server.registerTool(
 );
 
 /**
- * メルカリ操作のブラウザ backend を選ぶ。
+ * メルカリ操作のブラウザ backend を決める。
  *
- * 既定は従来どおり外部 Chrome + Playwright。
- * `FURIMORA_BROWSER=electron` を立てると、フリモーラ Desktop の非表示ウィンドウを使う。
+ * | FURIMORA_BROWSER | 挙動 |
+ * |---|---|
+ * | 未設定（既定） | Desktop が起動していれば electron、していなければ playwright |
+ * | `electron`     | 常に Electron（起動していなければ失敗する） |
+ * | `playwright`   | 常に外部 Chrome。**切り戻しはこれ** |
  *
- * **既定を切り替えていないのは、メルカリ側が書き込み経路だから。**
- * 読み取り（check_login / get_my_listings）で十分検証してから既定にする。
+ * **Desktop 未起動でも動く形にしてある。** Electron が無いと何もできない道具にすると、
+ * 起動し忘れた日に全部止まる。起動していれば速くて静かなほう、していなければ従来どおり。
+ *
+ * 起動判定は 1 プロセス内で 1 回だけ行う（MCP サーバーはコマンドごとに使い捨てなので、
+ * 1 コマンドの途中で backend が入れ替わることはない）。
  */
-const USE_ELECTRON_BROWSER = process.env.FURIMORA_BROWSER === 'electron';
+const BROWSER_PREF = process.env.FURIMORA_BROWSER || 'auto';
+let cachedBackend = null;
+async function resolveBackend() {
+  if (BROWSER_PREF === 'electron' || BROWSER_PREF === 'playwright') return BROWSER_PREF;
+  if (cachedBackend) return cachedBackend;
+  cachedBackend = (await appIsRunning()) ? 'electron' : 'playwright';
+  return cachedBackend;
+}
 
 async function withMercari(fn, { headless = true } = {}) {
-  const browser = USE_ELECTRON_BROWSER
+  const backend = await resolveBackend();
+  const browser = backend === 'electron'
     ? new ElectronBrowserService(callApp)
     : new BrowserService({ headless });
   try {
     await browser.startBrowser();
     // Electron backend では非表示ウィンドウが既定。ログイン等で見せる必要があるときだけ出す
-    if (USE_ELECTRON_BROWSER && !headless) await browser.showWindow(true);
+    if (backend === 'electron' && !headless) await browser.showWindow(true);
     return await fn(new MercariService(browser), browser);
   } finally {
     await browser.stopBrowser();
@@ -191,15 +205,16 @@ server.registerTool(
   async () => {
     try {
       const r = await withMercari((mercari) => mercari.checkLogin());
+      const backend = await resolveBackend();
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             loggedIn: r.loggedIn,
-            backend: USE_ELECTRON_BROWSER ? 'electron' : 'playwright',
+            backend,
             // Electron backend では Chrome のプロファイルを使わない。嘘の値を出さない
-            profileDir: USE_ELECTRON_BROWSER ? null : DEFAULT_PROFILE_DIR,
-            sessionPartition: USE_ELECTRON_BROWSER ? 'persist:mercari' : null,
+            profileDir: backend === 'electron' ? null : DEFAULT_PROFILE_DIR,
+            sessionPartition: backend === 'electron' ? 'persist:mercari' : null,
             hint: r.loggedIn ? null : 'mercari_login を実行するとブラウザが開くので、そこで一度ログインしてください（2段階認証は人が通す必要があります）',
           }, null, 2),
         }],
@@ -223,12 +238,13 @@ server.registerTool(
   },
   async ({ wait_seconds }) => {
     // Electron backend では非表示ウィンドウを一時的に見せる（別プロセスの Chrome は起動しない）
-    const browser = USE_ELECTRON_BROWSER
+    const backend = await resolveBackend();
+    const browser = backend === 'electron'
       ? new ElectronBrowserService(callApp)
       : new BrowserService({ headless: false });
     try {
       await browser.startBrowser();
-      if (USE_ELECTRON_BROWSER) await browser.showWindow(true);
+      if (backend === 'electron') await browser.showWindow(true);
       const mercari = new MercariService(browser);
       await browser.openPage('https://jp.mercari.com/login');
       const deadline = Date.now() + wait_seconds * 1000;
@@ -256,10 +272,10 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             loggedIn,
-            backend: USE_ELECTRON_BROWSER ? 'electron' : 'playwright',
+            backend,
             // Electron backend では Chrome のプロファイルを使わない。嘘の値を出さない
-            profileDir: USE_ELECTRON_BROWSER ? null : DEFAULT_PROFILE_DIR,
-            sessionPartition: USE_ELECTRON_BROWSER ? 'persist:mercari' : null,
+            profileDir: backend === 'electron' ? null : DEFAULT_PROFILE_DIR,
+            sessionPartition: backend === 'electron' ? 'persist:mercari' : null,
             note: loggedIn ? 'ログイン済み。セッションはプロファイルに保存されました。' : '時間内にログインが確認できませんでした。もう一度実行してください。',
           }, null, 2),
         }],
