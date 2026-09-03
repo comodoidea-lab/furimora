@@ -767,9 +767,31 @@ playwright : loggedIn true  / profileDir ~/.furimora/chrome-profile
 
 `profileDir` は Electron backend では `null` を返す（使っていないパスを出すと後の調査を誤らせる）。
 
-**未検証**: `persist:mercari` がメルカリ未ログインのため、`mercari_get_my_listings` 以降は
-まだ通していない。ログインは人間が 1 回だけ行う必要がある（`mercari_login` で
-非表示ウィンドウを一時的に見せる）。**書き込み系は当然まだ通していない。**
+##### 実データで同等性を確認した（2026-09-03）
+
+`persist:mercari` に 1 回ログインしたうえで、両 backend を実データで突き合わせた。
+
+| | 件数 | 差分 | 所要 | CPU |
+|---|---|---|---|---|
+| electron | 45 | — | 8.2s | **0.44s** |
+| playwright | 45 | — | 11.4s | 7.36s |
+
+共通 45 / 片側のみ 0 / タイトル・価格の不一致 0 件。**Electron のほうが速く、CPU は約 1/17**
+（Playwright のプロセス間往復が消えるため）。
+
+さらに `mercari_create_draft({ dry_run: true })` で**保存以外の全経路**を通した。
+`dry_run` はフォーム入力・カテゴリー選択・画像アップロードまで実際に行うので、
+11 メソッドのうち保存クリック以外がここで検証される。
+
+| 検証項目 | 結果 |
+|---|---|
+| `fill`（React） | タイトル・説明 757 文字・価格が全て反映 |
+| `click` / `clickFirstWithText` | カテゴリーを実ツリーで末端まで、商品の状態、配送の「更新する」 |
+| `setInputFiles`（CDP `DOM.setFileInputFiles`） | 画像 2 枚。AI ウィザードのモーダルも閉じた |
+
+**未検証は保存クリックのみ。** ただしクリック自体は上記で何度も通っている。
+
+画像が消えていたケースで `IMAGE_NOT_FOUND` が正しく発火し、**メルカリに触れる前に停止**した。
 
 #### 未検証・リスク
 
