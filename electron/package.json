@@ -8,7 +8,8 @@
   "main": "main.mjs",
   "scripts": {
     "start": "electron .",
-    "pack": "electron-builder --dir"
+    "pack": "electron-builder --dir",
+    "install-app": "npm run pack && rm -rf '/Applications/フリモーラ.app' && cp -R 'dist/mac-arm64/フリモーラ.app' /Applications/ && echo '→ /Applications/フリモーラ.app を入れ替えました'"
   },
   "devDependencies": {
     "electron": "^33.0.0",

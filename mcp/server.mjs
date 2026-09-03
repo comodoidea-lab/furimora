@@ -461,6 +461,8 @@ server.registerTool(
   {
     title: 'メルカリの出品価格を変更',
     description:
+      '**単発の手動変更用。定期・一括の値下げは mercari-relist-batch の price_cut_one.mjs が正規の経路。** ' +
+      'あちらは在庫カードのクリックで開いたタブしか使わない（route provenance）が、こちらは itemId から URL を組み立てて開くため経路の証明が無い。' +
       '自分の出品 1 件の価格を変更する。**既定は確認のみ（dry_run=true）で、実際には変更しない。** ' +
       '確認モードでは現在価格・新価格・差額・手数料と利益の見積りを返す。' +
       '実際に変更するには dry_run に false を明示的に指定する。' +

@@ -1255,7 +1255,7 @@ tailwind.config = {
             <div class="min-w-0">
               <label class="text-xs font-semibold text-on-surface-variant">商品状態</label>
               <select id="ni-condition" class="mt-1 w-full min-w-0 bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none">
-                <option>新品・未使用</option><option>未使用に近い</option>
+                <option>新品、未使用</option><option>未使用に近い</option>
                 <option>目立った傷や汚れなし</option><option>やや傷や汚れあり</option>
                 <option>傷や汚れあり</option><option>全体的に状態が悪い</option>
               </select>
@@ -3741,12 +3741,7 @@ function openInventoryEditItemModal(id) {
   populateNiShippingSelect(item.shippingMethodId || '');
   populateTemplateSelect();
   applyNiCategoryToBoth(item.category);
-  const condSel = document.getElementById('ni-condition');
-  if (condSel && item.condition) {
-    [...condSel.options].forEach((o) => {
-      if (o.value === item.condition) condSel.value = o.value;
-    });
-  }
+  setConditionSelect(document.getElementById('ni-condition'), item.condition);
   const nm = document.getElementById('new-item-modal');
   if (nm) {
     nm.dataset.images = JSON.stringify(item.images || []);
@@ -3789,12 +3784,7 @@ function openRelistItemModal(id) {
   populateNiShippingSelect(item.shippingMethodId || '');
   populateTemplateSelect();
   applyNiCategoryToBoth(item.category);
-  const condSel = document.getElementById('ni-condition');
-  if (condSel && item.condition) {
-    [...condSel.options].forEach((o) => {
-      if (o.value === item.condition) condSel.value = o.value;
-    });
-  }
+  setConditionSelect(document.getElementById('ni-condition'), item.condition);
   const nm = document.getElementById('new-item-modal');
   if (nm) {
     nm.dataset.images = JSON.stringify(item.images || []);
@@ -4089,10 +4079,7 @@ function openNewItemModal(draftData) {
   populateNiMarketplaceSelect('');
   populateNiShippingSelect('');
   applyNiCategoryToBoth(draftData?.category);
-  if (draftData?.condition) {
-    const sel = document.getElementById('ni-condition');
-    [...sel.options].forEach(o => { if (o.value === draftData.condition) sel.value = o.value; });
-  }
+  setConditionSelect(document.getElementById('ni-condition'), draftData?.condition);
   const nm = document.getElementById('new-item-modal');
   if (nm) {
     nm.dataset.images = JSON.stringify(draftData?.images || []);
@@ -5544,25 +5531,38 @@ async function enrichCloneDataFromApi(data) { return FurimoraCloneService.enrich
  * **黙って空にすると元の情報が消える**ので、その場合は値をそのまま選択肢として足す。
  * 人間が選び直せばよい。
  */
-function setCloneCondition(value) {
-  const el = document.getElementById('clone-condition-input');
+/**
+ * 商品状態のセレクトに値を入れる共通処理。**黙って先頭に落とさない。**
+ *
+ * 一致する選択肢が無いときに何もしないと、先頭の選択肢が選ばれたまま保存されてしまう。
+ * 元の値を選択肢として足し、人間が選び直せるようにする。
+ *
+ * 「新品・未使用」（中黒）は古い表記。メルカリは「新品、未使用」（読点）で、
+ * 中黒のままだと出品フォーム側の 6 択判定（conditionFromLabel）で弾かれる。
+ * 保存済みデータのために読み替える。
+ */
+const CONDITION_LEGACY = { '新品・未使用': '新品、未使用' };
+function setConditionSelect(el, value) {
   if (!el) return;
-  // 前回注入した選択肢は必ず消す。残すと次のクローンの先頭に居座って誤選択の元になる
   [...el.querySelectorAll('option[data-injected]')].forEach((o) => o.remove());
-  const v = String(value || '').trim();
-  if (!v) { el.value = ''; return; }
-  const known = [...el.options].some((o) => o.value === v);
-  if (!known) {
-    // 複製元の表記が6択に無いことがある（古いデータや「新品・未使用」の中黒など）。
-    // **黙って空にすると元の情報が消える**ので、値をそのまま選択肢として足す。
-    // 人間が選び直せばよい。
+  const raw = String(value || '').trim();
+  const v = CONDITION_LEGACY[raw] || raw;
+  if (!v) return;
+  if (![...el.options].some((o) => o.value === v)) {
     const opt = document.createElement('option');
-    opt.textContent = v + '（複製元の表記。選び直してください）';
+    opt.textContent = v + '（元の表記。選び直してください）';
     opt.value = v;
     opt.setAttribute('data-injected', '1');
     el.insertBefore(opt, el.options[1] || null);
   }
   el.value = v;
+}
+
+function setCloneCondition(value) {
+  const el = document.getElementById('clone-condition-input');
+  if (!el) return;
+  if (!String(value || '').trim()) { el.value = ''; return; }   // 先頭の「選択してください」へ
+  setConditionSelect(el, value);
 }
 
 function showCloneStep2(data) {
