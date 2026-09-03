@@ -9,7 +9,28 @@
  * （ローカルに public/ を置くと /api/* と Firebase の authDomain が壊れる）。
  */
 import { app, BrowserWindow, shell } from 'electron';
+import path from 'node:path';
 import { startControlServer } from './control.mjs';
+
+/**
+ * **userData のパスを現在の値に固定する。ここを動かすと全部壊れる。**
+ *
+ * 既定では package.json の name（productName があればそちら）からパスが決まる。
+ * つまり productName を「フリモーラ」にした瞬間に
+ * `~/Library/Application Support/フリモーラ` へ移り、いま使っている
+ *
+ *   Partitions/furimora  … フリモーラとメルカリの**両方**のログイン
+ *   Partitions/mercari   … MCP 経路のメルカリのログイン
+ *
+ * が参照されなくなる。**ログインが 3 つとも消える。**
+ * 2026-09-03 に LIVE で通した値下げ経路（カードのクリック → 捕捉 → identity proof →
+ * メルカリ保存 → フリモーラ記録）は、この Partitions/furimora のセッションに依存している。
+ *
+ * アプリ名やアイコンを変えても壊れないよう、名前とは切り離して明示的に固定する。
+ * **移設したくなったら、先にディレクトリを移してからこの値を変えること。**
+ */
+const USER_DATA_DIR = path.join(app.getPath('appData'), 'furimora-desktop');
+app.setPath('userData', USER_DATA_DIR);
 
 const APP_URL = process.env.FURIMORA_URL || 'https://furimora.vercel.app';
 const PARTITION = 'persist:furimora';
