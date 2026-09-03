@@ -585,6 +585,44 @@ export class MercariService {
   }
 
   /**
+   * 素の `<select>` を**選択肢の文言**で選ぶ。
+   *
+   * value は数値コード（発送日数なら 1/2/3）で、意味が読めないうえ変わりうる。
+   * 文言で指定させて、一致しなければ**候補を返して止める**（推測して選ばない）。
+   *
+   * React が値の変更を追跡しているので、ネイティブセッターで書いてから
+   * change を bubbles で飛ばす。`.value` を代入するだけでは反映されない。
+   */
+  async setSelectByText(selector, text, label) {
+    const want = String(text ?? '').trim();
+    if (!want) return { ok: false, code: 'EMPTY', message: `${label}が空です` };
+    const r = await this.browser.evaluate((arg) => {
+      const el = document.querySelector(arg.selector);
+      if (!el) return { ok: false, code: 'NOT_FOUND' };
+      const opts = [...el.options].map((o) => ({ value: o.value, text: (o.textContent || '').trim() }));
+      const hit = opts.find((o) => o.text === arg.want) || opts.find((o) => o.text.includes(arg.want));
+      if (!hit || !hit.value) return { ok: false, code: 'NO_OPTION', options: opts.map((o) => o.text).filter(Boolean) };
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      if (setter) setter.call(el, hit.value); else el.value = hit.value;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true, chosen: hit.text, value: hit.value, readBack: el.selectedOptions[0]?.textContent?.trim() ?? null };
+    }, { selector, want });
+
+    if (!r.ok) {
+      if (r.code === 'NOT_FOUND') return { ok: false, code: 'SELECT_NOT_FOUND', message: `${label}の選択欄が見つかりません` };
+      return {
+        ok: false, code: 'BAD_OPTION',
+        message: `${label}に「${want}」がありません`,
+        candidates: r.options || [],
+      };
+    }
+    if (r.readBack !== r.chosen) {
+      return { ok: false, code: 'SELECT_NOT_APPLIED', message: `${label}が反映されていません（期待「${r.chosen}」/ 実際「${r.readBack}」）` };
+    }
+    return { ok: true, chosen: r.chosen, value: r.value };
+  }
+
+  /**
    * 配送の方法を選ぶ。**呼び出し前に出品フォーム（/sell/create）を開いておくこと。**
    *
    * ラジオを選ぶだけでは反映されず、「更新する」を押して初めてフォームへ戻る。
@@ -791,7 +829,7 @@ export class MercariService {
    * @param {boolean} [p.dryRun=true] false のときだけ実際に保存する
    */
   async createDraft({ title, description, price, categoryPath, condition, imagePaths = [],
-    shippingMethod = null, dryRun = true }) {
+    shippingMethod = null, shippingFrom = null, shippingDuration = null, dryRun = true }) {
     // ── 入力の検証。ここを抜けるまでブラウザを触らない ──
     const name = String(title ?? '').replace(/\r\n?/g, '\n').trim();
     // 複製元の説明文は CRLF のことがあるが、textarea は LF に正規化する。
@@ -904,6 +942,27 @@ export class MercariService {
       }
     }
 
+    // ── 発送元・発送日数。素の <select> なのでピッカーは要らない ──
+    //
+    // **発送日数の既定は「2~3日で発送」。** 実運用が 1~2 日なら黙ってズレる
+    // （複製元の値が誤っていた事例と同じ形の事故になる）。指定できるようにした。
+    let shippingFromResult = null;
+    let shippingDurationResult = null;
+    if (shippingFrom) {
+      shippingFromResult = await this.setSelectByText(S.shippingFromArea, shippingFrom, '発送元');
+      if (!shippingFromResult.ok) {
+        return { ok: false, code: shippingFromResult.code, message: shippingFromResult.message,
+          candidates: shippingFromResult.candidates };
+      }
+    }
+    if (shippingDuration) {
+      shippingDurationResult = await this.setSelectByText(S.shippingDuration, shippingDuration, '発送日数');
+      if (!shippingDurationResult.ok) {
+        return { ok: false, code: shippingDurationResult.code, message: shippingDurationResult.message,
+          candidates: shippingDurationResult.candidates };
+      }
+    }
+
     // ── 入力結果を読み直す。AI サポートによる上書きもここで検出する ──
     const state = await this.browser.evaluate((sel) => {
       const t = (q) => (document.querySelector(q)?.textContent || '').replace(/\s+/g, ' ').trim();
@@ -914,6 +973,8 @@ export class MercariService {
         categoryText: t(sel.categoryPicker),
         conditionText: t(sel.conditionPicker),
         shippingText: t(sel.shippingMethodPicker),
+        shippingFromText: document.querySelector(sel.shippingFromArea)?.selectedOptions?.[0]?.textContent?.trim() ?? null,
+        shippingDurationText: document.querySelector(sel.shippingDuration)?.selectedOptions?.[0]?.textContent?.trim() ?? null,
         photoCount: document.querySelectorAll(`${sel.photoUpload} , [data-testid="photo-upload"]`).length,
         dynamicAttributes: [...document.querySelectorAll(sel.dynamicAttributeSelects)]
           .map((e) => ({ name: e.getAttribute('name'), value: e.value })),
@@ -929,6 +990,8 @@ export class MercariService {
     if (!state.categoryText.includes(path[path.length - 1])) mismatches.push(`カテゴリー（実際「${state.categoryText}」）`);
     if (!state.conditionText.includes(SELECTORS.sell.conditionLabels[cond])) mismatches.push(`商品の状態（実際「${state.conditionText}」）`);
     if (shippingMethod && !state.shippingText.includes(shippingMethod)) mismatches.push(`配送の方法（実際「${state.shippingText}」）`);
+    if (shippingFrom && state.shippingFromText !== shippingFrom) mismatches.push(`発送元（実際「${state.shippingFromText}」）`);
+    if (shippingDuration && state.shippingDurationText !== shippingDuration) mismatches.push(`発送日数（実際「${state.shippingDurationText}」）`);
     if (mismatches.length) {
       return { ok: false, code: 'FILL_FAILED',
         message: `入力内容が一致しません: ${mismatches.join(' / ')}。保存せずに中断しました。`,
@@ -947,6 +1010,8 @@ export class MercariService {
       conditionApplied: state.conditionText,
       shipping: state.shippingText,
       shippingMethodRequested: shippingMethod,
+      shippingFrom: state.shippingFromText,
+      shippingDuration: state.shippingDurationText,
       imageCount: images.length,
       imageStep,
       dynamicAttributes: state.dynamicAttributes,

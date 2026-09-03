@@ -876,11 +876,15 @@ server.registerTool(
         .describe('画像のローカルファイルパス。省略可（画像なしでも下書きは保存できる）'),
       shipping_method: z.string().optional()
         .describe('配送の方法（例: "らくらくメルカリ便"）。省略するとメルカリ側の既定（ゆうゆうメルカリ便）のままになる。一致しない場合は候補を返す'),
+      shipping_from: z.string().optional()
+        .describe('発送元の都道府県（例: "大阪府"）。省略するとメルカリ側の既定のまま。一致しない場合は候補を返す'),
+      shipping_duration: z.string().optional()
+        .describe('発送日数（"1~2日で発送" / "2~3日で発送" / "4~7日で発送"）。**省略時のメルカリ既定は「2~3日で発送」**なので、実運用が違うなら必ず指定すること'),
       dry_run: z.boolean().default(true)
         .describe('true（既定）は確認のみで何も保存しない。実際に下書きを作る場合だけ false を指定する'),
     },
   },
-  async ({ title, description, price, category_path, condition, image_paths, shipping_method, dry_run }) => {
+  async ({ title, description, price, category_path, condition, image_paths, shipping_method, shipping_from, shipping_duration, dry_run }) => {
     try {
       const r = await withMercari(async (mercari) => {
         const login = await mercari.checkLogin();
@@ -890,6 +894,8 @@ server.registerTool(
           categoryPath: category_path, condition,
           imagePaths: image_paths ?? [],
           shippingMethod: shipping_method ?? null,
+          shippingFrom: shipping_from ?? null,
+          shippingDuration: shipping_duration ?? null,
           dryRun: dry_run !== false,
         });
       });
@@ -897,9 +903,21 @@ server.registerTool(
         return { isError: true, content: [{ type: 'text', text: 'エラー [NOT_LOGGED_IN] メルカリにログインしていません。mercari_login を実行してください。' }] };
       }
       if (!r.ok) {
-        return { isError: true, content: [{ type: 'text', text: `エラー [${r.code}] ${r.message}` }] };
+        // 候補があれば必ず見せる。「無い」とだけ言われても直しようがない
+        const cand = Array.isArray(r.candidates) && r.candidates.length
+          ? `\n候補: ${r.candidates.join(' / ')}`
+          : '';
+        return { isError: true, content: [{ type: 'text', text: `エラー [${r.code}] ${r.message}${cand}` }] };
       }
-      return { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] };
+      const warn = [];
+      // **発送日数の既定は「2~3日で発送」。** 実運用が違うなら黙ってズレるので必ず知らせる
+      if (!shipping_duration) {
+        warn.push(`発送日数を指定していない（いまの値「${r.plan?.shippingDuration ?? '不明'}」）。実運用と違うなら shipping_duration を指定すること`);
+      }
+      if (!shipping_from) {
+        warn.push(`発送元を指定していない（いまの値「${r.plan?.shippingFrom ?? '未選択'}」）`);
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(warn.length ? { ...r, needsHuman: warn } : r, null, 2) }] };
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
     }
