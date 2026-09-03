@@ -41,11 +41,21 @@ export class ElectronBrowserService {
   async startBrowser() { await this.call('ping', {}, { timeoutMs: 5000 }); }
 
   /**
-   * ウィンドウを閉じる。
-   * **外部 Chrome と違い「都度開いて閉じる」必要は無い**（ProcessSingleton が無いため）が、
-   * BrowserService と同じ面を保つために用意する。
+   * 後始末。**ウィンドウは破棄しない。隠すだけ。**
+   *
+   * MCP サーバーはコマンドごとに起動して終了する。Playwright ではプロセスごとに
+   * 専用ブラウザだったので終了時に閉じてよかったが、**Electron では 1 つのウィンドウを
+   * 全プロセスが共有する。** そこへ「終了時に破棄」を持ち込むと、別の呼び出しが
+   * 使っている最中に壊しに行く競合が成立する
+   * （実際に売却済みの取得が 319 件のところ 1 件で返ったことがある。再現はしていない）。
+   *
+   * ウィンドウは常駐させたままでよい。外部 Chrome と違い ProcessSingleton の制約が無く、
+   * 開きっぱなしのコストはほぼ無い。破棄したいときは close_window を明示的に呼ぶ。
    */
-  async stopBrowser() { try { await this.call('close_window', { target: TARGET }); } catch { /* 既に無い */ } }
+  async stopBrowser() { try { await this.showWindow(false); } catch { /* ウィンドウが無い。何もしない */ } }
+
+  /** 明示的に破棄したいときだけ使う（通常の後始末では呼ばない） */
+  async destroyWindow() { try { await this.call('close_window', { target: TARGET }); } catch { /* 既に無い */ } }
 
   async openPage(url, { timeout = 45000 } = {}) {
     const r = await this.call('open_page', { url, target: TARGET, timeoutMs: timeout }, { timeoutMs: timeout + 5000 });

@@ -185,9 +185,16 @@ const ops = {
 
   /** ログインなど人間の操作が要るときだけウィンドウを出す */
   async show_window({ target = 'mercari', show = true }) {
+    // 隠すだけならウィンドウを作らない（後始末で毎回作られてしまう）
+    if (!show) {
+      const w = target === 'mercari' ? mercariWindow : mainWindow;
+      if (!w || w.isDestroyed()) return { shown: false, noWindow: true };
+      w.hide();
+      return { shown: false };
+    }
     const win = requireWindow(target, { create: target === 'mercari' });
-    if (show) { win.show(); win.focus(); } else { win.hide(); }
-    return { shown: show };
+    win.show(); win.focus();
+    return { shown: true };
   },
 
   async close_window({ target }) {

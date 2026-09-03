@@ -369,7 +369,8 @@ server.registerTool(
       'フリモーラの在庫データとメルカリの実際の出品を突き合わせ、ズレを検出する（読み取りのみ。何も変更しない）。' +
       '主目的は「メルカリでは売れているのに手元では出品中のまま」の検出。' +
       'ほかに価格のズレ、メルカリから消えた商品、再出品したのに売却済みのままの商品、手元に無い出品も返す。' +
-      '在庫データは backup_path（設定画面の「バックアップをダウンロード」で保存した JSON）か app_items で渡す。',
+      '**フリモーラ Desktop（electron/）が起動していれば、どちらも渡さなくてよい**（localStorage から直接読む）。' +
+      '起動していない場合は backup_path（設定画面の「バックアップをダウンロード」で保存した JSON）か app_items で渡す。',
     inputSchema: {
       backup_path: z.string().optional()
         .describe('フリモーラのバックアップ JSON のパス。app_items を渡す場合は不要'),
@@ -384,10 +385,18 @@ server.registerTool(
   async ({ backup_path, app_items, max_items, price_tolerance }) => {
     try {
       let local;
-      if (Array.isArray(app_items) && app_items.length) local = app_items;
-      else if (backup_path) local = itemsFromBackupFile(backup_path);
+      let localSource;
+      if (Array.isArray(app_items) && app_items.length) { local = app_items; localSource = 'app_items'; }
+      else if (backup_path) { local = itemsFromBackupFile(backup_path); localSource = 'backup'; }
       else {
-        return { isError: true, content: [{ type: 'text', text: 'エラー [BAD_PARAMS] backup_path か app_items のどちらかが必要です' }] };
+        // どちらも無ければ、起動中のフリモーラ Desktop から直接読む（下書きと同じ扱い）
+        try { local = await readJsonArrayFromApp('furimora_items'); localSource = 'app'; }
+        catch (e) {
+          const hint = e?.code === 'APP_NOT_RUNNING'
+            ? 'フリモーラ Desktop（electron/）を起動するか、backup_path か app_items を渡してください'
+            : String((e && e.message) || e);
+          return { isError: true, content: [{ type: 'text', text: `エラー [BAD_PARAMS] 在庫データを取得できません: ${hint}` }] };
+        }
       }
 
       const r = await withMercari(async (mercari) => {
@@ -413,6 +422,7 @@ server.registerTool(
         content: [{
           type: 'text',
           text: JSON.stringify({
+            在庫データの取得元: localSource,
             summary: report.summary,
             取得時間ms: { 出品中: r.active.elapsedMs, 売却済み: r.sold.elapsedMs },
             売れているのに出品中のまま: report.soldButActive,
