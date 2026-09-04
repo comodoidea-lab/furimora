@@ -138,6 +138,13 @@ function createWindow() {
       return;
     }
     const id = `captured:${++captureSeq}`;
+    // **非表示ウィンドウは既定で throttle される。**
+    // show:false のまま放置すると描画とタイマーが遅くなり、メルカリ商品ページの
+    // クライアント側描画が間に合わない。フッターだけが描かれた状態を読んで
+    // 「商品の編集が無い＝自分の出品でない」と誤判定した（2026-09-04 実測）。
+    // webPreferences を override すると partition を落とす危険があるので、
+    // 生まれた後の webContents 側で解除する。
+    child.webContents.setBackgroundThrottling(false);
     capturedWindows.set(id, child);
     child.on('closed', () => capturedWindows.delete(id));
     const armed = captureArmed;
