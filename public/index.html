@@ -1283,7 +1283,8 @@ tailwind.config = {
           <div class="min-w-0">
             <label class="text-xs font-semibold text-on-surface-variant">仕入れ値</label>
             <div class="relative mt-1"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">¥</span>
-              <input id="ni-cost" type="number" value="0" oninput="calcItemPrice()"
+              <input id="ni-cost" type="number" placeholder="未入力" oninput="calcItemPrice()"
+                title="空欄のままなら「仕入れ値は未入力」として保存します。0 と入力した場合は「仕入0円」として保存します"
                 class="w-full bg-surface-container border-none rounded-xl py-2.5 pl-8 pr-3 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"/>
             </div>
           </div>
@@ -1359,6 +1360,12 @@ tailwind.config = {
               <input id="ni-supplier" type="text" placeholder="例: ブックオフ渋谷店"
                 class="min-w-0 flex-1 bg-surface-container border-none rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20"/>
             </div>
+          </div>
+          <div class="min-w-0">
+            <label class="text-xs font-semibold text-on-surface-variant">仕入日</label>
+            <input id="ni-purchase-date" type="date"
+              class="mt-1 w-full min-w-0 max-w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm outline-none"/>
+            <p class="text-[10px] text-on-surface-variant mt-1">出品日とは別に、仕入れた日を記録します。未入力のままでも保存できます。</p>
           </div>
         </div>
       </details>
@@ -2647,8 +2654,11 @@ function isIOSDevice() {
 function furimoraComputeItemNetProfit(item) {
   if (!item || typeof item !== 'object') return 0;
   const price = Number(item.currentPrice) || 0;
-  const feePct = Number(item.fee) || 10;
+  // fee は 0（手数料なしの販路）が正当な値。`|| 10` だと 0 を既定値に潰してしまう
+  const feeRaw = Number(item.fee);
+  const feePct = Number.isFinite(feeRaw) && feeRaw >= 0 ? feeRaw : 10;
   const ship = Number(item.shippingCost) || 0;
+  // costPrice の null は「未入力」。粗利の計算上は 0 として扱う（表示は変えない）
   const cost = Number(item.costPrice) || 0;
   const fee = Math.round((price * feePct) / 100);
   return price - fee - ship - cost;
@@ -3721,7 +3731,8 @@ function openInventoryEditItemModal(id) {
   niEditId = id;
   niRelistMode = false;
   document.getElementById('ni-title').value = item.title || '';
-  document.getElementById('ni-cost').value = item.costPrice ?? 0;
+  document.getElementById('ni-cost').value = item.costPrice ?? '';
+  document.getElementById('ni-purchase-date').value = item.purchaseDate ? String(item.purchaseDate).slice(0, 10) : '';
   const minP = Number(item.minPrice) || 0;
   const startP = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || minP;
   let buf = Math.max(0, startP - minP);
@@ -3765,7 +3776,8 @@ function openRelistItemModal(id) {
   niEditId = id;
   niRelistMode = true;
   document.getElementById('ni-title').value = item.title || '';
-  document.getElementById('ni-cost').value = item.costPrice ?? 0;
+  document.getElementById('ni-cost').value = item.costPrice ?? '';
+  document.getElementById('ni-purchase-date').value = item.purchaseDate ? String(item.purchaseDate).slice(0, 10) : '';
   const minP = Number(item.minPrice) || 0;
   const startP = Number(item.startPrice != null ? item.startPrice : item.currentPrice) || minP;
   let buf = Math.max(0, startP - minP);
@@ -4041,6 +4053,12 @@ function executeItemConfirm() {
     if (item) {
       item.status = 'sold';
       item.soldAt = new Date().toISOString();
+      // 実売価格そのものではなく「売却済みにした時点の出品価格」。
+      // 商品編集は currentPrice を出品開始価格へ戻すため、ここで固定しないと後から失われる。
+      // 由来を必ず併記し、確定した実売価格として扱われないようにする。
+      const soldSnapshot = Number(item.currentPrice);
+      item.soldPrice = Number.isFinite(soldSnapshot) ? soldSnapshot : null;
+      item.soldPriceSource = 'currentPriceSnapshot';
       furimoraTouchItem(item);
       saveItems();
       renderItems();
@@ -4062,7 +4080,8 @@ function openNewItemModal(draftData) {
   niRelistMode = false;
   setNiModalMode('new');
   document.getElementById('ni-title').value = draftData?.title || '';
-  document.getElementById('ni-cost').value = 0;
+  document.getElementById('ni-cost').value = '';
+  document.getElementById('ni-purchase-date').value = '';
   const draftPrice = Number(draftData?.price);
   const hasDraftPrice = Number.isFinite(draftPrice) && draftPrice >= 300;
   document.getElementById('ni-minprice').value = hasDraftPrice ? draftPrice : 800;
@@ -4513,6 +4532,18 @@ function saveNewItem() {
   const shippingMethodId = (document.getElementById('ni-shipping-method')?.value || '').trim();
   const marketplace = MARKETPLACE_OPTIONS.find((x) => x.id === marketplaceId) || null;
   const shippingMethod = SHIPPING_METHOD_OPTIONS.find((x) => x.id === shippingMethodId) || null;
+  // 仕入れ値は「未入力」と「0 円（貰い物・自作）」を区別して保存する。
+  // 空欄は null にする。undefined だと JSON 化でキーごと消え、
+  // 「未入力」なのか「このフィールドを知らない版が保存した」のか後から判別できない。
+  const costRaw = (document.getElementById('ni-cost').value || '').trim();
+  const costParsed = parseInt(costRaw, 10);
+  const costPrice = costRaw === '' || !Number.isFinite(costParsed) ? null : Math.max(0, costParsed);
+  // 手数料 0%（手数料なしの販路）は正当な値。`|| 10` だと 0 が既定値に化ける。
+  // 空欄・不正値のときだけ既定の 10 に落とす。
+  const feeParsed = parseInt(document.getElementById('ni-fee').value, 10);
+  const fee = Number.isFinite(feeParsed) && feeParsed >= 0 ? feeParsed : 10;
+  // 仕入日。日付に「明示的なゼロ」は無いので、未入力はキーを持たせない
+  const purchaseDate = (document.getElementById('ni-purchase-date')?.value || '').trim();
   const prevStatus = niEditId && prev && prev.status ? prev.status : 'active';
   const statusNorm = ['active', 'relisted', 'sold', 'pending'].includes(prevStatus) ? prevStatus : 'active';
   const item = {
@@ -4521,8 +4552,8 @@ function saveNewItem() {
     category: document.getElementById('ni-category').value,
     condition: document.getElementById('ni-condition').value,
     currentPrice: startPrice, startPrice, minPrice: min,
-    costPrice: parseInt(document.getElementById('ni-cost').value)||0,
-    fee: parseInt(document.getElementById('ni-fee').value)||10,
+    costPrice,
+    fee,
     shippingCost: parseInt(document.getElementById('ni-shipping').value)||0,
     shippingBaseCost: shippingMethod ? Number(shippingMethod.shippingCost || 0) : undefined,
     packingCost: shippingMethod ? Number(shippingMethod.packingCost || 0) : undefined,
@@ -4535,6 +4566,7 @@ function saveNewItem() {
     relistCount, createdAt,
     priceHistory,
     supplierName: supplierName || undefined,
+    purchaseDate: purchaseDate || undefined,
     marketplaceId: marketplaceId || undefined,
     marketplaceName: marketplace?.name || undefined,
     shippingMethodId: shippingMethodId || undefined,
@@ -4544,6 +4576,12 @@ function saveNewItem() {
     updatedAt: new Date().toISOString(),
   };
   if (niEditId && prev && prev.soldAt != null && item.status === 'sold') item.soldAt = prev.soldAt;
+  // soldPrice / soldPriceSource は必ず対で引き継ぐ。saveNewItem は item を組み直すので、
+  // ここで明示しないと売却時のスナップショットが編集のたびに消える。
+  if (niEditId && prev && prev.soldPriceSource != null && item.status === 'sold') {
+    item.soldPrice = prev.soldPrice ?? null;
+    item.soldPriceSource = prev.soldPriceSource;
+  }
   if (niEditId) { const idx=ITEMS.findIndex(i=>i.id===niEditId); if(idx>=0) ITEMS[idx]=item; }
   else ITEMS.unshift(item);
   furimoraClearItemTombstone(item.id);
