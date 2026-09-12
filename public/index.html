@@ -2003,6 +2003,17 @@ const FURIMORA_SYNC_LAST_PUSH_AT = 'furimora_sync_last_push_at';
 const FURIMORA_SYNC_LOCAL_BACKUP = 'furimora_sync_local_backup_v1';
 const FURIMORA_ITEMS_TOMBSTONES_KEY = 'furimora_items_tombstones';
 const FURIMORA_ITEMS_DIRTY_KEY = 'furimora_items_dirty_v1';
+/**
+ * 手元のデータが「誰のものか」。
+ *
+ * **これが無いと、別アカウントでログインしたときに手元のデータをそのまま
+ * 相手のクラウドへ送ってしまう。** 実際、クラウドが空なら「この端末のデータ」
+ * として push する経路がある（furimoraSyncAfterLogin）。在庫・仕入れ値・利益まで
+ * 丸ごと混ざる。iOS では Google ログインが成立していなかったため表面化していなかった。
+ *
+ * 推測はしない。一致・不一致・未設定の 3 つを事実として扱う。
+ */
+const FURIMORA_DATA_OWNER_KEY = 'furimora_data_owner_uid';
 // 下書きの差分同期。商品と同じ 3 点セット（未送信の印・削除の記録・取り込み位置）
 const FURIMORA_DRAFTS_TOMBSTONES_KEY = 'furimora_drafts_tombstones';
 const FURIMORA_DRAFTS_DIRTY_KEY = 'furimora_drafts_dirty_v1';
@@ -2435,6 +2446,42 @@ function furimoraClearItemTombstone(itemId) {
   delete tombstones[key];
   furimoraSaveItemTombstones(tombstones);
 }
+// ── 手元のデータの持ち主 ──
+function furimoraGetDataOwner() {
+  try { return localStorage.getItem(FURIMORA_DATA_OWNER_KEY) || ''; } catch { return ''; }
+}
+function furimoraSetDataOwner(uid) {
+  try {
+    if (uid) localStorage.setItem(FURIMORA_DATA_OWNER_KEY, String(uid));
+  } catch (e) { console.warn('[data owner]', e); }
+}
+/** 実データ（商品・下書き）があるか。設定だけの端末は「空」とみなす */
+function furimoraHasLocalUserData() {
+  const count = (key) => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+      return Array.isArray(parsed) ? parsed.length : 0;
+    } catch { return 0; }
+  };
+  return count('furimora_items') > 0 || count('furimora_drafts') > 0;
+}
+/**
+ * 別アカウントに切り替わったので、手元のデータを捨てる。
+ * ログアウトと同じ範囲を消す（残すと相手のクラウドへ push されてしまう）。
+ */
+function furimoraDiscardLocalDataForAccountSwitch() {
+  const removeKeys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('furimora_') && k !== FURIMORA_ONBOARDING_DONE_KEY) removeKeys.push(k);
+  }
+  removeKeys.forEach((key) => {
+    try { localStorage.removeItem(key); } catch (e) { /* quota */ }
+  });
+  ITEMS = [];
+  furimoraReloadAllFromStorage();
+}
+
 // ── 下書きの差分同期（商品と同じ作り。対応する関数名を揃えてある） ──
 function furimoraLoadDrafts() {
   try {
@@ -7100,6 +7147,22 @@ async function furimoraSyncAfterLogin() {
   if (!furimoraFirestore) return;
   const user = furimoraCurrentUser();
   if (!user) return;
+
+  // **持ち主の確認を、クラウドへ触る前に済ませる。**
+  // 手元のデータが別アカウントのものだと、以下の push 経路で相手のクラウドへ流れる。
+  const owner = furimoraGetDataOwner();
+  const hadLocal = furimoraHasLocalUserData();
+  let ownerMismatch = false;
+  if (owner && owner !== user.uid) {
+    // 別アカウントに切り替わった。混ぜずに捨てる（ログアウトと同じ扱い）
+    ownerMismatch = true;
+    furimoraDiscardLocalDataForAccountSwitch();
+    showToast('別のアカウントのため、この端末のデータを読み込み直します');
+  }
+  // 出自不明（記録が無いのに実データがある）。旧版で使っていた端末がこれに当たる。
+  // 手元を正本にすると、古い残骸で新しいクラウドを上書きしうるので、クラウドを優先する
+  const unownedLocal = !owner && hadLocal && !ownerMismatch;
+
   const lastMerged = getLastRemoteMergeMs();
   let stateSnapshot;
   try {
@@ -7115,26 +7178,36 @@ async function furimoraSyncAfterLogin() {
   const remoteUpdatedAt = furimoraLatestStateIso(data);
   if (!data) {
     try {
-      await furimoraPullItemsFromCloud(user.uid, false);
-      await furimoraPullDraftsFromCloud(user.uid, false);
+      await furimoraPullItemsFromCloud(user.uid, unownedLocal);
+      await furimoraPullDraftsFromCloud(user.uid, unownedLocal);
     } catch (e) {
       console.error('[sync items pull]', e);
     }
     const localPayload = furimoraCollectSyncPayload();
     const hasLocal = localPayload?.keys && Object.keys(localPayload.keys).length > 0;
-    if (hasLocal) {
+    // 出自不明のデータは相手のクラウドへ送らない。**持ち主が確かなときだけ push する**
+    if (hasLocal && !unownedLocal) {
       await furimoraPushToCloud('sync_coordinator');
+      furimoraSetDataOwner(user.uid);
       showToast('この端末のデータをクラウドに保存しました');
+    } else if (unownedLocal) {
+      furimoraSetDataOwner(user.uid);
+      furimoraSyncSetBadge('idle', '待機中');
+      showToast('このアカウントのデータを読み込みました');
     } else {
+      furimoraSetDataOwner(user.uid);
       furimoraSyncSetBadge('idle', '待機中');
     }
     return;
   }
   const remoteT = new Date(remoteUpdatedAt).getTime();
   // クラウドが新しければローカル未同期の有無にかかわらずクラウドを正本として反映する
-  if (remoteT > lastMerged) {
+  // 出自不明・アカウント切替のときは商品も下書きもクラウドで完全に置き換える
+  // （4 月の残骸のような古い手元データで、新しいクラウドを汚さないため）
+  if (remoteT > lastMerged || unownedLocal || ownerMismatch) {
     try {
-      await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, true, false);
+      await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, true, unownedLocal || ownerMismatch);
+      furimoraSetDataOwner(user.uid);
     } catch (e) {
       console.error('[sync latest pull]', e);
       furimoraSyncSetBadge('error', '失敗');
@@ -7148,6 +7221,7 @@ async function furimoraSyncAfterLogin() {
     } else {
       furimoraSyncSetBadge('idle', '待機中');
     }
+    furimoraSetDataOwner(user.uid);
   }
   } finally {
     furimoraSyncInProgress = false;
@@ -7768,6 +7842,18 @@ async function furimoraInitFirebase() {
     furimoraFirestore = app.firestore();
     await furimoraFirebaseAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 
+    // **リダイレクト方式の戻りを回収する。**
+    // iOS Safari はポップアップを塞ぐので signInWithRedirect に落ちる。戻ってきた結果を
+    // ここで受け取らないと認証が完了せず、「ログインした」のにログイン状態にならない
+    // （iOS では 2026-06-10 の Firebase 移行以降ずっとログインできていなかった）。
+    try {
+      const redirectResult = await furimoraFirebaseAuth.getRedirectResult();
+      if (redirectResult?.user) showToast('Google でログインしました');
+    } catch (error) {
+      console.error('[firebase auth redirect]', error);
+      showToast(error?.message || 'ログインに失敗しました');
+    }
+
     if (furimoraFirebaseAuth.isSignInWithEmailLink(window.location.href)) {
       let email = localStorage.getItem(FURIMORA_FIREBASE_MAGIC_EMAIL_KEY) || '';
       if (!email) email = window.prompt('ログインリンクを送信したメールアドレスを入力してください') || '';
@@ -7890,10 +7976,18 @@ function furimoraWireSyncButtons() {
     const id = (suffix) => `${prefix}${suffix}`;
     document.getElementById(id('google-btn'))?.addEventListener('click', () => runAuth(async () => {
       const provider = new firebase.auth.GoogleAuthProvider();
+      // iOS はポップアップを塞ぐ。エラーコードでの判定に頼ると取りこぼすので最初から
+      // リダイレクトへ行く。戻りは furimoraInitFirebase の getRedirectResult で拾う
+      if (isIOSDevice()) {
+        await furimoraFirebaseAuth.signInWithRedirect(provider);
+        return;
+      }
       try {
         await furimoraFirebaseAuth.signInWithPopup(provider);
       } catch (error) {
-        if (error?.code !== 'auth/popup-blocked' && error?.code !== 'auth/operation-not-supported-in-this-environment') throw error;
+        if (error?.code !== 'auth/popup-blocked'
+          && error?.code !== 'auth/cancelled-popup-request'
+          && error?.code !== 'auth/operation-not-supported-in-this-environment') throw error;
         await furimoraFirebaseAuth.signInWithRedirect(provider);
         return;
       }
