@@ -464,6 +464,19 @@ tailwind.config = {
           <p class="text-[10px] text-on-surface-variant">URLから下書き作成</p>
         </div>
       </button>
+      <!-- モバイルのフッターに入れると 6 項目になって潰れるため、入口はここ -->
+      <button type="button" id="home-inbox-card" onclick="navigate('purchase-inbox')" class="bg-surface-container-lowest p-4 rounded-lg shadow-sm flex items-center gap-3 text-left card-interactive md:hidden">
+        <div class="w-10 h-10 bg-tertiary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-tertiary">move_to_inbox</span>
+        </div>
+        <div class="min-w-0">
+          <p class="font-bold text-sm flex items-center gap-1.5">
+            仕入れInbox
+            <span id="home-inbox-badge" class="hidden inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-black"></span>
+          </p>
+          <p class="text-[10px] text-on-surface-variant">仕入れ確定を商品へ紐づけ</p>
+        </div>
+      </button>
     </div>
 
     <!-- Alerts -->
@@ -1867,6 +1880,9 @@ tailwind.config = {
       <span class="shrink-0 text-center text-[9px] font-semibold leading-none tracking-tight text-white [line-height:1]">在庫</span>
     </span>
   </button>
+  <!-- 仕入れInbox はフッターに置かない。中央の在庫ボタンを挟んで 2+2 に収まらなくなり、
+       ラベルが潰れる。常時使う画面でもないので、入口はホームのカード（#home-inbox-card）。
+       PC はサイドバーから入る -->
   <button onclick="navigate('schedule')" data-nav="schedule" class="nav-btn-mobile flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-all active:scale-90 text-on-surface-variant">
     <span class="material-symbols-outlined text-xl">calendar_month</span>
     <span class="text-[9px] font-semibold tracking-tight">スケジュール</span>
@@ -1903,6 +1919,7 @@ tailwind.config = {
   // 人間の導線（この PWA / Chrome 拡張）と、エージェントの導線（MCP サーバー）が
   // 同じ public/js/clone-service.js に着地する。
   import { createCloneService, createInternalApi } from './js/clone-service.js';
+  import * as draftsSync from './js/drafts-sync-core.js';
 
   const PRIMARY = 'https://furimora.vercel.app';
   const LEGACY = 'https://furimora-assist.vercel.app';
@@ -1915,9 +1932,13 @@ tailwind.config = {
 
   window.FurimoraCloneService = service;
   window.FurimoraInternalApi = api;
+  // 下書きの差分同期の判断部分。classic script 側から使う
+  window.FurimoraDraftsSync = draftsSync;
   // MCP サーバー / ローカルエージェントからの参照点
   window.furimora = Object.assign(window.furimora || {}, { cloneService: service, api });
 </script>
+<script type="module" src="./js/purchase-inbox.js"></script>
+<script type="module" src="./js/listing-created-outbox.js"></script>
 
 <script>
 // ── Data (localStorage-driven, no hardcoded samples) ──
@@ -1932,11 +1953,16 @@ const PRIMARY_WEB_ORIGIN = 'https://furimora.vercel.app';
 /** クラウド同期対象（localStorage キー）— API キー類は含めない */
 const FURIMORA_SYNC_KEYS = [
   'furimora_alerts', 'furimora_activities', 'furimora_queue', 'furimora_schedule', 'furimora_notifications',
-  'furimora_stats', 'furimora_profile', 'furimora_templates', 'furimora_drafts',
+  'furimora_stats', 'furimora_profile', 'furimora_templates',
   'furimora_marketplaces', 'furimora_shipping_methods', 'furimora_suppliers', 'furimora_automation_settings',
 ];
 // 旧クライアント互換用（新クライアントでは基本的に取り込まない）
-const FURIMORA_LEGACY_SYNC_WRITE_KEYS = ['furimora_items'];
+//
+// `furimora_drafts` は 2026-09-12 にここへ移した。**塊で持つと丸ごと上書きになり、
+// まだ push していない下書きが黙って消える**（実際に消えた）。商品と同じく
+// `users/{uid}/drafts` へ 1 件ずつ差分同期する。塊は「まだ何も無い端末への初期移行」専用。
+// あわせて state ドキュメント（1 MiB 上限）から下書き 150 件分（実測 594 KB）が外れる。
+const FURIMORA_LEGACY_SYNC_WRITE_KEYS = ['furimora_items', 'furimora_drafts'];
 
 /**
  * 下書きの保持件数。unshift してから切るので、超えた分は最古から消える。
@@ -1977,6 +2003,11 @@ const FURIMORA_SYNC_LAST_PUSH_AT = 'furimora_sync_last_push_at';
 const FURIMORA_SYNC_LOCAL_BACKUP = 'furimora_sync_local_backup_v1';
 const FURIMORA_ITEMS_TOMBSTONES_KEY = 'furimora_items_tombstones';
 const FURIMORA_ITEMS_DIRTY_KEY = 'furimora_items_dirty_v1';
+// 下書きの差分同期。商品と同じ 3 点セット（未送信の印・削除の記録・取り込み位置）
+const FURIMORA_DRAFTS_TOMBSTONES_KEY = 'furimora_drafts_tombstones';
+const FURIMORA_DRAFTS_DIRTY_KEY = 'furimora_drafts_dirty_v1';
+const FURIMORA_DRAFTS_LAST_REMOTE_AT = 'furimora_drafts_last_remote_at';
+const FURIMORA_DRAFTS_MIGRATED_KEY = 'furimora_drafts_migrated_v1';
 const FURIMORA_ITEMS_LAST_REMOTE_AT = 'furimora_items_last_remote_at';
 const FURIMORA_FIREBASE_AUTO_SYNC_KEY = 'furimora_firebase_auto_sync';
 const FURIMORA_FIREBASE_MAGIC_EMAIL_KEY = 'furimora_firebase_magic_email';
@@ -2096,6 +2127,10 @@ function furimoraFirestoreItemsRef(userId) {
 
 function furimoraFirestorePushRef(userId) {
   return furimoraFirestore.collection('users').doc(userId).collection('pushSubscriptions');
+}
+
+function furimoraFirestoreDraftsRef(userId) {
+  return furimoraFirestore.collection('users').doc(userId).collection('drafts');
 }
 
 function furimoraFirestoreItemDocId(itemId) {
@@ -2400,6 +2435,98 @@ function furimoraClearItemTombstone(itemId) {
   delete tombstones[key];
   furimoraSaveItemTombstones(tombstones);
 }
+// ── 下書きの差分同期（商品と同じ作り。対応する関数名を揃えてある） ──
+function furimoraLoadDrafts() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('furimora_drafts') || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function furimoraWriteDrafts(drafts) {
+  try {
+    localStorage.setItem('furimora_drafts', JSON.stringify(Array.isArray(drafts) ? drafts : []));
+  } catch (e) {
+    console.warn('[drafts]', e);
+  }
+}
+function furimoraLoadDraftTombstones() {
+  try {
+    const obj = JSON.parse(localStorage.getItem(FURIMORA_DRAFTS_TOMBSTONES_KEY) || '{}');
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch {
+    return {};
+  }
+}
+function furimoraSaveDraftTombstones(tombstones) {
+  try {
+    localStorage.setItem(FURIMORA_DRAFTS_TOMBSTONES_KEY, JSON.stringify(tombstones || {}));
+  } catch (e) {
+    console.warn('[drafts tombstones]', e);
+  }
+}
+function furimoraLoadDirtyDrafts() {
+  try {
+    const raw = localStorage.getItem(FURIMORA_DRAFTS_DIRTY_KEY);
+    if (raw != null) {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    }
+  } catch (e) {
+    console.warn('[drafts dirty]', e);
+  }
+  // 印が無い（初回・移行直後・壊れた）。手元の下書きから作り直す
+  const rebuild = window.FurimoraDraftsSync?.rebuildDirty;
+  const dirty = typeof rebuild === 'function'
+    ? rebuild({
+        drafts: furimoraLoadDrafts(),
+        tombstones: furimoraLoadDraftTombstones(),
+        lastPushMs: getSyncMs(FURIMORA_SYNC_LAST_PUSH_AT),
+      })
+    : {};
+  furimoraSaveDirtyDrafts(dirty);
+  return dirty;
+}
+function furimoraSaveDirtyDrafts(dirty) {
+  try {
+    localStorage.setItem(FURIMORA_DRAFTS_DIRTY_KEY, JSON.stringify(dirty || {}));
+  } catch (e) {
+    console.warn('[drafts dirty]', e);
+  }
+}
+function furimoraMarkDraftDirty(draftId, changedAtIso) {
+  const dirty = furimoraLoadDirtyDrafts();
+  dirty[String(draftId)] = changedAtIso || new Date().toISOString();
+  furimoraSaveDirtyDrafts(dirty);
+}
+function furimoraMarkDraftDeleted(draftId, deletedAtIso) {
+  const tombstones = furimoraLoadDraftTombstones();
+  const deletedAt = deletedAtIso || new Date().toISOString();
+  tombstones[String(draftId)] = deletedAt;
+  furimoraSaveDraftTombstones(tombstones);
+  furimoraMarkDraftDirty(draftId, deletedAt);
+}
+function furimoraLoadDraftsRemoteCursor() {
+  const raw = localStorage.getItem(FURIMORA_DRAFTS_LAST_REMOTE_AT) || '';
+  if (!raw || !firebase?.firestore?.Timestamp) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Number.isFinite(parsed?.seconds) && Number.isFinite(parsed?.nanoseconds)) {
+      return new firebase.firestore.Timestamp(parsed.seconds, parsed.nanoseconds);
+    }
+  } catch (e) { /* legacy ISO cursor */ }
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? firebase.firestore.Timestamp.fromMillis(ms) : null;
+}
+function furimoraSaveDraftsRemoteCursor(timestamp) {
+  if (!timestamp || !Number.isFinite(timestamp.seconds) || !Number.isFinite(timestamp.nanoseconds)) return;
+  localStorage.setItem(FURIMORA_DRAFTS_LAST_REMOTE_AT, JSON.stringify({
+    seconds: timestamp.seconds,
+    nanoseconds: timestamp.nanoseconds,
+  }));
+}
+
 function furimoraTouchItem(item, atIso) {
   if (!item || typeof item !== 'object') return item;
   item.updatedAt = atIso || new Date().toISOString();
@@ -2504,6 +2631,106 @@ async function furimoraSyncItemsToCloud(userId) {
   furimoraSaveDirtyItems(latestDirty);
   return { count: rows.length };
 }
+async function furimoraSyncDraftsToCloud(userId) {
+  if (!furimoraFirestore || !userId) return { count: 0 };
+  const build = window.FurimoraDraftsSync?.buildPushRows;
+  if (typeof build !== 'function') return { count: 0 };
+  const dirty = furimoraLoadDirtyDrafts();
+  const { rows, staleKeys } = build({
+    drafts: furimoraLoadDrafts(),
+    dirty,
+    tombstones: furimoraLoadDraftTombstones(),
+  });
+  if (!rows.length) {
+    if (staleKeys.length) {
+      staleKeys.forEach((key) => { delete dirty[key]; });
+      furimoraSaveDirtyDrafts(dirty);
+    }
+    return { count: 0 };
+  }
+  const draftsRef = furimoraFirestoreDraftsRef(userId);
+  for (let start = 0; start < rows.length; start += 400) {
+    const batch = furimoraFirestore.batch();
+    rows.slice(start, start + 400).forEach((row) => {
+      const { dirtyAt, ...cloudRow } = row;
+      batch.set(draftsRef.doc(furimoraFirestoreItemDocId(row.draftId)), {
+        ...cloudRow,
+        clientUpdatedAt: cloudRow.updatedAt,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    });
+    await batch.commit();
+  }
+  // push 中に手元が変わっていることがある。送った時点の印だけを消す
+  const latestDirty = furimoraLoadDirtyDrafts();
+  staleKeys.forEach((key) => { delete latestDirty[key]; });
+  for (const row of rows) {
+    if (latestDirty[row.draftId] === row.dirtyAt) delete latestDirty[row.draftId];
+  }
+  furimoraSaveDirtyDrafts(latestDirty);
+  return { count: rows.length };
+}
+
+async function furimoraPullDraftsFromCloud(userId, preferRemote = false) {
+  if (!furimoraFirestore || !userId) return { count: 0, full: false };
+  const apply = window.FurimoraDraftsSync?.applyRemoteDrafts;
+  if (typeof apply !== 'function') return { count: 0, full: false };
+  const remoteCursor = furimoraLoadDraftsRemoteCursor();
+  const full = preferRemote || !remoteCursor;
+  let query = furimoraFirestoreDraftsRef(userId).orderBy('updatedAt', 'asc');
+  if (!full) query = query.where('updatedAt', '>', remoteCursor);
+  const snapshot = await query.get();
+
+  let newestRemoteCursor = remoteCursor;
+  const remoteRows = [];
+  for (const doc of snapshot.docs) {
+    const row = doc.data() || {};
+    const changeIso = furimoraTimestampToIso(row.updatedAt) || furimoraTimestampToIso(row.clientUpdatedAt);
+    const contentIso = furimoraTimestampToIso(row.clientUpdatedAt) || changeIso;
+    const changeTimestamp = row.updatedAt?.seconds != null
+      ? row.updatedAt
+      : (changeIso ? firebase.firestore.Timestamp.fromDate(new Date(changeIso)) : null);
+    if (furimoraCompareFirestoreTimestamps(changeTimestamp, newestRemoteCursor) > 0) {
+      newestRemoteCursor = changeTimestamp;
+    }
+    remoteRows.push({
+      draftId: String(row.draftId || decodeURIComponent(doc.id)),
+      payload: row.payload,
+      deleted: !!row.deleted,
+      updatedAt: contentIso,
+    });
+  }
+
+  const result = apply({
+    localDrafts: furimoraLoadDrafts(),
+    remoteRows,
+    tombstones: furimoraLoadDraftTombstones(),
+    preferRemote,
+    limit: FURIMORA_DRAFTS_MAX,
+  });
+
+  if (newestRemoteCursor) furimoraSaveDraftsRemoteCursor(newestRemoteCursor);
+  if (preferRemote) {
+    furimoraSaveDirtyDrafts({});
+  } else if (result.appliedKeys.length) {
+    const dirty = furimoraLoadDirtyDrafts();
+    result.appliedKeys.forEach((key) => { delete dirty[key]; });
+    furimoraSaveDirtyDrafts(dirty);
+  }
+  if (result.droppedByLimit.length) {
+    console.warn('[furimora] 下書きの上限超過で最古を削除しました', {
+      dropped: result.droppedByLimit.length,
+      limit: FURIMORA_DRAFTS_MAX,
+      titles: result.droppedByLimit.map((d) => d && d.title).filter(Boolean),
+    });
+  }
+  if (!result.changed) return { count: snapshot.size, full };
+  furimoraWriteDrafts(result.drafts);
+  furimoraSaveDraftTombstones(result.tombstones);
+  renderDrafts();
+  return { count: snapshot.size, full };
+}
+
 async function furimoraPullItemsFromCloud(userId, preferRemote = false) {
   if (!furimoraFirestore || !userId) return { count: 0, full: false };
   const remoteCursor = furimoraLoadItemsRemoteCursor();
@@ -3315,6 +3542,248 @@ function saveItems() {
   syncScheduleFromItems();
   notifyLocalDataChanged();
   maybeRenderAnalytics();
+}
+
+function furimoraIntegrationDocId(value) {
+  return encodeURIComponent(String(value)).slice(0, 1400);
+}
+
+function furimoraPurchaseInboxCloudRefs(userId, record, itemId) {
+  const eventKey = record?.key || `${record?.source_tenant || ''}:${record?.event_id || ''}`;
+  const bindingKey = `${record?.source_tenant || ''}:${record?.inventory_unit_id || ''}`;
+  return {
+    inboxRef: furimoraFirestore.collection('purchaseInbox').doc(furimoraIntegrationDocId(eventKey)),
+    claimRef: furimoraFirestore.collection('inventoryUnitBindings').doc(furimoraIntegrationDocId(bindingKey)),
+    auditRef: furimoraFirestore.collection('purchaseInboxAudits').doc(furimoraIntegrationDocId(`audit:${crypto.randomUUID()}`)),
+    itemRef: furimoraFirestoreItemsRef(userId).doc(furimoraFirestoreItemDocId(itemId)),
+  };
+}
+
+function furimoraPurchaseInboxGetItem(itemId) {
+  loadItems();
+  return ITEMS.find((item) => String(item?.id) === String(itemId)) || null;
+}
+
+function furimoraPurchaseInboxApplyItemBinding(itemId, inventoryUnitId, integration) {
+  loadItems();
+  const item = ITEMS.find((candidate) => String(candidate?.id) === String(itemId));
+  if (!item) throw new Error('bind対象の商品がローカルにありません');
+  if (item.inventory_unit_id && String(item.inventory_unit_id) !== String(inventoryUnitId)) {
+    throw new Error('商品には別のinventory_unit_idが設定済みです');
+  }
+  item.inventory_unit_id = String(inventoryUnitId);
+  item.integration = {
+    source_tenant: String(integration?.source_tenant || ''),
+    purchase_confirmed_event_id: String(integration?.purchase_confirmed_event_id || ''),
+    binding_doc_id: String(integration?.binding_doc_id || ''),
+    bound_at: String(integration?.bound_at || new Date().toISOString()),
+    bound_by: String(integration?.bound_by || ''),
+  };
+  furimoraTouchItem(item);
+  saveItems();
+  renderItems();
+}
+
+function furimoraInitPurchaseInbox() {
+  if (!window.FurimoraPurchaseInbox) return;
+  window.FurimoraPurchaseInbox.init({
+    getFirestore: () => furimoraFirestore,
+    getUser: () => furimoraCurrentUser(),
+    getItemById: furimoraPurchaseInboxGetItem,
+    getCloudRefs: furimoraPurchaseInboxCloudRefs,
+    applyItemBinding: furimoraPurchaseInboxApplyItemBinding,
+    onChanged: renderPurchaseInbox,
+  }).then(() => renderPurchaseInbox()).catch((error) => {
+    console.error('[purchase inbox init]', error);
+    const status = document.getElementById('purchase-inbox-status');
+    if (status) status.textContent = 'Inboxのローカル保存を初期化できませんでした';
+  });
+}
+
+function furimoraInitListingCreated() {
+  if (!window.FurimoraListingCreated) return;
+  window.FurimoraListingCreated.init({
+    getItemById: furimoraPurchaseInboxGetItem,
+    integrationTenantId: window.FURIMORA_INTEGRATION_TENANT_ID || '',
+    onChanged: renderItems,
+  }).catch((error) => console.error('[listing created init]', error));
+}
+
+async function exportListingCreatedJsonl() {
+  if (!window.FurimoraListingCreated) return;
+  if (!window.FurimoraListingCreated.isConfigured()) {
+    showToast('Furimoraのintegration_tenant_idが未設定のため出力できません');
+    return;
+  }
+  const text = await window.FurimoraListingCreated.exportJsonl();
+  if (!text) { showToast('未送信の出品通知はありません'); return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text + '\n'], { type: 'application/jsonl;charset=utf-8' }));
+  a.download = `furimora_listing_created_${new Date().toISOString().slice(0, 10)}.jsonl`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 0);
+  showToast('出品通知JSONLを出力しました');
+}
+
+async function importListingCreatedAckFile(event) {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file || !window.FurimoraListingCreated) return;
+  const results = await window.FurimoraListingCreated.importAckJsonl(await file.text());
+  const counts = results.reduce((out, row) => {
+    out[row.result] = (out[row.result] || 0) + 1;
+    return out;
+  }, {});
+  showToast(`ack: ${Object.entries(counts).map(([key, value]) => `${key} ${value}`).join(' / ')}`);
+}
+
+let listingConfirmationId = null;
+let listingConfirmationRelist = false;
+
+async function openListingCreatedConfirm(id, relist = false) {
+  loadItems();
+  const item = ITEMS.find((candidate) => candidate.id === id);
+  if (!item || !window.FurimoraListingCreated) return;
+  if (!item.inventory_unit_id || !item.integration?.source_tenant) {
+    showToast('bind済みの商品だけ出品成立を記録できます');
+    return;
+  }
+  itemConfirmId = id;
+  itemConfirmType = 'listing_created';
+  listingConfirmationId = window.FurimoraListingCreated.newConfirmationId();
+  listingConfirmationRelist = Boolean(relist);
+  const icon = document.getElementById('item-confirm-icon');
+  icon.textContent = 'verified';
+  icon.className = 'material-symbols-outlined text-3xl text-tertiary flex-shrink-0';
+  document.getElementById('item-confirm-heading').textContent = listingConfirmationRelist
+    ? '再出品の成立を記録しますか？'
+    : '出品成立を記録しますか？';
+  document.getElementById('item-confirm-desc').textContent = 'Mercariで実際に公開済みであることを確認した場合だけ実行してください。Mercariを操作する処理はありません。';
+  document.getElementById('item-confirm-title-preview').textContent = item.title || '（無題）';
+  const ok = document.getElementById('item-confirm-primary');
+  ok.textContent = listingConfirmationRelist ? '再出品済みにする' : '出品済みにする';
+  ok.className = 'flex-1 py-3 rounded-full font-bold text-sm text-white shadow-lg bg-tertiary';
+  document.getElementById('item-confirm-modal').classList.add('open');
+}
+
+async function executeListingCreatedConfirm() {
+  const id = itemConfirmId;
+  const confirmationId = listingConfirmationId;
+  if (id == null || !confirmationId || !window.FurimoraListingCreated) return;
+  const button = document.getElementById('item-confirm-primary');
+  if (button) { button.disabled = true; button.textContent = '記録中…'; }
+  try {
+    loadItems();
+    const item = ITEMS.find((candidate) => candidate.id === id);
+    if (!item) throw new Error('商品が見つかりません');
+    const parsedPrice = item.currentPrice == null || item.currentPrice === '' ? null : Number(item.currentPrice);
+    const numericPrice = parsedPrice == null || !Number.isFinite(parsedPrice) ? null : parsedPrice;
+    const result = await window.FurimoraListingCreated.confirmListing({
+      itemId: id,
+      confirmationId,
+      relist: listingConfirmationRelist,
+      listingPrice: numericPrice,
+    });
+    closeModal('item-confirm-modal');
+    renderItems();
+    showToast(result.result === 'duplicate' ? '同じ出品成立は記録済みです' : '出品成立を記録しました');
+  } catch (error) {
+    showToast(`出品成立を記録できません: ${error.message || error}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function importPurchaseInboxFile(event) {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file || !window.FurimoraPurchaseInbox) return;
+  try {
+    const results = await window.FurimoraPurchaseInbox.importJsonl(await file.text());
+    const counts = results.reduce((out, row) => {
+      out[row.result] = (out[row.result] || 0) + 1;
+      return out;
+    }, {});
+    renderPurchaseInbox();
+    showToast(`受信: ${Object.entries(counts).map(([key, value]) => `${key} ${value}`).join(' / ')}`);
+  } catch (error) {
+    showToast(`Inbox受信に失敗しました: ${error.message || error}`);
+  }
+}
+
+async function bindPurchaseInbox(key) {
+  const select = [...document.querySelectorAll('[data-inbox-select]')]
+    .find((element) => element.dataset.inboxSelect === String(key));
+  const itemId = select?.value || '';
+  if (!itemId) {
+    showToast('bindするFurimora商品を明示的に選択してください');
+    return;
+  }
+  try {
+    const result = await window.FurimoraPurchaseInbox.bindEvent(key, itemId);
+    await renderPurchaseInbox();
+    showToast(result.result === 'duplicate' ? 'bind済みのため変更しませんでした' : '商品へbindしました');
+  } catch (error) {
+    showToast(`bindできません: ${error.message || error}`);
+  }
+}
+
+function openNewItemFromPurchaseInbox(key) {
+  furimoraPendingInboxBindKey = String(key);
+  navigate('relist');
+  openNewItemModal(null);
+}
+
+/**
+ * ホームの仕入れInboxカードに bind 待ち件数を出す。
+ * モバイルはフッターに Inbox を置いていないので、**ここが唯一の気づき所**になる。
+ */
+async function refreshHomeInboxBadge() {
+  const badge = document.getElementById('home-inbox-badge');
+  if (!badge || !window.FurimoraPurchaseInbox) return;
+  const records = await window.FurimoraPurchaseInbox.listInbox().catch(() => []);
+  const pending = records.filter((record) => record.status === 'received').length;
+  badge.textContent = pending > 99 ? '99+' : String(pending);
+  badge.classList.toggle('hidden', pending === 0);
+}
+
+async function renderPurchaseInbox() {
+  const list = document.getElementById('purchase-inbox-list');
+  const status = document.getElementById('purchase-inbox-status');
+  if (!list || !window.FurimoraPurchaseInbox) return;
+  const records = await window.FurimoraPurchaseInbox.listInbox().catch(() => []);
+  const pending = records.filter((record) => record.status === 'received').length;
+  if (status) status.textContent = records.length ? `${records.length}件（bind待ち ${pending}件）` : '受信済みイベントはありません';
+  refreshHomeInboxBadge();
+  if (!records.length) {
+    list.innerHTML = '<div class="bg-surface-container-lowest rounded-xl p-6 text-sm text-on-surface-variant text-center">ZaikoBangから1件届いています、の状態になるとここに表示されます。</div>';
+    return;
+  }
+  loadItems();
+  const options = ITEMS.map((item) => `<option value="${escapeHtmlShort(item.id)}">${escapeHtmlShort(item.title || '（無題）')}（ID: ${escapeHtmlShort(item.id)}）</option>`).join('');
+  list.innerHTML = records.map((record) => {
+    const isReceived = record.status === 'received';
+    const statusLabel = record.status === 'received' ? 'bind待ち' : record.status === 'bound' ? 'bind済み' : record.status;
+    const payloadText = record.payload ? JSON.stringify(record.payload) : record.quarantine_reason || record.conflict_reason || '';
+    return `<article class="bg-surface-container-lowest rounded-xl p-4 shadow-sm space-y-3" data-inbox-key="${escapeHtmlShort(record.key)}">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-sm font-bold truncate">ZaikoBangからの仕入れ確定</p>
+          <p class="text-[11px] text-on-surface-variant break-all">event_id: ${escapeHtmlShort(record.event_id || '—')}</p>
+          <p class="text-[11px] text-on-surface-variant break-all">inventory_unit_id: ${escapeHtmlShort(record.inventory_unit_id || '—')}</p>
+        </div>
+        <span class="shrink-0 text-[10px] font-bold rounded-full px-2 py-1 ${isReceived ? 'bg-primary/10 text-primary' : 'bg-surface-container text-on-surface-variant'}">${escapeHtmlShort(statusLabel)}</span>
+      </div>
+      ${isReceived ? `<div class="space-y-2"><label class="text-xs font-semibold text-on-surface-variant" for="inbox-select-${escapeHtmlShort(record.key)}">bind先の商品を人間が選択</label><select id="inbox-select-${escapeHtmlShort(record.key)}" data-inbox-select="${escapeHtmlShort(record.key)}" class="w-full bg-surface-container border-none rounded-xl px-3 py-2.5 text-sm"><option value="">商品を選択してください</option>${options}</select><button type="button" data-inbox-bind="${escapeHtmlShort(record.key)}" class="w-full py-2.5 rounded-full bg-primary text-white font-bold text-sm">この商品として登録</button><button type="button" data-inbox-new="${escapeHtmlShort(record.key)}" class="w-full py-2.5 rounded-full border border-primary/30 text-primary font-bold text-sm">新規商品を作成してbind</button></div>` : ''}
+      <details><summary class="cursor-pointer text-[11px] text-on-surface-variant">受信データを表示</summary><pre class="mt-2 text-[10px] whitespace-pre-wrap break-all bg-surface-container rounded-lg p-3">${escapeHtmlShort(payloadText)}</pre></details>
+    </article>`;
+  }).join('');
+  list.querySelectorAll('[data-inbox-bind]').forEach((button) => {
+    button.addEventListener('click', () => bindPurchaseInbox(button.dataset.inboxBind));
+  });
+  list.querySelectorAll('[data-inbox-new]').forEach((button) => {
+    button.addEventListener('click', () => openNewItemFromPurchaseInbox(button.dataset.inboxNew));
+  });
 }
 
 /** クローン/APIのカテゴリ文字列を出品フォームのセレクト値に寄せる（CD・DVD 混同を避ける） */
@@ -4884,11 +5353,13 @@ function navigate(page, navOpts = {}) {
     }
   }
   if (page === 'relist') renderItems();
+  if (page === 'purchase-inbox') renderPurchaseInbox();
   if (page === 'settings') { renderTemplatesList(); renderCommerceSettings(); }
   if (page === 'home') {
     renderAlerts();
     renderActivities();
     loadStats();
+    refreshHomeInboxBadge();
   }
   if (page === 'analytics') renderAnalyticsPage();
   furimoraSyncBrowserPath(page, navOpts);
@@ -6099,20 +6570,28 @@ function createClone() {
     const description = document.getElementById('clone-description').value;
     const category = document.getElementById('clone-category-input').value;
     const condition = document.getElementById('clone-condition-input').value;
-    let drafts = [];
-    try { drafts = JSON.parse(localStorage.getItem('furimora_drafts') || '[]'); } catch {}
-    drafts.unshift({
+    let drafts = furimoraLoadDrafts();
+    const createdAt = new Date().toISOString();
+    const newDraft = {
       id: Date.now(),
       ...clonedData,
       title, price, description, category, condition,
-      createdAt: new Date().toISOString()
-    });
+      createdAt,
+      // 内容がいつのものか。同期でどちらが新しいかの判定に使う
+      updatedAt: createdAt,
+    };
+    drafts.unshift(newDraft);
     // 上限を超えた分は最古から落ちる。黙って消すと気づけないので、落とした件数を必ず知らせる。
     const dropped = Math.max(0, drafts.length - FURIMORA_DRAFTS_MAX);
     const keep = drafts.slice(0, FURIMORA_DRAFTS_MAX);
-    try { localStorage.setItem('furimora_drafts', JSON.stringify(keep)); } catch {}
+    furimoraWriteDrafts(keep);
+    // **未送信の印を付ける。** これが無いと、同期が降りてきたときに
+    // 「クラウドに無い＝消された」と誤って判断されうる
+    furimoraMarkDraftDirty(newDraft.id, createdAt);
     if (dropped > 0) {
       const oldest = drafts.slice(FURIMORA_DRAFTS_MAX);
+      // 上限で落とした分はこの端末の都合。クラウドからも消すために墓標を立てる
+      oldest.forEach((d) => { if (d && d.id != null) furimoraMarkDraftDeleted(d.id); });
       console.warn('[furimora] 下書きの上限超過で最古を削除しました', {
         dropped,
         limit: FURIMORA_DRAFTS_MAX,
@@ -6221,10 +6700,13 @@ function loadDraft(index) {
 }
 
 function deleteDraft(index) {
-  const drafts = JSON.parse(localStorage.getItem('furimora_drafts') || '[]');
-  const name = drafts[index]?.title || '下書き';
+  const drafts = furimoraLoadDrafts();
+  const target = drafts[index];
+  const name = target?.title || '下書き';
   drafts.splice(index, 1);
-  localStorage.setItem('furimora_drafts', JSON.stringify(drafts));
+  furimoraWriteDrafts(drafts);
+  // **削除も記録する。** 記録が無いと、他端末から同じ下書きが復活してくる
+  if (target && target.id != null) furimoraMarkDraftDeleted(target.id);
   renderDrafts();
   notifyLocalDataChanged();
   showToast(`「${name.substring(0,20)}」を削除しました`);
@@ -6232,7 +6714,9 @@ function deleteDraft(index) {
 
 function clearAllDrafts() {
   if (!confirm('全ての下書きを削除しますか？')) return;
-  localStorage.removeItem('furimora_drafts');
+  const drafts = furimoraLoadDrafts();
+  furimoraWriteDrafts([]);
+  drafts.forEach((d) => { if (d && d.id != null) furimoraMarkDraftDeleted(d.id); });
   renderDrafts();
   notifyLocalDataChanged();
   showToast('全ての下書きを削除しました');
@@ -6384,21 +6868,66 @@ function furimoraApplySyncPayload(payload, replaceLocal = false) {
   const ks = Object.keys(payload.keys);
   for (let i = 0; i < ks.length; i++) {
     const k = ks[i];
+    let v = payload.keys[k];
+    if (v != null && typeof v !== 'string') v = JSON.stringify(v);
     if (k === 'furimora_items') {
       // 商品単位の差分同期へ移行済み:
       // 旧スナップショットの items は、ローカルに items が空の時だけ初期移行として受け入れる
       let curItems = [];
       try { curItems = JSON.parse(localStorage.getItem('furimora_items') || '[]'); } catch { curItems = []; }
       if (Array.isArray(curItems) && curItems.length > 0) continue;
+    } else if (k === 'furimora_drafts') {
+      // 下書きも同じ扱い。**手元に下書きがあれば受け入れない**
+      migratedDrafts = furimoraAcceptLegacyDrafts(v);
+      continue;
     } else if (FURIMORA_SYNC_KEYS.indexOf(k) === -1) {
       continue;
     }
-    let v = payload.keys[k];
-    if (v != null && typeof v !== 'string') v = JSON.stringify(v);
     localStorage.setItem(k, v);
   }
   furimoraReloadAllFromStorage();
+  // 通知は上書きが終わってから。途中で ACTIVITIES を触っても
+  // furimoraReloadAllFromStorage() が localStorage から読み直して消してしまう
+  if (migratedDrafts > 0) furimoraReportMigratedDrafts(migratedDrafts);
 }
+
+/**
+ * 旧方式（state の塊）の下書きを受け入れる。**初期移行のときだけ。**
+ * 受け入れた分は未送信の印を付けて、新しいコレクションへ送り直す。
+ * @returns {number} 取り込んだ件数
+ */
+function furimoraAcceptLegacyDrafts(incomingRaw) {
+  const accept = window.FurimoraDraftsSync?.acceptLegacySnapshot;
+  if (typeof accept !== 'function') return 0;
+  const result = accept({ localDrafts: furimoraLoadDrafts(), incomingRaw });
+  if (!result.accept) return 0;
+  const backfill = window.FurimoraDraftsSync.backfillUpdatedAt(result.drafts);
+  furimoraWriteDrafts(backfill.drafts);
+  // 塊から来た分はクラウドの新コレクションにはまだ無い。全部を未送信にする
+  const dirty = {};
+  const nowIso = new Date().toISOString();
+  for (const d of backfill.drafts) {
+    const key = window.FurimoraDraftsSync.draftKey(d);
+    if (key) dirty[key] = d.updatedAt || d.createdAt || nowIso;
+  }
+  furimoraSaveDirtyDrafts(dirty);
+  console.warn('[furimora] 旧方式の下書きを取り込みました（初期移行）', { count: backfill.drafts.length });
+  return backfill.drafts.length;
+}
+
+function furimoraReportMigratedDrafts(count) {
+  ACTIVITIES.unshift({
+    name: `下書き ${count} 件`,
+    action: 'クラウドの下書きをこの端末へ取り込みました',
+    time: 'たった今', status: '下書き', type: 'active', icon: 'download',
+  });
+  saveStorageData();
+  renderActivities();
+  renderDrafts();
+  showToast(`クラウドの下書き ${count} 件を取り込みました`);
+}
+
+
 
 function furimoraReloadAllFromStorage() {
   loadStorageData();
@@ -6421,6 +6950,7 @@ async function furimoraApplyCloudSnapshot(userId, data, remoteUpdatedAt, showSuc
   backupLocalSyncPayload();
   furimoraApplySyncPayload(data.payload || { v: 1, keys: {} }, true);
   await furimoraPullItemsFromCloud(userId, forceFullItems);
+  await furimoraPullDraftsFromCloud(userId, forceFullItems);
   if (remoteUpdatedAt) {
     setLastRemoteAt(remoteUpdatedAt);
     furimoraSetLastSyncAt(remoteUpdatedAt);
@@ -6538,6 +7068,18 @@ async function furimoraPushToCloud(source = 'manual') {
     furimoraPendingPushClientAt = '';
     return { ok: false, reason: 'error', error: e };
   }
+  try {
+    // 下書きも商品と同じく 1 件ずつ送る。失敗しても商品の同期結果は巻き戻さない
+    const draftSyncResult = await furimoraSyncDraftsToCloud(user.uid);
+    if (draftSyncResult.count > 0) await furimoraPullDraftsFromCloud(user.uid, false);
+  } catch (e) {
+    console.error('[sync drafts push]', e);
+    furimoraSyncSetBadge('error', furimoraSyncBadgeLabel(e));
+    furimoraSyncSetStatus(furimoraSyncErrorMessage(e, '下書き同期に失敗しました'));
+    showToast(furimoraSyncErrorMessage(e, '下書き同期に失敗しました'));
+    furimoraPendingPushClientAt = '';
+    return { ok: false, reason: 'error', error: e };
+  }
   setLastRemoteAt(updatedAt);
   furimoraSetLastSyncAt(updatedAt);
   setSyncIsoNow(FURIMORA_SYNC_LAST_PUSH_AT);
@@ -6574,6 +7116,7 @@ async function furimoraSyncAfterLogin() {
   if (!data) {
     try {
       await furimoraPullItemsFromCloud(user.uid, false);
+      await furimoraPullDraftsFromCloud(user.uid, false);
     } catch (e) {
       console.error('[sync items pull]', e);
     }

@@ -38,10 +38,20 @@ firebase deploy --only firestore:rules
 ```text
 users/{uid}/app/state
 users/{uid}/items/{itemId}
+users/{uid}/drafts/{draftId}
 users/{uid}/pushSubscriptions/{endpointHash}
+purchaseInbox/{sourceTenant:eventId}
+inventoryUnitBindings/{sourceTenant:inventoryUnitId}
+purchaseInboxAudits/{auditId}
 ```
 
 設定類は `app/state`、商品は競合を減らすため1商品1ドキュメント、Web Push購読は端末ごとのドキュメントとして保存します。
+
+下書きも2026-09-12から1下書き1ドキュメントです。それまでは `app/state` の塊に入れていましたが、塊の同期は丸ごと上書きになるため、まだ送信していない下書きが痕跡なく消えました（実際に消えた）。商品と同じく未送信の印・削除の記録・取り込み位置を持たせ、新しいほうが勝つ形にしています。`app/state` の塊から来た下書きは、手元が空のときだけ初期移行として受け入れます。書き手が複数（デスクトップ・モバイル・エージェント）になるのは通常運用なので、単一書き手を前提にしないこと。
+
+Loose Integration の `purchase_confirmed` Inbox と Unit claim は、既存の `users/{uid}` 再帰ルールの影響を避けるため、トップレベルの専用コレクションへ保存します。各ドキュメントに `ownerUid` を保持し、専用ルールでユーザー本人だけが読み書きできます。InboxはPWA側の専用IndexedDBにも保存し、受信・quarantine・duplicate/conflictの履歴を商品ドキュメントや `app/state`へ混在させません。
+
+`inventoryUnitBindings` は作成後の更新・削除を禁止し、Firestore transactionでclaim作成、商品への `inventory_unit_id` / `integration`反映、Inboxの `bound` 化を同一処理で行います。
 
 ## 4. Supabase からの切り替え
 
