@@ -55,8 +55,15 @@ service cloud.firestore {
     match /purchaseInbox/{docId} {
       // A transaction must be able to read the not-yet-created document before
       // atomically creating it. Existing documents remain owner-readable only.
-      allow read: if signedIn() && (!exists(/databases/$(database)/documents/purchaseInbox/$(docId))
+      //
+      // `get` and `list` are split on purpose. A collection query cannot resolve the
+      // exists() lookup below, so leaving them merged as `read` denies every query -
+      // pullInbox() failed with permission-denied because of exactly that. A query is
+      // allowed only when it is already constrained to the caller's own documents,
+      // which pullInbox() does with .where('ownerUid', '==', uid).
+      allow get: if signedIn() && (!exists(/databases/$(database)/documents/purchaseInbox/$(docId))
         || resource.data.ownerUid == request.auth.uid);
+      allow list: if signedIn() && resource.data.ownerUid == request.auth.uid;
       allow create: if ownsRootRecord()
         && request.resource.data.keys().hasAll([
           'ownerUid', 'key', 'status', 'event_id', 'source_tenant',
