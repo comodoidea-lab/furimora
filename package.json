@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "node scripts/preview.mjs",
     "preview": "node scripts/preview.mjs",
-    "preview:vercel": "vercel dev"
+    "preview:vercel": "vercel dev",
+    "test:inbox": "node --test tests/purchase-inbox.test.mjs",
+    "test:listing-created": "node --test tests/listing-created.test.mjs",
+    "test:all": "node --test tests/purchase-inbox.test.mjs tests/listing-created.test.mjs"
   },
   "devDependencies": {
     "vercel": "^41.0.0"

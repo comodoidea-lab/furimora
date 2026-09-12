@@ -6,8 +6,131 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsRootRecord() {
+      return signedIn() && request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    function ownsExistingRootRecord() {
+      return signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // Item documents keep the integration fields inside payload. Normal item
+    // edits remain allowed, but a first integration write must be part of the
+    // bind transaction that creates the matching immutable Unit claim.
+    function firstIntegrationWriteIsAtomic() {
+      return request.resource.data.keys().hasAll(['payload', 'itemId'])
+        && request.resource.data.payload.keys().hasAll(['inventory_unit_id', 'integration'])
+        && request.resource.data.payload.inventory_unit_id is string
+        && request.resource.data.payload.integration is map
+        && request.resource.data.payload.integration.keys().hasAll(['binding_doc_id', 'source_tenant'])
+        && request.resource.data.payload.integration.binding_doc_id is string
+        && existsAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.payload.integration.binding_doc_id))
+        && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.payload.integration.binding_doc_id)).data.ownerUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.payload.integration.binding_doc_id)).data.sourceTenant == request.resource.data.payload.integration.source_tenant
+        && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.payload.integration.binding_doc_id)).data.inventoryUnitId == request.resource.data.payload.inventory_unit_id
+        && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.payload.integration.binding_doc_id)).data.itemId == request.resource.data.itemId;
+    }
+
+    function itemIntegrationWriteAllowed() {
+      return (
+        (!resource.data.keys().hasAny(['payload'])
+          || !resource.data.payload.keys().hasAny(['inventory_unit_id', 'integration']))
+        && (!request.resource.data.keys().hasAny(['payload'])
+          || !request.resource.data.payload.keys().hasAny(['inventory_unit_id', 'integration'])
+          || firstIntegrationWriteIsAtomic())
+      ) || (
+        resource.data.keys().hasAny(['payload'])
+        && resource.data.payload.keys().hasAll(['inventory_unit_id', 'integration'])
+        && request.resource.data.keys().hasAll(['payload'])
+        && request.resource.data.payload.keys().hasAll(['inventory_unit_id', 'integration'])
+        && request.resource.data.payload.inventory_unit_id == resource.data.payload.inventory_unit_id
+        && request.resource.data.payload.integration == resource.data.payload.integration
+      );
+    }
+
+    match /purchaseInbox/{docId} {
+      // A transaction must be able to read the not-yet-created document before
+      // atomically creating it. Existing documents remain owner-readable only.
+      allow read: if signedIn() && (!exists(/databases/$(database)/documents/purchaseInbox/$(docId))
+        || resource.data.ownerUid == request.auth.uid);
+      allow create: if ownsRootRecord()
+        && request.resource.data.keys().hasAll([
+          'ownerUid', 'key', 'status', 'event_id', 'source_tenant',
+          'inventory_unit_id', 'payload_sha256', 'received_at', 'binding_doc_id'
+        ])
+        && request.resource.data.status in ['received', 'conflict', 'quarantined', 'bound']
+        && (request.resource.data.status == 'quarantined'
+          || (request.resource.data.source_tenant is string
+            && request.resource.data.inventory_unit_id is string
+            && request.resource.data.payload_sha256 is string
+            && request.resource.data.payload_sha256.matches('^[0-9a-fA-F]{64}$')
+            && request.resource.data.binding_doc_id is string))
+        && (request.resource.data.status != 'bound'
+          || (existsAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id))
+            && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id)).data.ownerUid == request.auth.uid
+            && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id)).data.sourceTenant == request.resource.data.source_tenant
+            && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id)).data.inventoryUnitId == request.resource.data.inventory_unit_id
+            && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id)).data.itemId == request.resource.data.bound_item_id));
+      allow update: if ownsExistingRootRecord()
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.event_id == resource.data.event_id
+        && request.resource.data.source_tenant == resource.data.source_tenant
+        && request.resource.data.inventory_unit_id == resource.data.inventory_unit_id
+        && request.resource.data.payload_sha256 == resource.data.payload_sha256
+        && request.resource.data.binding_doc_id == resource.data.binding_doc_id
+        && request.resource.data.status in ['received', 'conflict', 'quarantined', 'bound']
+        && (resource.data.status != 'bound'
+          || (request.resource.data.status == 'bound'
+            && request.resource.data.bound_item_id == resource.data.bound_item_id))
+        && (request.resource.data.status != 'bound'
+          || (existsAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id))
+            && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id)).data.ownerUid == request.auth.uid
+            && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id)).data.sourceTenant == request.resource.data.source_tenant
+            && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id)).data.inventoryUnitId == request.resource.data.inventory_unit_id
+            && getAfter(/databases/$(database)/documents/inventoryUnitBindings/$(request.resource.data.binding_doc_id)).data.itemId == request.resource.data.bound_item_id));
+      allow delete: if false;
+    }
+
+    match /inventoryUnitBindings/{docId} {
+      // Missing claim reads are required for the first half of the claim transaction.
+      allow read: if signedIn() && (!exists(/databases/$(database)/documents/inventoryUnitBindings/$(docId))
+        || resource.data.ownerUid == request.auth.uid);
+      allow create: if ownsRootRecord()
+        && request.resource.data.keys().hasAll([
+          'ownerUid', 'sourceTenant', 'inventoryUnitId', 'itemId',
+          'sourceEventId', 'boundAt', 'boundBy'
+        ])
+        && request.resource.data.sourceTenant is string
+        && request.resource.data.inventoryUnitId is string
+        && request.resource.data.itemId is string
+        && request.resource.data.sourceEventId is string
+        && request.resource.data.boundBy == request.auth.uid
+        && !exists(/databases/$(database)/documents/inventoryUnitBindings/$(docId));
+      allow update, delete: if false;
+    }
+
+    match /purchaseInboxAudits/{docId} {
+      allow read: if ownsExistingRootRecord();
+      allow create: if ownsRootRecord()
+        && request.resource.data.keys().hasAll([
+          'ownerUid', 'auditId', 'kind', 'action', 'at', 'actorUid'
+        ])
+        && request.resource.data.actorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /users/{userId}/{document=**} {
-      allow read, write: if ownsUserData(userId);
+      allow read, delete: if ownsUserData(userId);
+      // A new ordinary item may be created, but integration identity fields
+      // can only be introduced by the subsequent atomic bind update.
+      allow create: if ownsUserData(userId)
+        && (!request.resource.data.keys().hasAny(['payload'])
+          || !request.resource.data.payload.keys().hasAny(['inventory_unit_id', 'integration']));
+      allow update: if ownsUserData(userId) && itemIntegrationWriteAllowed();
     }
   }
 }

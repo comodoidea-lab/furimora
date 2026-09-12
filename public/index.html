@@ -308,6 +308,9 @@ tailwind.config = {
     <button onclick="navigate('relist')" data-nav="relist" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
       <span class="material-symbols-outlined text-xl">autorenew</span>在庫・出品管理
     </button>
+    <button onclick="navigate('purchase-inbox')" data-nav="purchase-inbox" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
+      <span class="material-symbols-outlined text-xl">move_to_inbox</span>仕入れInbox
+    </button>
     <button onclick="navigate('schedule')" data-nav="schedule" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-full font-semibold text-sm transition-all active:scale-95 text-on-surface-variant hover:bg-surface-container">
       <span class="material-symbols-outlined text-xl">calendar_month</span>スケジュール
     </button>
@@ -765,11 +768,37 @@ tailwind.config = {
         <button onclick="exportItemsCSV()" class="px-4 py-2.5 bg-surface-container-lowest rounded-full text-xs font-bold shadow-sm hover:bg-surface-container flex items-center gap-1.5 flex-shrink-0">
           <span class="material-symbols-outlined text-sm">download</span>CSV
         </button>
+        <button onclick="exportListingCreatedJsonl()" class="px-4 py-2.5 bg-tertiary/10 text-tertiary rounded-full text-xs font-bold shadow-sm hover:bg-tertiary/15 flex items-center gap-1.5 flex-shrink-0">
+          <span class="material-symbols-outlined text-sm">outbox</span>出品通知JSONL
+        </button>
+        <label class="px-4 py-2.5 bg-surface-container-lowest rounded-full text-xs font-bold shadow-sm hover:bg-surface-container flex items-center gap-1.5 flex-shrink-0 cursor-pointer">
+          <span class="material-symbols-outlined text-sm">upload_file</span>ack取込
+          <input id="listing-created-ack-file" type="file" accept=".jsonl,.ndjson,.json,text/plain,application/json" class="hidden" onchange="importListingCreatedAckFile(event)"/>
+        </label>
       </div>
     </div>
 
     <!-- Items list -->
     <div id="items-list" class="space-y-3 w-full min-w-0"></div>
+  </section>
+
+  <!-- PAGE: PURCHASE INBOX -->
+  <section id="page-purchase-inbox" class="page px-5 py-6 max-w-3xl mx-auto space-y-5">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h2 class="font-headline font-black text-2xl tracking-tight">仕入れInbox</h2>
+        <p class="text-on-surface-variant text-sm mt-1">ZaikoBangから届いた仕入れ確定を、人間が商品へbindします。</p>
+      </div>
+      <label class="shrink-0 cursor-pointer bg-primary text-white px-4 py-2.5 rounded-full font-bold text-sm shadow-lg">
+        JSONLを受信
+        <input id="purchase-inbox-file" type="file" accept=".jsonl,.ndjson,.json,text/plain,application/json" class="hidden" onchange="importPurchaseInboxFile(event)"/>
+      </label>
+    </div>
+    <div class="bg-tertiary/10 border border-tertiary/20 rounded-xl px-4 py-3 text-xs leading-relaxed">
+      自動商品マッチングは行いません。タイトル・JAN・ISBN・ASIN・URL・価格から商品を推測せず、必ず下の選択欄で商品を明示してください。
+    </div>
+    <p id="purchase-inbox-status" class="text-xs text-on-surface-variant"></p>
+    <div id="purchase-inbox-list" class="space-y-3"></div>
   </section>
 
   <!-- PAGE: SCHEDULE -->
@@ -2885,6 +2914,7 @@ let cloneZipPreparedFileName = '';
 let ITEMS = [];
 let itemFilter = 'all';
 let niEditId = null;
+let furimoraPendingInboxBindKey = null;
 /** 再出品フロー（一覧の「再出品」から開いたとき true） */
 let niRelistMode = false;
 /** 値下げモーダルで編集中の出品 ID */
@@ -3607,6 +3637,10 @@ function renderItems() {
     const discountButtonList = isAtMinPrice
       ? `<button type="button" disabled title="最低価格に到達しています" class="text-[11px] font-bold text-on-surface-variant bg-surface-container px-3 py-1.5 rounded-full whitespace-nowrap cursor-not-allowed">最安値</button>`
       : `<button onclick="openDiscountItemModal(${item.id})" class="text-[11px] font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full whitespace-nowrap">値下げ</button>`;
+    const listingCreatedButton = item.inventory_unit_id && item.integration?.source_tenant
+      ? `<button type="button" onclick="openListingCreatedConfirm(${item.id}, false)" class="text-[10px] font-bold text-tertiary bg-tertiary/10 px-2 py-1.5 rounded-full whitespace-nowrap">出品済みにする</button>
+         <button type="button" onclick="openListingCreatedConfirm(${item.id}, true)" class="text-[10px] font-bold text-primary bg-primary/10 px-2 py-1.5 rounded-full whitespace-nowrap">再出品成立を記録</button>`
+      : '';
     const showDisc = startP > curP && curP >= 0;
     const pct = showDisc && startP > 0 ? Math.round((1 - curP / startP) * 100) : null;
     const discHtml = showDisc
@@ -3637,6 +3671,7 @@ function renderItems() {
           <div class="flex flex-wrap gap-1.5 mt-2">
             <button onclick="openRelistItemModal(${item.id})" class="flex-1 min-w-[72px] text-[10px] font-bold text-white bg-signature-gradient px-2 py-1.5 rounded-full">再出品</button>
             ${discountButton}
+            ${listingCreatedButton}
             <button type="button" data-item-more-btn onclick="toggleItemMoreMenu(event, ${item.id})" class="text-[10px] font-bold text-on-surface-variant bg-surface-container px-2 py-1.5 rounded-full min-w-[2.5rem]">…</button>
           </div>
         </div>
@@ -3664,6 +3699,7 @@ function renderItems() {
       <div class="flex flex-col gap-1.5 flex-shrink-0">
         <button onclick="openRelistItemModal(${item.id})" class="text-[11px] font-bold text-white bg-signature-gradient px-3 py-1.5 rounded-full whitespace-nowrap">再出品</button>
         ${discountButtonList}
+        ${listingCreatedButton}
         <button type="button" data-item-more-btn onclick="toggleItemMoreMenu(event, ${item.id})" class="text-[11px] font-bold text-on-surface-variant bg-surface-container px-3 py-1.5 rounded-full">・・・</button>
       </div>
     </div>`;
@@ -4046,6 +4082,10 @@ function openItemDeleteConfirm() {
 
 function executeItemConfirm() {
   if (itemConfirmId == null || !itemConfirmType) return;
+  if (itemConfirmType === 'listing_created') {
+    executeListingCreatedConfirm();
+    return;
+  }
   loadItems();
   const id = itemConfirmId;
   if (itemConfirmType === 'sold') {
@@ -4573,6 +4613,9 @@ function saveNewItem() {
     shippingMethodName: shippingMethod?.name || undefined,
     mercariUrl: mercariUrl || undefined,
     mercariItemId: mercariItemId || undefined,
+    // Loose Integrationの永続フィールド。編集・再出品時も明示的に引き継ぐ。
+    inventory_unit_id: prev?.inventory_unit_id || undefined,
+    integration: prev?.integration || undefined,
     updatedAt: new Date().toISOString(),
   };
   if (niEditId && prev && prev.soldAt != null && item.status === 'sold') item.soldAt = prev.soldAt;
@@ -4607,12 +4650,28 @@ function saveNewItem() {
     icon: actIcon,
   });
   saveStorageData();
+  const pendingInboxKey = furimoraPendingInboxBindKey;
+  furimoraPendingInboxBindKey = null;
   closeModal('new-item-modal');
   navigate('relist');
   let toastMsg = `「${title.substring(0, 20)}」を在庫に追加しました`;
   if (isRelist) toastMsg = `「${title.substring(0, 20)}」を再出品しました`;
   else if (isEditOnly) toastMsg = `「${title.substring(0, 20)}」を更新しました`;
   showToast(toastMsg);
+  if (pendingInboxKey && !niEditId && window.FurimoraPurchaseInbox) {
+    (async () => {
+      try {
+        if (navigator.onLine === false) throw new Error('オフライン中はbindを確定できません');
+        const syncResult = await furimoraPushToCloud('manual');
+        if (!syncResult?.ok) throw new Error('新規商品をFirestoreへ同期できませんでした');
+        await window.FurimoraPurchaseInbox.bindEvent(pendingInboxKey, item.id);
+        showToast('新規商品を作成し、Inboxからbindしました');
+        renderPurchaseInbox();
+      } catch (error) {
+        showToast(`商品は保存しましたがbindできません: ${error.message || error}`);
+      }
+    })();
+  }
 }
 
 function exportItemsCSV() {
@@ -4870,6 +4929,7 @@ function closeModal(id) {
   if (id === 'new-item-modal') {
     niRelistMode = false;
     niEditId = null;
+    furimoraPendingInboxBindKey = null;
     setNiModalMode('new');
   }
   if (id === 'discount-item-modal') {
@@ -6313,6 +6373,9 @@ function furimoraSyncErrorMessage(error, fallback = '同期に失敗しました
 
 function furimoraApplySyncPayload(payload, replaceLocal = false) {
   if (!payload || !payload.keys || typeof payload.keys !== 'object') return;
+  // 下書きは FURIMORA_SYNC_KEYS から外してあるので、replaceLocal でも消えない。
+  // **塊での上書きをやめたのが下書き消失の対処そのもの。** ここへ戻さないこと
+  let migratedDrafts = 0;
   if (replaceLocal) {
     FURIMORA_SYNC_KEYS.forEach((key) => {
       try { localStorage.removeItem(key); } catch (e) { /* quota */ }
@@ -7466,6 +7529,8 @@ document.addEventListener('DOMContentLoaded', () => {
   renderDrafts();
   renderCalendar();
   renderCommerceSettings();
+  furimoraInitPurchaseInbox();
+  furimoraInitListingCreated();
   calcStartPrice();
   enableTapClearNumberInputs('new-item-modal');
   enableTapClearNumberInputs('discount-item-modal');
@@ -7489,6 +7554,10 @@ document.addEventListener('DOMContentLoaded', () => {
   furimoraInitFirebase().then(() => {
     furimoraWireSyncButtons();
     furimoraWireBackupButtons();
+    window.FurimoraPurchaseInbox?.pullInbox?.()
+      .then(() => window.FurimoraPurchaseInbox?.flushInbox?.())
+      .catch((e) => console.error('[purchase inbox sync]', e));
+    renderPurchaseInbox();
   });
   if (!localStorage.getItem(FURIMORA_ONBOARDING_DONE_KEY)) {
     setTimeout(() => furimoraOpenOnboarding(), 250);
