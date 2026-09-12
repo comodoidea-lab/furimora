@@ -24,6 +24,7 @@ import { MercariService, LISTING_TABS, SELECTORS, parseCategoryPath, normalizeCa
 import { reconcileListings } from '../public/js/reconcile.js';
 import { callApp, appIsRunning, readJsonArrayFromApp, SOCKET_PATH as APP_SOCKET } from './src/furimora-app-client.mjs';
 import { FurimoraService, assertConditionLabel, CONDITION_LABELS } from './src/furimora-service.mjs';
+import { selectDraft } from './src/draft-select.mjs';
 import { ElectronBrowserService } from './src/electron-browser-service.mjs';
 import fs from 'node:fs';
 
@@ -668,23 +669,28 @@ server.registerTool(
       backup_path: z.string().optional()
         .describe('フリモーラのバックアップ JSON のパス。Desktop が起動していれば省略できる'),
       draft_id: z.union([z.number(), z.string()]).optional()
-        .describe('下書きの id。index と どちらか一方を指定する'),
+        .describe('下書きの id で指名する。**取り違えが起きないのでこちらを推奨。** 見つからなければ止まる（下書きの消失はここで気づける）'),
       index: z.number().int().min(0).optional()
-        .describe('furimora_list_drafts が返した index。draft_id と どちらか一方を指定する'),
+        .describe('furimora_list_drafts が返した index。**配列の位置でしかない。** 一覧取得後に下書きが増減すると同じ番号が別の商品を指すため、expect_id か draft_id での裏取りを付けること'),
+      expect_id: z.union([z.number(), z.string()]).optional()
+        .describe('index の裏取り。その位置の下書きの id がこれと一致しなければ DRAFT_MISMATCH で止める'),
     },
   },
-  async ({ backup_path, draft_id, index }) => {
+  async ({ backup_path, draft_id, index, expect_id }) => {
     try {
       const { drafts } = await resolveDrafts(backup_path);
-      let d = null;
-      if (draft_id != null) d = drafts.find((x) => String(x.id) === String(draft_id)) || null;
-      else if (index != null) d = drafts[index] ?? null;
-      else {
-        return { isError: true, content: [{ type: 'text', text: 'エラー [BAD_PARAMS] draft_id か index のどちらかが必要です' }] };
+      const picked = selectDraft({ drafts, draftId: draft_id, index, expectId: expect_id });
+      if (!picked.ok) {
+        return {
+          isError: true,
+          content: [{
+            type: 'text',
+            text: `エラー [${picked.code}] ${picked.message}` +
+              (picked.detail ? '\n' + JSON.stringify(picked.detail, null, 2) : ''),
+          }],
+        };
       }
-      if (!d) {
-        return { isError: true, content: [{ type: 'text', text: `エラー [DRAFT_NOT_FOUND] 下書きが見つかりません（${drafts.length} 件中）` }] };
-      }
+      const d = picked.draft;
 
       const price = Number(String(d.price ?? '').replace(/[^\d]/g, '')) || null;
       const { path: categoryNames, fixes: categoryFixes } = normalizeCategoryPath(parseCategoryPath(d.category));
@@ -702,6 +708,9 @@ server.registerTool(
       }
 
       const needsHuman = [];
+      // 位置指定を裏取りなしで解決した場合は、ここで必ず人に見せる。
+      // 黙って通すと、別の商品がメルカリへ流れたことに誰も気づけない
+      for (const w of picked.warnings) needsHuman.push(w.message);
       if (categoryFixes.length) {
         needsHuman.push(`カテゴリーの崩れを直した（${categoryFixes.join(' / ')}）。結果が正しいか確認すること`);
       }
@@ -721,6 +730,12 @@ server.registerTool(
               category: d.category ?? null, condition: d.condition ?? null,
               shippingMethod: d.shippingMethod ?? null, shippingDays: d.shippingDays ?? null,
               sourceUrl: d.url ?? null, createdAt: d.createdAt ?? null,
+            },
+            // どの下書きを、どうやって選んだか。裏取りの有無まで残す
+            selection: {
+              by: draft_id != null && draft_id !== '' ? 'draft_id' : 'index',
+              index: picked.index,
+              verified: picked.warnings.length === 0,
             },
             draftInput: {
               title: d.title ?? null,

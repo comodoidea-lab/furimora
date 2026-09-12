@@ -59,7 +59,7 @@ FURIMORA_API_ORIGIN=http://localhost:3000 node mcp/server.mjs
 | `furimora_reconcile_listings` | `backup_path` or `app_items` | 在庫とメルカリの出品を突き合わせてズレを検出 |
 | `mercari_update_price` | `item_id`, `new_price`, `dry_run`, `min_price` | 出品 1 件の価格を変更（**既定は確認のみ**） |
 | `furimora_list_drafts` | `backup_path` | フリモーラの下書き一覧（読み取りのみ） |
-| `mercari_prepare_draft_from_furimora_draft` | `backup_path`, `draft_id` or `index` | **正規の順序。** フリモーラの下書きから引数を下ごしらえする |
+| `mercari_prepare_draft_from_furimora_draft` | `backup_path`, `draft_id`（推奨）/ `index` + `expect_id` | **正規の順序。** フリモーラの下書きから引数を下ごしらえする |
 | `mercari_resolve_category` | `category` | カテゴリーの経路が出品ツリーに実在するか調べる（読み取りのみ） |
 | `mercari_prepare_draft_from_item` | `url` | 商品URLから直接下ごしらえする（フリモーラ側の確認を挟まない） |
 | `mercari_create_draft` | `title`, `description`, `price`, `category_path`, `condition`, `image_paths`, `dry_run` | メルカリの**下書き**を 1 件作る（**既定は確認のみ。出品はしない**） |
@@ -162,11 +162,37 @@ mercari_create_draft({ ..., dry_run:false })
 
 ```
 furimora_list_drafts({ backup_path })
-  → 下書き一覧から 1 件選ぶ
+  → 下書き一覧から 1 件選ぶ（**id を控える**）
 mercari_prepare_draft_from_furimora_draft({ backup_path, draft_id })
   → draftInput + needsHuman
 mercari_create_draft({ ...draftInput, image_paths, dry_run:false })
 ```
+
+#### 下書きは `draft_id` で指名する（`index` は位置でしかない）
+
+**この順序が守る本体は「手元に無いものは流せない」という依存関係。** ②は①の下書きを
+指名して読むので、下書きが消えていれば `DRAFT_NOT_FOUND` で止まる。人が一覧を見て
+気づくのではなく、**進めないから必然的に気づく。**
+
+その保証が崩れる口が 1 つだけある。**`index` は配列の位置でしかない。**
+一覧を取ってから渡すまでに下書きが 1 件でも減れば、後ろの位置は 1 つずつ繰り上がり、
+**同じ番号が別の商品を指す。** エラーにならないまま別の商品がメルカリへ流れるため、
+消失より厄介になりうる。
+
+```
+mercari_prepare_draft_from_furimora_draft({ draft_id })            推奨。取り違えない
+mercari_prepare_draft_from_furimora_draft({ index, expect_id })    位置指定の裏取り
+mercari_prepare_draft_from_furimora_draft({ index })               通るが needsHuman に警告が出る
+```
+
+- `draft_id` が見つからなければ止まる。**位置で拾い直すことはしない**
+- `draft_id` と `index` の両方を渡すと突き合わせ、食い違えば `DRAFT_MISMATCH`
+- `expect_id` は `index` の裏取り。その位置の id が一致しなければ `DRAFT_MISMATCH`
+- 裏取りの無い `index` は通すが、`needsHuman` の先頭に `INDEX_UNVERIFIED` を必ず出す
+- 戻り値の `selection`（`by` / `index` / `verified`）に、どう選ばれたかが残る
+
+選択ロジックは [`src/draft-select.mjs`](./src/draft-select.mjs) の純粋関数に切り出してある。
+試験は `npm run test:draft-select`（リポジトリ直下）。
 
 #### 下書きの受け渡しはバックアップ JSON 経由
 

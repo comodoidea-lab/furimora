@@ -8,8 +8,9 @@
     "preview:vercel": "vercel dev",
     "test:inbox": "node --test tests/purchase-inbox.test.mjs",
     "test:listing-created": "node --test tests/listing-created.test.mjs",
-    "test:all": "node --test tests/purchase-inbox.test.mjs tests/listing-created.test.mjs tests/drafts-sync.test.mjs",
-    "test:drafts-sync": "node --test tests/drafts-sync.test.mjs"
+    "test:all": "node --test tests/purchase-inbox.test.mjs tests/listing-created.test.mjs tests/draft-select.test.mjs tests/drafts-sync.test.mjs",
+    "test:drafts-sync": "node --test tests/drafts-sync.test.mjs",
+    "test:draft-select": "node --test tests/draft-select.test.mjs"
   },
   "devDependencies": {
     "vercel": "^41.0.0"
