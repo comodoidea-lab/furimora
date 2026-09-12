@@ -18,11 +18,35 @@ service cloud.firestore {
       return signedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
+    // 削除は行を消さず `payload: null` と `deleted: true` を書いて墓標として残す
+    // （行ごと消すと、他端末が「知らない」のか「消された」のか区別できない）。
+    // **null に `.keys()` は当てられない。** `is map` で確かめてからでないと条件が落ち、
+    // 削除の書き込みが丸ごと permission-denied になる（2026-09-12 に本番で実測）。
+    function payloadHasAnyIntegration(data) {
+      return data.keys().hasAny(['payload'])
+        && data.payload is map
+        && data.payload.keys().hasAny(['inventory_unit_id', 'integration']);
+    }
+    function payloadHasBothIntegration(data) {
+      return data.keys().hasAny(['payload'])
+        && data.payload is map
+        && data.payload.keys().hasAll(['inventory_unit_id', 'integration']);
+    }
+    // 墓標そのものの書き込み。`allow delete` で行ごと消せる以上、
+    // 柔らかい消し方だけを止めても守れるものは無い
+    function isTombstoneWrite() {
+      return request.resource.data.keys().hasAny(['payload'])
+        && request.resource.data.payload == null
+        && request.resource.data.keys().hasAny(['deleted'])
+        && request.resource.data.deleted == true;
+    }
+
     // Item documents keep the integration fields inside payload. Normal item
     // edits remain allowed, but a first integration write must be part of the
     // bind transaction that creates the matching immutable Unit claim.
     function firstIntegrationWriteIsAtomic() {
       return request.resource.data.keys().hasAll(['payload', 'itemId'])
+        && request.resource.data.payload is map
         && request.resource.data.payload.keys().hasAll(['inventory_unit_id', 'integration'])
         && request.resource.data.payload.inventory_unit_id is string
         && request.resource.data.payload.integration is map
@@ -37,16 +61,12 @@ service cloud.firestore {
 
     function itemIntegrationWriteAllowed() {
       return (
-        (!resource.data.keys().hasAny(['payload'])
-          || !resource.data.payload.keys().hasAny(['inventory_unit_id', 'integration']))
-        && (!request.resource.data.keys().hasAny(['payload'])
-          || !request.resource.data.payload.keys().hasAny(['inventory_unit_id', 'integration'])
+        !payloadHasAnyIntegration(resource.data)
+        && (!payloadHasAnyIntegration(request.resource.data)
           || firstIntegrationWriteIsAtomic())
       ) || (
-        resource.data.keys().hasAny(['payload'])
-        && resource.data.payload.keys().hasAll(['inventory_unit_id', 'integration'])
-        && request.resource.data.keys().hasAll(['payload'])
-        && request.resource.data.payload.keys().hasAll(['inventory_unit_id', 'integration'])
+        payloadHasBothIntegration(resource.data)
+        && payloadHasBothIntegration(request.resource.data)
         && request.resource.data.payload.inventory_unit_id == resource.data.payload.inventory_unit_id
         && request.resource.data.payload.integration == resource.data.payload.integration
       );
@@ -135,9 +155,11 @@ service cloud.firestore {
       // A new ordinary item may be created, but integration identity fields
       // can only be introduced by the subsequent atomic bind update.
       allow create: if ownsUserData(userId)
-        && (!request.resource.data.keys().hasAny(['payload'])
-          || !request.resource.data.payload.keys().hasAny(['inventory_unit_id', 'integration']));
-      allow update: if ownsUserData(userId) && itemIntegrationWriteAllowed();
+        && !payloadHasAnyIntegration(request.resource.data);
+      // 墓標は常に通す。止めても `allow delete` で行ごと消せるので守れるものが無く、
+      // 止めると削除のたびに同期全体が中断する
+      allow update: if ownsUserData(userId)
+        && (isTombstoneWrite() || itemIntegrationWriteAllowed());
     }
   }
 }

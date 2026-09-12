@@ -183,6 +183,23 @@ test('Firestore rules isolate the new top-level collections and keep claims immu
   assert.match(rules, /getAfter\([\s\S]*\.data\.itemId/);
 });
 
+test('Firestore rules let a delete through (payload:null must never hit .keys())', () => {
+  const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+  // 削除は payload:null を書く。null に .keys() を当てると条件が落ち、
+  // 削除の書き込みが permission-denied になって同期全体が止まる（2026-09-12 に本番で実測）
+  assert.match(rules, /data\.payload is map/);
+  assert.match(rules, /function isTombstoneWrite\(\)/);
+  assert.match(rules, /isTombstoneWrite\(\) \|\| itemIntegrationWriteAllowed\(\)/);
+  // payload の中身を見るのは `is map` で確かめた直後だけ。素の `.payload.keys()` を残さない
+  const lines = rules.split('\n');
+  const unguarded = lines.filter((line, i) => {
+    if (!/\.payload\.keys\(\)/.test(line)) return false;
+    const prev = lines[i - 1] || '';
+    return !/\.payload is map/.test(prev) && !/\.payload is map/.test(line);
+  });
+  assert.deepEqual(unguarded, [], `is map の確認なしに payload.keys() を読んでいる行:\n${unguarded.join('\n')}`);
+});
+
 test('Inbox integration does not touch Mercari/Electron boundary code', () => {
   const changed = [
     'public/js/purchase-inbox.js',
