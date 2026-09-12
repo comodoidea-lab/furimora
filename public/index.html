@@ -7976,12 +7976,10 @@ function furimoraWireSyncButtons() {
     const id = (suffix) => `${prefix}${suffix}`;
     document.getElementById(id('google-btn'))?.addEventListener('click', () => runAuth(async () => {
       const provider = new firebase.auth.GoogleAuthProvider();
-      // iOS はポップアップを塞ぐ。エラーコードでの判定に頼ると取りこぼすので最初から
-      // リダイレクトへ行く。戻りは furimoraInitFirebase の getRedirectResult で拾う
-      if (isIOSDevice()) {
-        await furimoraFirebaseAuth.signInWithRedirect(provider);
-        return;
-      }
+      // **iOS でもポップアップを先に試す。** ホーム画面に置いた PWA から
+      // signInWithRedirect を投げると、iOS が認証画面を Safari で開いて PWA へ
+      // 戻らないことがある。実機の PWA は現にログインできているので、確かめずに
+      // 経路を切り替えない。塞がれた場合だけ下のリダイレクトへ落とす
       try {
         await furimoraFirebaseAuth.signInWithPopup(provider);
       } catch (error) {

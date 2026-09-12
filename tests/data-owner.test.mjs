@@ -59,14 +59,22 @@ test('ログアウトは持ち主の記録も消す', () => {
     '持ち主キーは furimora_ 始まりでなければ一括削除から漏れる');
 });
 
-test('iOS はリダイレクトでログインし、戻りを回収する', () => {
+test('リダイレクトの戻りを、認証状態の監視より前に回収する', () => {
   assert.match(page, /getRedirectResult\(\)/, 'リダイレクトの戻りを拾っていない');
-  // 初期化の中で、認証状態の監視より前に回収する
   const init = page.slice(page.indexOf('async function furimoraInitFirebase'));
   const body = init.slice(0, init.indexOf('\nasync function ', 1));
   const redirect = body.indexOf('getRedirectResult()');
   const observer = body.indexOf('onAuthStateChanged');
   assert.ok(redirect !== -1 && redirect < observer, '回収が認証監視より後になっている');
-  // iOS はポップアップを試さず最初からリダイレクト
-  assert.match(page, /if \(isIOSDevice\(\)\) \{\s*await furimoraFirebaseAuth\.signInWithRedirect\(provider\);/);
+});
+
+test('ログインはポップアップを先に試す（動作中の PWA の経路を変えない）', () => {
+  // 実機の PWA はログインできている。iOS だけ無条件にリダイレクトへ倒すと、
+  // 認証画面が Safari で開いて PWA に戻らないことがある
+  assert.doesNotMatch(page, /if \(isIOSDevice\(\)\) \{\s*await furimoraFirebaseAuth\.signInWithRedirect\(provider\);/,
+    'iOS を無条件にリダイレクトへ倒している');
+  const popup = page.indexOf('signInWithPopup(provider)');
+  const redirectFallback = page.indexOf('signInWithRedirect(provider)', popup);
+  assert.ok(popup !== -1 && redirectFallback > popup, 'ポップアップを先に試していない');
+  assert.match(page, /auth\/cancelled-popup-request/, '塞がれた場合の取りこぼしが残っている');
 });
