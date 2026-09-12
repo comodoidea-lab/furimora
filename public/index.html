@@ -7159,8 +7159,13 @@ async function furimoraSyncAfterLogin() {
     furimoraDiscardLocalDataForAccountSwitch();
     showToast('別のアカウントのため、この端末のデータを読み込み直します');
   }
-  // 出自不明（記録が無いのに実データがある）。旧版で使っていた端末がこれに当たる。
-  // 手元を正本にすると、古い残骸で新しいクラウドを上書きしうるので、クラウドを優先する
+  // 出自不明（記録が無いのに実データがある）。この版を入れた直後は**すべての端末**が
+  // これに当たる。**だからクラウドで強制置換してはいけない。** 正常に使っている端末の
+  // 未送信の変更まで消える（まさに今日直した事故を作り込むことになる）。
+  //
+  // 強制置換は要らない。商品も下書きも 1 件ずつ時刻で突き合わせるので、普通に混ぜれば
+  // 古い残骸はクラウドの新しい版に負け、消された商品は墓標で消える。
+  // ここで見るのは「手元を丸ごとクラウドの正本として push してよいか」だけにする。
   const unownedLocal = !owner && hadLocal && !ownerMismatch;
 
   const lastMerged = getLastRemoteMergeMs();
@@ -7178,8 +7183,8 @@ async function furimoraSyncAfterLogin() {
   const remoteUpdatedAt = furimoraLatestStateIso(data);
   if (!data) {
     try {
-      await furimoraPullItemsFromCloud(user.uid, unownedLocal);
-      await furimoraPullDraftsFromCloud(user.uid, unownedLocal);
+      await furimoraPullItemsFromCloud(user.uid, false);
+      await furimoraPullDraftsFromCloud(user.uid, false);
     } catch (e) {
       console.error('[sync items pull]', e);
     }
@@ -7204,9 +7209,11 @@ async function furimoraSyncAfterLogin() {
   // クラウドが新しければローカル未同期の有無にかかわらずクラウドを正本として反映する
   // 出自不明・アカウント切替のときは商品も下書きもクラウドで完全に置き換える
   // （4 月の残骸のような古い手元データで、新しいクラウドを汚さないため）
+  // 強制置換（第 5 引数）はアカウント切替のときだけ。切替では直前に手元を捨てており、
+  // 残すべき未送信の変更は存在しない。出自不明は通常の突き合わせに任せる
   if (remoteT > lastMerged || unownedLocal || ownerMismatch) {
     try {
-      await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, true, unownedLocal || ownerMismatch);
+      await furimoraApplyCloudSnapshot(user.uid, data, remoteUpdatedAt, true, ownerMismatch);
       furimoraSetDataOwner(user.uid);
     } catch (e) {
       console.error('[sync latest pull]', e);

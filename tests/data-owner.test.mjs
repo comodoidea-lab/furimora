@@ -33,10 +33,25 @@ test('出自不明のデータは相手のクラウドへ push しない', () =>
   const body = fn('furimoraSyncAfterLogin');
   // クラウドが空のときの push は「持ち主が確かなとき」に限る
   assert.match(body, /if \(hasLocal && !unownedLocal\)/);
-  // 出自不明・アカウント切替では商品も下書きもクラウドで完全置換する
-  assert.match(body, /furimoraPullItemsFromCloud\(user\.uid, unownedLocal\)/);
-  assert.match(body, /furimoraPullDraftsFromCloud\(user\.uid, unownedLocal\)/);
-  assert.match(body, /unownedLocal \|\| ownerMismatch\)/);
+});
+
+test('出自不明でもクラウドで強制置換しない（この版を入れた直後は全端末がこれに当たる）', () => {
+  const body = fn('furimoraSyncAfterLogin');
+  // 強制置換するとアップグレード直後に未送信の変更が消える。
+  // 商品も下書きも 1 件ずつ時刻で突き合わせるので、通常の合流で正しく解決する
+  assert.match(body, /furimoraApplyCloudSnapshot\(user\.uid, data, remoteUpdatedAt, true, ownerMismatch\)/,
+    '強制置換の条件に unownedLocal が混ざっている');
+  assert.doesNotMatch(body, /furimoraPullItemsFromCloud\(user\.uid, unownedLocal\)/,
+    '出自不明で商品を強制置換している');
+  assert.doesNotMatch(body, /furimoraPullDraftsFromCloud\(user\.uid, unownedLocal\)/,
+    '出自不明で下書きを強制置換している');
+});
+
+test('強制置換はアカウント切替のときだけ（直前に手元を捨てている）', () => {
+  const body = fn('furimoraSyncAfterLogin');
+  const discard = body.indexOf('furimoraDiscardLocalDataForAccountSwitch()');
+  const apply = body.indexOf('furimoraApplyCloudSnapshot(');
+  assert.ok(discard !== -1 && discard < apply, '捨てる前に置換している');
 });
 
 test('切り替え時の掃除はオンボーディング以外の furimora_ を消す', () => {
