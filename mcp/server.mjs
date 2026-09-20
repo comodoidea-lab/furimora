@@ -25,6 +25,10 @@ import { reconcileListings } from '../public/js/reconcile.js';
 import { callApp, appIsRunning, readJsonArrayFromApp, SOCKET_PATH as APP_SOCKET } from './src/furimora-app-client.mjs';
 import { FurimoraService, assertConditionLabel, CONDITION_LABELS } from './src/furimora-service.mjs';
 import { selectDraft } from './src/draft-select.mjs';
+import {
+  parseMercariItemId, findExistingItem, findDraftForItem, planRegistration, planPending,
+  findAdoptionCandidates, choosePending, estimateProfit, chooseShippingMethod, verifyRegisteredItem,
+} from './src/inventory-register.mjs';
 import { ElectronBrowserService } from './src/electron-browser-service.mjs';
 import fs from 'node:fs';
 
@@ -878,6 +882,144 @@ server.registerTool(
   }
 );
 
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 今日の日付（日本時間）YYYY-MM-DD。出品日に使う */
+const todayJst = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+
+/** アプリの配送方法・販路の設定を読む（読み取りのみ）。未保存なら空配列 */
+async function readCommerceSettings(svc) {
+  const stored = await svc.readStorage(['furimora_shipping_methods', 'furimora_marketplaces']);
+  const parse = (s) => { try { const v = JSON.parse(s || 'null'); return Array.isArray(v) ? v : []; } catch { return []; } };
+  const methods = parse(stored.furimora_shipping_methods);
+  const marketplaces = parse(stored.furimora_marketplaces);
+  const feePercent = Number((marketplaces.find((m) => m.isDefault) || marketplaces[0] || { fee: 10 }).fee ?? 10);
+  return { methods, feePercent };
+}
+
+/**
+ * **仮登録**: メルカリに出す前の商品を、フリモーラの在庫へ先に入れる。
+ * 「メルカリの下書きはあるのにフリモーラ側には何も無い」を無くすための処理。
+ * メルカリの商品URL・IDはまだ無い。出品後に furimora_register_from_listing が紐づける。
+ *
+ * `save:false` は重複と入力欄の検査までを行い、何も保存しない（通し稽古）。
+ * 呼び出し側（mercari_create_draft）は、メルカリへ書く**前**にこれを save:false で通す。
+ */
+async function registerPendingFlow(a, { save }) {
+  const svc = new FurimoraService(callApp);
+  const planned = planPending({ title: a.title, price: a.price, min: a.min, cost: a.cost, purchaseDate: a.purchaseDate });
+  if (!planned.ok) return planned;
+  const conditionLabel = SELECTORS.sell.conditionLabels[a.condition];
+  if (!conditionLabel) return { ok: false, code: 'BAD_CONDITION', message: `商品の状態は 1〜6 で指定してください: ${JSON.stringify(a.condition)}` };
+
+  let items;
+  try { items = await readJsonArrayFromApp('furimora_items'); }
+  catch (e) {
+    const code = e?.code === 'APP_NOT_RUNNING' ? 'APP_NOT_RUNNING' : 'APP_READ_FAILED';
+    const hint = e?.code === 'APP_NOT_RUNNING' ? '（cd electron && npm start で起動してください）' : '';
+    return { ok: false, code, message: String((e && e.message) || e) + hint };
+  }
+  const dup = findAdoptionCandidates(items, { title: a.title });
+  if (dup.length) {
+    return { ok: false, code: 'ALREADY_PENDING', message: `同じタイトルの仮登録がすでにあります（在庫 id ${dup.map((d) => d.id).join(', ')}）。何も変更していません` };
+  }
+
+  const { methods, feePercent } = await readCommerceSettings(svc);
+  let method = null;
+  if (methods.length) {
+    const chosen = chooseShippingMethod(methods, a.shippingMethodId);
+    if (!chosen.ok) return chosen;
+    method = chosen.method;
+  } else if (a.shippingMethodId) {
+    return { ok: false, code: 'UNKNOWN_SHIPPING_METHOD', message: 'アプリに配送方法の設定が保存されていないため、指定できません' };
+  }
+  const expectedShipping = a.shippingCost ?? (method ? Number(method.shippingCost || 0) + Number(method.packingCost || 0) : null);
+  const profit = expectedShipping == null ? null : estimateProfit({
+    startPrice: planned.plan.startPrice, minPrice: planned.plan.minPrice, costPrice: planned.plan.costPrice,
+    feePercent, shippingCost: expectedShipping,
+  });
+  const plan = {
+    ...planned.plan,
+    category: (a.categoryPath || []).join(' > '), condition: conditionLabel,
+    shippingMethod: method ? { id: method.id, name: method.name } : null, shippingCost: expectedShipping, feePercent,
+    estimatedProfit: profit ? { 出品価格で売れたとき: profit.atStart, 最低価格で売れたとき: profit.atMin } : null,
+  };
+  const needsHuman = [...planned.warnings, 'メルカリの商品URL・画像はまだありません。出品後に furimora_register_from_listing で紐づけます'];
+  if (expectedShipping == null) needsHuman.push('配送方法の設定が未保存のため、送料は入力画面の既定値のままです。登録後に確認してください');
+
+  const args = {
+    title: a.title, description: a.description, min: a.min, cost: a.cost, buffer: planned.plan.buffer,
+    category: plan.category, condition: conditionLabel,
+    shippingMethodId: method ? method.id : undefined, shippingCost: a.shippingCost,
+    supplier: a.supplier, purchaseDate: a.purchaseDate,
+  };
+  const reh = await svc.registerPending(args, { save: false });
+  if (!reh.ok) return { ok: false, code: reh.code, message: reh.message };
+  if (!save) return { ok: true, saved: false, plan, needsHuman, form: reh.form };
+
+  const reg = await svc.registerPending(args, { save: true });
+  if (!reg.ok) return { ok: false, code: reg.code, message: reg.message };
+  if (reg.after === reg.before) return { ok: false, code: 'SAVE_REJECTED', message: '在庫の件数が増えませんでした（入力画面のチェックで弾かれた可能性）。何も保存されていません', form: reg.form };
+  const expected = {
+    title: a.title, costPrice: planned.plan.costPrice, minPrice: planned.plan.minPrice, startPrice: planned.plan.startPrice,
+    shippingCost: expectedShipping ?? Number(reg.form.shippingCost),
+  };
+  const verifyFailed = verifyRegisteredItem(reg.item, expected);
+  await sleep(2000); // 保存を信用せず、少し待って読み直す
+  const after = await readJsonArrayFromApp('furimora_items');
+  const found = findAdoptionCandidates(after, { title: a.title });
+  const persistFailed = found.length === 1 ? verifyRegisteredItem(found[0], expected) : [`読み直しで ${found.length} 件見つかりました（1 件のはず）`];
+  const item = found[0] ?? null;
+  return {
+    ok: verifyFailed.length === 0 && persistFailed.length === 0,
+    saved: true, plan, needsHuman,
+    verifyFailed: verifyFailed.length ? verifyFailed : undefined,
+    persistFailed: persistFailed.length ? persistFailed : undefined,
+    counts: { 在庫: { before: reg.before, after: after.length } },
+    registered: item ? { id: item.id, title: item.title, status: item.status, startPrice: item.startPrice, minPrice: item.minPrice, costPrice: item.costPrice, shippingCost: item.shippingCost, category: item.category, condition: item.condition } : null,
+  };
+}
+
+server.registerTool(
+  'furimora_register_pending',
+  {
+    title: '出品前の商品をフリモーラの在庫に仮登録する',
+    description:
+      'メルカリに出す前の商品を、フリモーラの在庫へ**先に**入れる（仮登録）。メルカリの下書きを作ったのにフリモーラ側が空、を防ぐ。' +
+      'メルカリの商品URL・画像はまだ無い。出品後に furimora_register_from_listing がURL・実際の出品価格・画像を紐づける。' +
+      '**フリモーラ Desktop（electron/）の起動が必要。** アプリ自身の保存経路（在庫の新規登録）を通す。' +
+      '同じタイトルの仮登録がすでにあれば何も書かずに止まる。**dry_run の既定は true**（入力欄を埋めて内容を返すだけで、保存しない）。' +
+      '保存後は読み直して値を確かめる。1 回の呼び出しで 1 件のみ。メルカリには何も書き込まない。',
+    inputSchema: {
+      title: z.string().min(1).describe('商品名（メルカリの出品タイトルと同じにする。出品後の紐づけに使う）'),
+      description: z.string().min(1).describe('商品説明'),
+      price: z.number().int().min(300).describe('出品価格（円）。開始価格になる'),
+      min_price: z.number().int().min(300).describe('最低価格（円）。必ず指定する。出品価格との差がバッファ（既定 800 円）になる'),
+      cost_price: z.number().int().min(0).describe('仕入れ値（円）。必ず指定する。0 は「仕入0円」の意味'),
+      category_path: z.array(z.string().min(1)).min(2).describe('カテゴリーの経路（例: ["CD・DVD・ブルーレイ","DVD","洋画・外国映画"]）'),
+      condition: z.number().int().min(1).max(6).describe('商品の状態 1〜6（1=新品、未使用 … 6=全体的に状態が悪い）'),
+      shipping_method_id: z.string().max(60).optional().describe('配送方法の ID（例: sm_nekopos）。省略するとアプリの既定'),
+      shipping_cost: z.number().int().min(0).max(5000).optional().describe('送料+梱包の経費（円）を直接指定する。厚みのある箱物など'),
+      supplier: z.string().max(80).optional().describe('仕入れ先'),
+      purchase_date: z.string().max(10).optional().describe('仕入日（YYYY-MM-DD）'),
+      dry_run: z.boolean().default(true).describe('true（既定）なら何も保存しない。実際に登録するときだけ false'),
+    },
+  },
+  async ({ title, description, price, min_price, cost_price, category_path, condition, shipping_method_id, shipping_cost, supplier, purchase_date, dry_run = true }) => {
+    try {
+      const r = await registerPendingFlow({
+        title, description, price, min: min_price, cost: cost_price, categoryPath: category_path, condition,
+        shippingMethodId: shipping_method_id, shippingCost: shipping_cost, supplier, purchaseDate: purchase_date,
+      }, { save: dry_run === false });
+      if (r.ok === false && !r.saved) return { isError: true, content: [{ type: 'text', text: `エラー [${r.code}] ${r.message}` }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ ...r, dryRun: dry_run !== false, note: r.saved ? (r.ok ? 'フリモーラの在庫に仮登録しました（メルカリには何も書いていません）。' : '**確認に失敗した項目があります。** 完了とは言えません。') : '確認のみです。フリモーラには何も保存していません。' }, null, 2) }] };
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: `エラー [REGISTER_PENDING] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
 server.registerTool(
   'mercari_create_draft',
   {
@@ -888,7 +1030,10 @@ server.registerTool(
       '確認モードでもフォーム入力とカテゴリー選択は実際に行うため、カテゴリーの経路が実在するかまで検証できる' +
       '（メルカリに自動保存は無い）。実際に下書きを保存するには dry_run に false を明示する。' +
       '1 回の呼び出しで作る下書きは 1 件だけ。「出品する」ボタンには一切触れない。' +
-      '商品の状態は推測せず、必ず人間が決めた値を渡すこと。',
+      '商品の状態は推測せず、必ず人間が決めた値を渡すこと。' +
+      '**保存（dry_run:false）では cost_price と min_price が必須。** メルカリの下書きと同時に、フリモーラの在庫へ仮登録する' +
+      '（メルカリの下書きだけ作ってフリモーラ側が空になるのを防ぐ）。メルカリへ書く前に、フリモーラ側の重複と入力欄を検査し、' +
+      '失敗したらメルカリには何も書かない。出品後は furimora_register_from_listing でURL・画像を紐づける。',
     inputSchema: {
       title: z.string().min(1).describe('商品名'),
       description: z.string().min(1).describe('商品説明'),
@@ -905,12 +1050,36 @@ server.registerTool(
         .describe('発送元の都道府県（例: "大阪府"）。省略するとメルカリ側の既定のまま。一致しない場合は候補を返す'),
       shipping_duration: z.string().optional()
         .describe('発送日数（"1~2日で発送" / "2~3日で発送" / "4~7日で発送"）。**省略時のメルカリ既定は「2~3日で発送」**なので、実運用が違うなら必ず指定すること'),
+      cost_price: z.number().int().min(0).optional()
+        .describe('仕入れ値（円）。**dry_run:false では必須**（フリモーラの在庫へ仮登録するため）。0 は「仕入0円」の意味'),
+      min_price: z.number().int().min(300).optional()
+        .describe('最低価格（円）。**dry_run:false では必須**。price − min_price がバッファ（既定 800 円）になる'),
+      inventory_shipping_cost: z.number().int().min(0).max(5000).optional()
+        .describe('フリモーラの在庫に入れる送料+梱包の経費（円）。省略するとアプリの既定の配送方法。厚みのある箱物など'),
+      supplier: z.string().max(80).optional().describe('仕入れ先（在庫用）'),
+      purchase_date: z.string().max(10).optional().describe('仕入日 YYYY-MM-DD（在庫用）'),
       dry_run: z.boolean().default(true)
         .describe('true（既定）は確認のみで何も保存しない。実際に下書きを作る場合だけ false を指定する'),
     },
   },
-  async ({ title, description, price, category_path, condition, image_paths, shipping_method, shipping_from, shipping_duration, dry_run }) => {
+  async ({ title, description, price, category_path, condition, image_paths, shipping_method, shipping_from, shipping_duration, cost_price, min_price, inventory_shipping_cost, supplier, purchase_date, dry_run }) => {
     try {
+      const pendingArgs = cost_price == null || min_price == null ? null : {
+        title, description, price, min: min_price, cost: cost_price, categoryPath: category_path, condition,
+        shippingCost: inventory_shipping_cost, supplier, purchaseDate: purchase_date,
+      };
+      const isSave = dry_run === false;
+      // メルカリへ書く前に、フリモーラ側を通し稽古する（重複・入力欄・アプリ起動）。ここで止まればメルカリには何も書かない
+      if (isSave && !pendingArgs) {
+        return { isError: true, content: [{ type: 'text', text: 'エラー [FURIMORA_REGISTRATION_REQUIRED] 保存には cost_price（仕入れ値）と min_price（最低価格）が必要です。メルカリの下書きだけ作るとフリモーラ側が空になるため、何も書いていません。' }] };
+      }
+      let pendingPreview = null;
+      if (pendingArgs) {
+        pendingPreview = await registerPendingFlow(pendingArgs, { save: false });
+        if (!pendingPreview.ok && isSave) {
+          return { isError: true, content: [{ type: 'text', text: `エラー [${pendingPreview.code}] フリモーラ側で止まりました。メルカリには何も書いていません: ${pendingPreview.message}` }] };
+        }
+      }
       const r = await withMercari(async (mercari) => {
         const login = await mercari.checkLogin();
         if (!login.loggedIn) return { needsLogin: true };
@@ -942,9 +1111,266 @@ server.registerTool(
       if (!shipping_from) {
         warn.push(`発送元を指定していない（いまの値「${r.plan?.shippingFrom ?? '未選択'}」）`);
       }
-      return { content: [{ type: 'text', text: JSON.stringify(warn.length ? { ...r, needsHuman: warn } : r, null, 2) }] };
+      const out = warn.length ? { ...r, needsHuman: warn } : { ...r };
+      if (!pendingArgs) {
+        // 確認モードで仕入れ値・最低価格が無い。保存時は必須になることを、ここで必ず知らせる
+        out.needsHuman = [...(out.needsHuman || []), '保存（dry_run:false）には cost_price と min_price が必要です（フリモーラの在庫へ仮登録するため）'];
+        return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
+      }
+      if (!isSave) {
+        out.furimoraRegistration = { ...pendingPreview, note: '確認のみ。保存時にメルカリの下書きと同時に仮登録します' };
+        return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
+      }
+      // メルカリの下書きが保存できたら、続けてフリモーラの在庫へ仮登録する
+      let reg;
+      try { reg = await registerPendingFlow(pendingArgs, { save: true }); }
+      catch (e) { reg = { ok: false, code: 'REGISTER_PENDING_THREW', message: String((e && e.message) || e) }; }
+      out.furimoraRegistration = reg;
+      out.ok = r.ok !== false && reg.ok === true;
+      out.note = reg.ok
+        ? '**メルカリの下書きと、フリモーラの在庫（仮登録）の両方を作りました。出品はしていません。** 出品したら furimora_register_from_listing で商品URL・画像・実際の出品価格を紐づけてください。'
+        : `**メルカリの下書き（${r.draftUrl ?? '作成済み'}）は作りましたが、フリモーラの在庫への仮登録に失敗しました。完了ではありません。** 原因: [${reg.code}] ${reg.message}。furimora_register_pending で登録し直してください（メルカリの下書きは作り直さない）。`;
+      return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `エラー [BROWSER] ${String((e && e.message) || e)}` }] };
+    }
+  }
+);
+
+server.registerTool(
+  'furimora_register_from_listing',
+  {
+    title: '出品した商品をフリモーラの在庫に登録する',
+    description:
+      '**出品後**の自分のメルカリ商品URLから、フリモーラの下書きを作り、在庫に登録する。' +
+      'メルカリの出品中一覧でその商品が自分の出品であることと出品価格を確かめ、' +
+      '出品価格 − 最低価格 をバッファとして開始価格を実際の出品価格に一致させる。' +
+      '同じ商品がすでに在庫にあれば何も書かずに止まる（二重登録しない）。' +
+      '**仮登録（furimora_register_pending / mercari_create_draft が作る、URL の無い在庫）があれば、新規に作らずそれに紐づける**' +
+      '（URL・実際の出品価格・画像・出品日を入れる）。仮登録が無ければ新しく登録する。' +
+      '**フリモーラ Desktop（electron/）の起動が必要。** アプリ自身の保存経路（下書き→在庫登録）を通す。' +
+      '**dry_run の既定は true。** 確認モードでは何も書かず、登録内容と利益の見積もりを返す。' +
+      '保存後は読み直して値を確かめ、出品中一覧との照合まで行って差分を返す。1 回の呼び出しで 1 件のみ。' +
+      'メルカリには何も書き込まない。',
+    inputSchema: {
+      url: z.string().describe('自分の出品中のメルカリ商品URL（出品すると決まる）'),
+      cost_price: z.number().int().min(0).describe('仕入れ値（円）。必ず指定する。0 は「仕入0円」の意味'),
+      min_price: z.number().int().min(300).describe('最低価格（円）。必ず指定する。出品価格との差がバッファ（既定 800 円）になる'),
+      shipping_method_id: z.string().max(60).optional()
+        .describe('配送方法の ID（例: sm_nekopos / sm_rakuraku）。省略するとアプリの既定'),
+      shipping_cost: z.number().int().min(0).max(5000).optional()
+        .describe('送料+梱包の経費（円）を直接指定する。厚みのある箱物など、配送方法の既定値と違うとき'),
+      supplier: z.string().max(80).optional().describe('仕入れ先'),
+      purchase_date: z.string().max(10).optional().describe('仕入日（YYYY-MM-DD）'),
+      adopt_item_id: z.string().max(40).optional()
+        .describe('紐づける仮登録の在庫 id。省略するとタイトルが同じ仮登録を探す（2 件以上あれば止まる）'),
+      dry_run: z.boolean().default(true).describe('true（既定）なら何も書かない。実際に登録するときだけ false'),
+    },
+  },
+  async ({ url, cost_price, min_price, shipping_method_id, shipping_cost, supplier, purchase_date, adopt_item_id, dry_run = true }) => {
+    const fail = (code, message, extra) => ({
+      isError: true,
+      content: [{ type: 'text', text: `エラー [${code}] ${message}` + (extra ? '\n' + JSON.stringify(extra, null, 2) : '') }],
+    });
+    const done = (obj) => ({ content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] });
+    try {
+      const itemId = parseMercariItemId(url);
+      if (!itemId) return fail('BAD_URL', 'メルカリの商品URL（…/item/m123…）を指定してください');
+      const svc = new FurimoraService(callApp);
+
+      // 1) 在庫と下書きを読む。アプリが起動していなければここで止まる（何も書いていない）
+      let items;
+      let drafts;
+      try {
+        items = await readJsonArrayFromApp('furimora_items');
+        drafts = await readJsonArrayFromApp('furimora_drafts');
+      } catch (e) {
+        const code = e?.code === 'APP_NOT_RUNNING' ? 'APP_NOT_RUNNING' : 'APP_READ_FAILED';
+        const hint = e?.code === 'APP_NOT_RUNNING' ? '（cd electron && npm start で起動してください）' : '';
+        return fail(code, String((e && e.message) || e) + hint);
+      }
+
+      // 2) 二重登録の防止。すでにあれば何も変えない
+      const existing = findExistingItem(items, itemId);
+      if (existing) {
+        return fail('ALREADY_REGISTERED', `在庫に登録済みです。何も変更していません（id ${existing.id}）`, {
+          existingItem: {
+            id: existing.id, title: existing.title, status: existing.status,
+            startPrice: existing.startPrice, minPrice: existing.minPrice, costPrice: existing.costPrice,
+          },
+        });
+      }
+
+      // 3) メルカリの出品中一覧で、自分の出品か・出品価格はいくらかを確かめる
+      const remote = await withMercari(async (mercari) => {
+        const login = await mercari.checkLogin();
+        if (!login.loggedIn) return { needsLogin: true };
+        return mercari.getMyListings({ tab: 'active', maxItems: 1000 });
+      });
+      if (remote.needsLogin) return fail('NOT_LOGGED_IN', 'メルカリにログインしていません。mercari_login を実行してください。');
+      const listing = remote.items.find((x) => x.itemId === itemId);
+      if (!listing) {
+        return fail('NOT_ACTIVE_LISTING',
+          `自分の出品中に ${itemId} がありません。他人の出品、出品前（下書き）、売却済み、または出品直後で一覧に反映されていない可能性があります`,
+          { activeCount: remote.count, truncated: remote.truncated });
+      }
+
+      // 3.5) 紐づける仮登録があるか。あれば新規に作らずそれを更新する
+      const chosenPending = choosePending(items, { title: listing.title, adoptItemId: adopt_item_id });
+      if (!chosenPending.ok) return fail(chosenPending.code, chosenPending.message, chosenPending.candidates ? { candidates: chosenPending.candidates } : undefined);
+      const pending = chosenPending.pending;
+
+      // 4) 登録内容を決める。書き込みの前に止められるものはここで止める
+      const planned = planRegistration({ itemId, listing, cost: cost_price, min: min_price, purchaseDate: purchase_date });
+      if (!planned.ok) return fail(planned.code, planned.message);
+
+      // 5) 配送方法と手数料（アプリの設定を読む。読み取りのみ）
+      const stored = await svc.readStorage(['furimora_shipping_methods', 'furimora_marketplaces']);
+      const parse = (s) => { try { const v = JSON.parse(s || 'null'); return Array.isArray(v) ? v : []; } catch { return []; } };
+      const methods = parse(stored.furimora_shipping_methods);
+      const marketplaces = parse(stored.furimora_marketplaces);
+      let method = null;
+      let shippingNote = null;
+      if (methods.length) {
+        const chosen = chooseShippingMethod(methods, shipping_method_id);
+        if (!chosen.ok) return fail(chosen.code, chosen.message);
+        method = chosen.method;
+      } else if (shipping_method_id) {
+        return fail('UNKNOWN_SHIPPING_METHOD', 'アプリに配送方法の設定が保存されていないため、shipping_method_id は使えません');
+      } else {
+        shippingNote = '配送方法の設定が未保存のため、入力画面の既定値のまま登録します（登録後に送料を確認してください）';
+      }
+      const keepPendingShipping = !!pending && !shipping_method_id && shipping_cost == null;
+      const expectedShipping = keepPendingShipping
+        ? Number(pending.shippingCost || 0)
+        : (shipping_cost ?? (method ? Number(method.shippingCost || 0) + Number(method.packingCost || 0) : null));
+      const feePercent = Number((marketplaces.find((m) => m.isDefault) || marketplaces[0] || { fee: 10 }).fee ?? 10);
+      const profit = expectedShipping == null ? null : estimateProfit({
+        startPrice: planned.plan.startPrice, minPrice: planned.plan.minPrice, costPrice: planned.plan.costPrice,
+        feePercent, shippingCost: expectedShipping,
+      });
+
+      const existingDraft = findDraftForItem(drafts, itemId);
+      const plan = {
+        ...planned.plan,
+        shippingMethod: method ? { id: method.id, name: method.name } : null,
+        shippingCost: expectedShipping,
+        feePercent,
+        estimatedProfit: profit ? { 出品価格で売れたとき: profit.atStart, 最低価格で売れたとき: profit.atMin } : null,
+        registration: pending
+          ? { action: '仮登録の在庫に紐づける（新規には作らない）', id: pending.id, title: pending.title }
+          : { action: '新しく在庫に登録する（紐づける仮登録なし）' },
+        draft: existingDraft ? { action: '既存の下書きを使う', id: existingDraft.id } : { action: 'この出品URLから新しく作る' },
+      };
+      const needsHuman = [...planned.warnings];
+      if (shippingNote) needsHuman.push(shippingNote);
+
+      if (dry_run) {
+        return done({
+          ok: true, saved: false, dryRun: true, plan, needsHuman,
+          note: '確認のみです。フリモーラには何も保存していません。実際に登録するには dry_run を false にしてください。',
+        });
+      }
+
+      // 6) フリモーラの下書き（①）。この出品URLを複製元にする。あれば再利用する
+      let draftId;
+      let draftCreated = false;
+      if (existingDraft) {
+        draftId = existingDraft.id;
+      } else {
+        const opened = await svc.openCloneScreen(url);
+        if (!opened.ok) return fail(opened.code, opened.message);
+        const got = await svc.fetchSource();
+        if (!got.ok) return fail(got.code, got.message);
+        const applied = await svc.applyDecisions({ price: planned.plan.startPrice });
+        if (!applied.ok) return fail(applied.code, applied.message);
+        const res = await svc.save();
+        if (!res.ok) return fail(res.code, res.message);
+        if (!res.saved || String(res.saved.itemId) !== itemId) {
+          return fail('DRAFT_MISMATCH', `保存された下書きの複製元が ${itemId} ではありません（${res.saved?.itemId ?? '不明'}）。在庫には登録していません`, { savedDraftId: res.saved?.id ?? null });
+        }
+        draftId = res.saved.id;
+        draftCreated = true;
+        // 保存できたと言われても、消えることがある。読み直して確かめる
+        await sleep(1500);
+        const again = await readJsonArrayFromApp('furimora_drafts');
+        if (!again.some((d) => d && String(d.id) === String(draftId))) {
+          return fail('DRAFT_LOST', `フリモーラの下書き ${draftId} が保存直後に見当たりません。在庫には登録していません。もう一度実行してください`);
+        }
+      }
+
+      // 7) 在庫へ登録（下書きの「出品登録」と同じ経路）
+      let reg;
+      if (pending) {
+        // 仮登録に、出品したメルカリ商品のURL・ID・実際の出品価格・画像・出品日を入れる（編集経路。新規には作らない）
+        const draftNow = (await readJsonArrayFromApp('furimora_drafts')).find((d) => d && String(d.id) === String(draftId));
+        reg = await svc.adoptListing({
+          localId: pending.id, itemId, url: listing.url || url, min: min_price, cost: cost_price, buffer: planned.plan.buffer,
+          listedAt: todayJst(), images: draftNow?.images,
+          shippingMethodId: shipping_method_id ? method?.id : undefined, shippingCost: shipping_cost,
+        }, { save: true });
+      } else {
+        reg = await svc.registerFromDraft({
+          draftId, itemId, cost: cost_price, min: min_price, buffer: planned.plan.buffer,
+          shippingMethodId: method ? method.id : undefined, shippingCost: shipping_cost,
+          supplier, purchaseDate: purchase_date,
+        }, { save: true });
+      }
+      if (!reg.ok) {
+        return fail(reg.code, reg.message, { draftId, note: 'フリモーラの下書きは残っています。在庫には保存していません' });
+      }
+      if (!pending && reg.after === reg.before) {
+        return fail('SAVE_REJECTED', '在庫の件数が増えませんでした（入力画面のチェックで弾かれた可能性）。何も保存されていません', { draftId, form: reg.form });
+      }
+      const expected = {
+        mercariItemId: itemId, costPrice: planned.plan.costPrice, minPrice: planned.plan.minPrice,
+        startPrice: planned.plan.startPrice, shippingCost: expectedShipping ?? Number(reg.form.shippingCost),
+      };
+      const verifyFailed = verifyRegisteredItem(reg.item, expected);
+      if (pending && reg.item && String(reg.item.id) !== String(pending.id)) verifyFailed.push('仮登録とは別の在庫が更新されました');
+      if (pending && reg.after !== reg.before) verifyFailed.push(`紐づけで在庫の件数が変わりました（${reg.before}→${reg.after}）`);
+
+      // 8) 保存を信用せず、少し待って読み直す
+      await sleep(2000);
+      const itemsAfter = await readJsonArrayFromApp('furimora_items');
+      const persisted = findExistingItem(itemsAfter, itemId);
+      const persistFailed = verifyRegisteredItem(persisted, expected);
+      if (pending && persisted && String(persisted.id) !== String(pending.id)) persistFailed.push('仮登録とは別の在庫に紐づいています');
+      if (pending && persisted && !String(persisted.mercariUrl || '').includes(itemId)) persistFailed.push('商品URLが入っていません');
+
+      // 9) 出品中一覧との照合。今回の商品について差分が無いことを確かめる
+      const report = reconcileListings({
+        local: itemsAfter, remoteActive: remote.items, remoteSold: [], remoteTruncated: remote.truncated,
+      });
+      const reconcile = {
+        手元に無い出品: report.missingLocally.some((x) => x.itemId === itemId),
+        価格のズレ: report.priceMismatch.filter((x) => x.itemId === itemId),
+        メルカリID未設定: report.unlinked.length,
+      };
+      const synced = !reconcile.手元に無い出品 && reconcile.価格のズレ.length === 0;
+
+      const ok = verifyFailed.length === 0 && persistFailed.length === 0 && synced;
+      return done({
+        ok, saved: true, dryRun: false,
+        verifyFailed: verifyFailed.length ? verifyFailed : undefined,
+        persistFailed: persistFailed.length ? persistFailed : undefined,
+        draft: { id: draftId, created: draftCreated },
+        linkedPendingId: pending ? pending.id : undefined,
+        counts: { 在庫: { before: reg.before, after: itemsAfter.length } },
+        registered: persisted ? {
+          id: persisted.id, title: persisted.title, status: persisted.status,
+          startPrice: persisted.startPrice, currentPrice: persisted.currentPrice, minPrice: persisted.minPrice,
+          costPrice: persisted.costPrice, shippingCost: persisted.shippingCost, shippingMethodId: persisted.shippingMethodId,
+          category: persisted.category, condition: persisted.condition, mercariUrl: persisted.mercariUrl,
+        } : null,
+        reconcile, plan, needsHuman,
+        note: ok
+          ? 'フリモーラの在庫に登録し、メルカリの出品中一覧との差分がないことを確認しました。'
+          : '**確認に失敗した項目があります。** 完了とは言えません。上の verifyFailed / persistFailed / reconcile を確認してください。',
+      });
+    } catch (e) {
+      const code = e?.code === 'APP_NOT_RUNNING' ? 'APP_NOT_RUNNING' : 'REGISTER_FAILED';
+      return fail(code, String((e && e.message) || e));
     }
   }
 );

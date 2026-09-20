@@ -132,4 +132,146 @@ export class FurimoraService {
       };
     })()`);
   }
+
+  /** localStorage の値を読む（読み取りのみ）。キーが無ければ null */
+  async readStorage(keys) {
+    const { values } = await this.call('read_storage', { keys });
+    return values || {};
+  }
+
+  /**
+   * 在庫の入力画面（new-item-modal）に、人が確定した値を入れて読み戻す JS 片。
+   * 下書きからの登録・仮登録・出品後の紐づけで共通。失敗したらモーダルを閉じて FILL_FAILED を返す。
+   * 前提: 呼び出し側の JS に `const v = ...` は無い（ここで定義する）。
+   */
+  static fillScript({ cost, min, buffer, shippingMethodId, shippingCost, supplier, purchaseDate, listedAt }) {
+    return `
+      const set = (id, val) => { const el = document.getElementById(id); if (!el) throw new Error('入力欄がありません: ' + id); el.value = val; };
+      try {
+        ${cost == null ? '' : `set('ni-cost', ${js(String(cost))});`}
+        ${min == null ? '' : `set('ni-minprice', ${js(String(min))});`}
+        ${buffer == null ? '' : `setBuffer(${js(buffer)});`}
+        ${shippingMethodId == null ? '' : `{
+          const sel = document.getElementById('ni-shipping-method');
+          if (!sel || ![...sel.options].some((o) => o.value === ${js(shippingMethodId)})) throw new Error('配送方法がありません: ' + ${js(shippingMethodId)});
+          sel.value = ${js(shippingMethodId)};
+          onNiShippingMethodChange();
+        }`}
+        ${shippingCost == null ? '' : `set('ni-shipping', ${js(String(shippingCost))});`}
+        ${supplier ? `set('ni-supplier', ${js(supplier)});` : ''}
+        ${purchaseDate ? `set('ni-purchase-date', ${js(purchaseDate)});` : ''}
+        ${listedAt ? `set('ni-listed-at', ${js(listedAt)});` : ''}
+        calcItemPrice();
+      } catch (e) {
+        try { closeModal('new-item-modal'); } catch (e2) {}
+        return { ok: false, code: 'FILL_FAILED', message: String((e && e.message) || e) };
+      }
+      const v = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
+      const form = {
+        title: v('ni-title'), cost: v('ni-cost'), minPrice: v('ni-minprice'), buffer: v('ni-buffer'),
+        fee: v('ni-fee'), shippingCost: v('ni-shipping'), shippingMethodId: v('ni-shipping-method'),
+        marketplaceId: v('ni-marketplace'), category: v('ni-category'), condition: v('ni-condition'),
+        listedAt: v('ni-listed-at'), supplier: v('ni-supplier'), purchaseDate: v('ni-purchase-date'),
+      };`;
+  }
+
+  /**
+   * 下書き 1 件を「在庫に登録」する。アプリ自身の経路（出品登録ボタンと同じ
+   * openNewItemModalFromDraftIndex → 各欄 → saveNewItem）を通す。localStorage は直接書かない。
+   *
+   * - 下書きは **id で探す**（位置は一覧を見てから渡すまでに動く）。無ければ止まる
+   * - `save:false` は欄を埋めて内容を読み出し、保存せずモーダルを閉じる（通し稽古）
+   * - 保存したら、在庫の件数の前後と、メルカリ商品 ID で見つけた 1 件を返す
+   *
+   * 在庫の欄 ID とグローバル関数はここに集約する。壊れたときに直す場所を 1 箇所に保つ。
+   */
+  async registerFromDraft({ draftId, itemId, cost, min, buffer, shippingMethodId, shippingCost, supplier, purchaseDate }, { save }) {
+    return this.evaluate(`(() => {
+      const wantId = ${js(String(draftId))};
+      const itemId = ${js(itemId)};
+      const readItems = () => { try { return JSON.parse(localStorage.getItem('furimora_items') || '[]'); } catch (e) { return []; } };
+      let drafts;
+      try { drafts = JSON.parse(localStorage.getItem('furimora_drafts') || '[]'); } catch (e) { drafts = []; }
+      const index = drafts.findIndex((d) => d && String(d.id) === wantId);
+      if (index < 0) return { ok: false, code: 'DRAFT_NOT_FOUND', message: '下書き ' + wantId + ' が見つかりません（消えた可能性があります）' };
+      try { openNewItemModalFromDraftIndex(index); }
+      catch (e) { return { ok: false, code: 'OPEN_FORM_FAILED', message: String((e && e.message) || e) }; }
+      const modal = document.getElementById('new-item-modal');
+      if (!modal || !modal.classList.contains('open')) return { ok: false, code: 'FORM_NOT_OPEN', message: '在庫の入力画面が開きませんでした' };
+      ${FurimoraService.fillScript({ cost, min, buffer, shippingMethodId, shippingCost, supplier, purchaseDate })}
+      if (${save ? 'false' : 'true'}) {
+        try { closeModal('new-item-modal'); } catch (e) {}
+        return { ok: true, saved: false, form };
+      }
+      const before = readItems().length;
+      try { saveNewItem(); }
+      catch (e) { return { ok: false, code: 'SAVE_THREW', message: String((e && e.message) || e), form }; }
+      const items = readItems();
+      const hit = items.find((it) => it && String(it.mercariItemId) === itemId) || null;
+      return { ok: true, saved: true, form, before, after: items.length, item: hit };
+    })()`, { timeoutMs: 30000 });
+  }
+
+  /**
+   * **仮登録**: メルカリの下書きを作った時点で、フリモーラの在庫にも 1 件入れる。
+   * まだ出品していないのでメルカリの商品URL・IDは無い（出品後に adoptListing で紐づける）。
+   * アプリ自身の経路（openNewItemModal → 各欄 → saveNewItem）を通す。localStorage は直接書かない。
+   *
+   * 見つけ方: メルカリ商品 ID が無いので、タイトルが同じで ID の無い在庫のうち最新の 1 件。
+   */
+  async registerPending({ title, description, min, cost, buffer, category, condition, shippingMethodId, shippingCost, supplier, purchaseDate }, { save }) {
+    return this.evaluate(`(() => {
+      const wantTitle = ${js(title)};
+      const readItems = () => { try { return JSON.parse(localStorage.getItem('furimora_items') || '[]'); } catch (e) { return []; } };
+      try {
+        navigate('relist');
+        openNewItemModal({ title: wantTitle, description: ${js(description ?? '')}, price: ${js(min)}, category: ${js(category ?? '')}, condition: ${js(condition ?? '')}, images: [], url: '' });
+      } catch (e) { return { ok: false, code: 'OPEN_FORM_FAILED', message: String((e && e.message) || e) }; }
+      const modal = document.getElementById('new-item-modal');
+      if (!modal || !modal.classList.contains('open')) return { ok: false, code: 'FORM_NOT_OPEN', message: '在庫の入力画面が開きませんでした' };
+      ${FurimoraService.fillScript({ cost, min, buffer, shippingMethodId, shippingCost, supplier, purchaseDate })}
+      if (${save ? 'false' : 'true'}) {
+        try { closeModal('new-item-modal'); } catch (e) {}
+        return { ok: true, saved: false, form };
+      }
+      const before = readItems().length;
+      try { saveNewItem(); }
+      catch (e) { return { ok: false, code: 'SAVE_THREW', message: String((e && e.message) || e), form }; }
+      const items = readItems();
+      const hit = items.find((it) => it && it.title === wantTitle && !it.mercariItemId && !it.mercariUrl && Number(it.minPrice) === ${js(min)}) || null;
+      return { ok: true, saved: true, form, before, after: items.length, item: hit };
+    })()`, { timeoutMs: 30000 });
+  }
+
+  /**
+   * **出品後の紐づけ**: 仮登録した在庫に、出品したメルカリ商品のURL・IDと実際の出品価格を入れる。
+   * 在庫の「編集」と同じ経路（openInventoryEditItemModal → 各欄 → saveNewItem）。新規作成にはならない。
+   * 画像は下書き（出品URLから作った複製）のものを入れる。出品日は今日に更新する。
+   */
+  async adoptListing({ localId, itemId, url, min, buffer, cost, listedAt, images, shippingMethodId, shippingCost }, { save }) {
+    return this.evaluate(`(() => {
+      const readItems = () => { try { return JSON.parse(localStorage.getItem('furimora_items') || '[]'); } catch (e) { return []; } };
+      const target = readItems().find((it) => it && String(it.id) === ${js(String(localId))});
+      if (!target) return { ok: false, code: 'PENDING_NOT_FOUND', message: '仮登録した在庫 ' + ${js(String(localId))} + ' が見つかりません' };
+      if (target.mercariItemId || target.mercariUrl) return { ok: false, code: 'ALREADY_LINKED', message: 'この在庫はすでにメルカリ商品に紐づいています' };
+      try { navigate('relist'); openInventoryEditItemModal(target.id); }
+      catch (e) { return { ok: false, code: 'OPEN_FORM_FAILED', message: String((e && e.message) || e) }; }
+      const modal = document.getElementById('new-item-modal');
+      if (!modal || !modal.classList.contains('open')) return { ok: false, code: 'FORM_NOT_OPEN', message: '在庫の編集画面が開きませんでした' };
+      modal.dataset.mercariUrl = ${js(url)};
+      modal.dataset.mercariItemId = ${js(itemId)};
+      ${Array.isArray(images) && images.length ? `modal.dataset.images = ${js(JSON.stringify(images))};` : ''}
+      ${FurimoraService.fillScript({ cost, min, buffer, listedAt, shippingMethodId, shippingCost })}
+      if (${save ? 'false' : 'true'}) {
+        try { closeModal('new-item-modal'); } catch (e) {}
+        return { ok: true, saved: false, form };
+      }
+      const before = readItems().length;
+      try { saveNewItem(); }
+      catch (e) { return { ok: false, code: 'SAVE_THREW', message: String((e && e.message) || e), form }; }
+      const items = readItems();
+      const hit = items.find((it) => it && String(it.id) === ${js(String(localId))}) || null;
+      return { ok: true, saved: true, form, before, after: items.length, item: hit };
+    })()`, { timeoutMs: 30000 });
+  }
 }
