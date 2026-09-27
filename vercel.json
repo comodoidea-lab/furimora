@@ -2,6 +2,19 @@
   "version": 2,
   "routes": [
     {
+      "src": "^/(?!api/)(.*)$",
+      "has": [
+        {
+          "type": "host",
+          "value": "furimora.vercel.app"
+        }
+      ],
+      "status": 308,
+      "headers": {
+        "Location": "https://zaikobang.comona-lab.com/$1"
+      }
+    },
+    {
       "src": "^/analytics$",
       "dest": "/public/index.html"
     },
@@ -14,9 +27,18 @@
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type"
+        }
       ]
     }
   ]

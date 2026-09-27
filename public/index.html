@@ -1917,8 +1917,8 @@ tailwind.config = {
   import { createCloneService, createInternalApi } from './js/clone-service.js';
   import * as draftsSync from './js/drafts-sync-core.js';
 
-  const PRIMARY = 'https://furimora.vercel.app';
-  const LEGACY = 'https://furimora-assist.vercel.app';
+  const PRIMARY = 'https://zaikobang.comona-lab.com';
+  const LEGACY = 'https://furimora.vercel.app';
 
   const service = createCloneService({
     // /api/mercari は本人のログインがないと通らないので、ログインの証明を付けて呼ぶ
@@ -1927,7 +1927,7 @@ tailwind.config = {
       return fetch(input, { ...init, headers });
     },
     useRelativeApi: true,          // 同一オリジンの /api/mercari を最優先
-    apiOrigins: [PRIMARY, LEGACY], // 落ちていれば既知の同一実装オリジンへフォールバック
+    apiOrigins: [PRIMARY, LEGACY, 'https://furimora-assist.vercel.app'], // 落ちていれば既知の同一実装オリジンへフォールバック
   });
   const api = createInternalApi(service);
 
@@ -1949,7 +1949,7 @@ let QUEUE = [];
 let SCHEDULE_DATA = {};
 let NOTIFICATIONS = [];
 // 画像プロキシ用。/api/mercari のオリジン一覧は上の <script type="module"> 側が持つ
-const PRIMARY_WEB_ORIGIN = 'https://furimora.vercel.app';
+const PRIMARY_WEB_ORIGIN = 'https://zaikobang.comona-lab.com';
 
 /** クラウド同期対象（localStorage キー）— API キー類は含めない */
 const FURIMORA_SYNC_KEYS = [

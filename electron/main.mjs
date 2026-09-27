@@ -60,7 +60,7 @@ function registerLoginItemOnce() {
   }
 }
 
-const APP_URL = process.env.FURIMORA_URL || 'https://furimora.vercel.app';
+const APP_URL = process.env.FURIMORA_URL || 'https://zaikobang.comona-lab.com';
 const PARTITION = 'persist:furimora';
 /** メルカリ用ウィンドウのセッション。**ZaikoBangと同じにする**（理由は createMercariWindow の説明） */
 const MERCARI_PARTITION = PARTITION;

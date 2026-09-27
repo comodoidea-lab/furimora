@@ -32,11 +32,38 @@ import {
 import { ElectronBrowserService } from './src/electron-browser-service.mjs';
 import fs from 'node:fs';
 
-const API_ORIGIN = process.env.FURIMORA_API_ORIGIN || 'https://furimora.vercel.app';
-const FALLBACK_ORIGINS = ['https://furimora-assist.vercel.app'];
+const API_ORIGIN = process.env.FURIMORA_API_ORIGIN || 'https://zaikobang.comona-lab.com';
+const FALLBACK_ORIGINS = ['https://furimora.vercel.app', 'https://furimora-assist.vercel.app'];
 const ORIGINS = [API_ORIGIN, ...FALLBACK_ORIGINS.filter((o) => o !== API_ORIGIN)];
 
-const service = createCloneService({ apiOrigins: ORIGINS });
+/**
+ * /api/mercari は開発者本人のログインがある呼び出ししか通さない（api/lib/owner-auth.js）。
+ * MCP は Node から呼ぶので、起動中のデスクトップ版からログインの証明（ID トークン）を借りる。
+ * トークンは 1 時間で切れるので 45 分で取り直す。
+ */
+let ownerToken = { value: '', at: 0 };
+async function ownerIdToken() {
+  if (ownerToken.value && Date.now() - ownerToken.at < 45 * 60 * 1000) return ownerToken.value;
+  try {
+    const r = await callApp('evaluate', {
+      script: `(async () => { const u = window.furimoraCurrentUser && window.furimoraCurrentUser(); return u ? await u.getIdToken() : ''; })()`,
+    }, { timeoutMs: 10000 });
+    const value = typeof r === 'string' ? r : (r && (r.result ?? r.value)) || '';
+    ownerToken = { value, at: Date.now() };
+    return value;
+  } catch {
+    return '';
+  }
+}
+
+const service = createCloneService({
+  apiOrigins: ORIGINS,
+  fetchImpl: async (input, init = {}) => {
+    const token = await ownerIdToken();
+    const headers = { ...Object.fromEntries(new Headers(init.headers || {})), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    return fetch(input, { ...init, headers });
+  },
+});
 const api = createInternalApi(service);
 
 /** 内部 API の戻り値を MCP のレスポンスへ変換する。ここに業務ロジックは書かない。 */

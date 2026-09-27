@@ -1,4 +1,4 @@
-const APP_URL = 'https://furimora.vercel.app';
+const APP_URL = 'https://zaikobang.comona-lab.com';
 const LEGACY_APP_URL = 'https://furimora-assist.vercel.app';
 
 function normalizeAppUrl(raw) {
