@@ -1,0 +1,36 @@
+# ZaikoBang のアプリアイコン（Icon Composer 形式）を Xcode 26 の actool で Assets.car にする。
+# macOS 26 は Assets.car を持たないアプリのアイコンを白い台座に載せるため。手元に Xcode が無いので CI で作る。
+name: compile-mac-icon
+on:
+  push:
+    paths:
+      - "design/zaikobang-icon/AppIcon.icon/**"
+      - ".github/workflows/compile-mac-icon.yml"
+  workflow_dispatch:
+jobs:
+  compile:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode 26 を選ぶ
+        run: |
+          xcode_app="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort -V | tail -n 1)"
+          sudo xcode-select -s "$xcode_app/Contents/Developer"
+          xcodebuild -version
+      - name: actool で Assets.car を作る
+        run: |
+          mkdir -p out
+          xcrun actool design/zaikobang-icon/AppIcon.icon \
+            --compile out \
+            --app-icon AppIcon \
+            --platform macosx \
+            --target-device mac \
+            --minimum-deployment-target 11.0 \
+            --output-partial-info-plist out/partial.plist \
+            --output-format human-readable-text --notices --warnings --errors
+          ls -la out
+          cat out/partial.plist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zaikobang-mac-icon
+          path: out/
