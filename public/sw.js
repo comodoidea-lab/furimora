@@ -1,5 +1,5 @@
 // Service Worker for ZaikoBang
-const CACHE_NAME = 'furimora-v11';
+const CACHE_NAME = 'furimora-v12';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
