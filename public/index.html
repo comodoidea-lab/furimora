@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"/>
-<meta name="theme-color" content="#bb0017"/>
+<meta name="theme-color" content="#1F2F5C"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <meta name="apple-mobile-web-app-title" content="ZaikoBang"/>
@@ -21,13 +21,13 @@ tailwind.config = {
   theme: {
     extend: {
       colors: {
-        primary: "#bb0017",
-        "primary-container": "#ea0020",
+        primary: "#1F2F5C",
+        "primary-container": "#34498A",
         "on-primary": "#ffffff",
-        "primary-fixed": "#ffdad6",
-        "primary-fixed-dim": "#ffb3ac",
-        secondary: "#b62224",
-        "secondary-container": "#fd5650",
+        "primary-fixed": "#DDE3F3",
+        "primary-fixed-dim": "#B7C3E4",
+        secondary: "#33477A",
+        "secondary-container": "#5B6FA6",
         tertiary: "#00628c",
         "tertiary-container": "#007cb0",
         "on-tertiary-container": "#fcfcff",
@@ -40,9 +40,9 @@ tailwind.config = {
         "surface-container-high": "#e8e8e8",
         "surface-container-highest": "#e2e2e2",
         "on-surface": "#1a1c1c",
-        "on-surface-variant": "#5f3e3b",
-        "outline": "#956d6a",
-        "outline-variant": "#eabcb7",
+        "on-surface-variant": "#454B5C",
+        "outline": "#737A8C",
+        "outline-variant": "#C5CAD6",
         "error": "#ba1a1a",
         "error-container": "#ffdad6",
         "inverse-surface": "#2f3131",
@@ -112,18 +112,18 @@ tailwind.config = {
     -webkit-backdrop-filter: blur(20px);
   }
 
-  .bg-signature-gradient { background: linear-gradient(135deg, #bb0017 0%, #ea0020 100%); }
+  .bg-signature-gradient { background: linear-gradient(135deg, #1F2F5C 0%, #34498A 100%); }
 
   .pulse-dot {
     width: 8px; height: 8px;
-    background: #bb0017; border-radius: 50%; display: inline-block;
-    box-shadow: 0 0 0 0 rgba(187,0,23,0.4);
+    background: #1F2F5C; border-radius: 50%; display: inline-block;
+    box-shadow: 0 0 0 0 rgba(31,47,92,0.4);
     animation: pulse-ring 1.5s ease-out infinite;
   }
   @keyframes pulse-ring {
-    0% { box-shadow: 0 0 0 0 rgba(187,0,23,0.4); }
-    70% { box-shadow: 0 0 0 8px rgba(187,0,23,0); }
-    100% { box-shadow: 0 0 0 0 rgba(187,0,23,0); }
+    0% { box-shadow: 0 0 0 0 rgba(31,47,92,0.4); }
+    70% { box-shadow: 0 0 0 8px rgba(31,47,92,0); }
+    100% { box-shadow: 0 0 0 0 rgba(31,47,92,0); }
   }
 
   /* 在庫グリッド: 列数をコンテナ幅に合わせ自動調整（タブレットはみ出し防止） */
@@ -144,7 +144,7 @@ tailwind.config = {
 
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #eabcb7; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb { background: #C5CAD6; border-radius: 99px; }
 
   @media (min-width: 768px) {
     #bottom-nav { display: none !important; }
@@ -178,7 +178,7 @@ tailwind.config = {
     width: 44px; height: 24px; background: #e2e2e2; border-radius: 12px;
     position: relative; cursor: pointer; transition: background 0.2s;
   }
-  .toggle-track.on { background: #bb0017; }
+  .toggle-track.on { background: #1F2F5C; }
   .toggle-thumb {
     width: 18px; height: 18px; background: white; border-radius: 50%;
     position: absolute; top: 3px; left: 3px;
@@ -187,14 +187,14 @@ tailwind.config = {
   .toggle-track.on .toggle-thumb { transform: translateX(20px); }
 
   .step-line { height: 2px; background: #e2e2e2; flex: 1; }
-  .step-line.done { background: #bb0017; }
+  .step-line.done { background: #1F2F5C; }
 
   .card-interactive { transition: background 0.15s; cursor: pointer; }
   .card-interactive:hover { background: #f3f3f3 !important; }
   .card-interactive:active { transform: scale(0.99); }
 
   .stat-card { transition: all 0.2s; }
-  .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(187,0,23,0.08) !important; }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(31,47,92,0.08) !important; }
   #items-sort-order {
     -webkit-appearance: none;
     appearance: none;
@@ -1863,7 +1863,7 @@ tailwind.config = {
     <span class="text-[9px] font-semibold tracking-tight">クローン</span>
   </button>
   <button type="button" onclick="navigate('relist')" data-nav="relist" aria-label="在庫" class="nav-btn-mobile nav-fab-inventory relative z-10 flex flex-col items-center justify-center px-2 py-1 rounded-xl transition-all active:scale-90 text-on-surface-variant">
-    <span class="flex h-[72px] w-[72px] shrink-0 flex-col items-center overflow-hidden rounded-full bg-[#CC0000] px-1.5 pt-3 pb-2 shadow-[0_4px_14px_rgba(0,0,0,0.14)] -mt-5" aria-hidden="true">
+    <span class="flex h-[72px] w-[72px] shrink-0 flex-col items-center overflow-hidden rounded-full bg-[#1F2F5C] px-1.5 pt-3 pb-2 shadow-[0_4px_14px_rgba(0,0,0,0.14)] -mt-5" aria-hidden="true">
       <!-- Lucide「package」と同一パス（lucide-react の Package と同じ） -->
       <span class="flex min-h-0 flex-1 w-full flex-col items-center justify-center">
         <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pointer-events-none shrink-0">
@@ -5825,7 +5825,7 @@ function relistItem(btn, name) {
   btn.textContent = '✓ 予約済み';
   btn.disabled = true;
   btn.style.background = '#e2e2e2';
-  btn.style.color = '#5f3e3b';
+  btn.style.color = '#454B5C';
   // アクティビティに記録
   ACTIVITIES.unshift({ name, action: '再出品を予約しました', time: 'たった今', status: '出品中', type: 'active', icon: 'refresh-cw' });
   saveStorageData();

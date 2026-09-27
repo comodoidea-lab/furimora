@@ -11,19 +11,19 @@
 #furimora-toggle {
   width: 52px;
   height: 52px;
-  background: linear-gradient(135deg, #bb0017 0%, #ea0020 100%);
+  background: linear-gradient(135deg, #1F2F5C 0%, #34498A 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(187, 0, 23, 0.4);
+  box-shadow: 0 4px 16px rgba(31, 47, 92, 0.4);
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 #furimora-toggle:hover {
   transform: scale(1.1);
-  box-shadow: 0 6px 20px rgba(187, 0, 23, 0.5);
+  box-shadow: 0 6px 20px rgba(31, 47, 92, 0.5);
 }
 
 #furimora-toggle:active { transform: scale(0.95); }
@@ -47,7 +47,7 @@
 }
 
 #furimora-header {
-  background: linear-gradient(135deg, #bb0017 0%, #ea0020 100%);
+  background: linear-gradient(135deg, #1F2F5C 0%, #34498A 100%);
   color: white;
   padding: 12px 16px;
   display: flex;
@@ -91,7 +91,7 @@
 .furimora-price {
   font-size: 16px;
   font-weight: 900;
-  color: #bb0017;
+  color: #1F2F5C;
   font-family: 'Plus Jakarta Sans', sans-serif;
 }
 
@@ -119,9 +119,9 @@
 .furimora-btn:active { transform: scale(0.97); }
 
 .furimora-btn-primary {
-  background: linear-gradient(135deg, #bb0017 0%, #ea0020 100%);
+  background: linear-gradient(135deg, #1F2F5C 0%, #34498A 100%);
   color: white;
-  box-shadow: 0 3px 10px rgba(187, 0, 23, 0.25);
+  box-shadow: 0 3px 10px rgba(31, 47, 92, 0.25);
 }
 
 .furimora-btn-secondary {
