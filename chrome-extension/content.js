@@ -1,5 +1,5 @@
 /**
- * フリモーラ - Content Script
+ * ZaikoBang - Content Script
  * メルカリの商品ページに補助UIを注入します
  */
 
@@ -302,7 +302,7 @@
     const widget = document.createElement('div');
     widget.id = 'furimora-widget';
     widget.innerHTML = `
-      <div id="furimora-toggle" title="フリモーラ">
+      <div id="furimora-toggle" title="ZaikoBang">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
           <path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/>
@@ -311,7 +311,7 @@
       </div>
       <div id="furimora-panel" class="furimora-hidden">
         <div id="furimora-header">
-          <span>フリモーラ</span>
+          <span>ZaikoBang</span>
           <button id="furimora-close">✕</button>
         </div>
         <div id="furimora-body">
@@ -363,7 +363,7 @@
           if (furimora_app_url !== appUrl) chrome.storage.local.set({ furimora_app_url: appUrl });
           const cloneUrl = buildCloneUrl(appUrl, freshData);
           chrome.runtime.sendMessage({ type: 'OPEN_TAB', url: cloneUrl });
-          showStatus('✓ フリモーラでクローン作成画面を開きます', 'success');
+          showStatus('✓ ZaikoBangでクローン作成画面を開きます', 'success');
         });
       }, 300);
     });

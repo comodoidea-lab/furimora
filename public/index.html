@@ -6,12 +6,12 @@
 <meta name="theme-color" content="#bb0017"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
-<meta name="apple-mobile-web-app-title" content="フリモーラ"/>
+<meta name="apple-mobile-web-app-title" content="ZaikoBang"/>
 <meta name="description" content="メルカリ出品を自動化・最適化するアシスタントツール"/>
-<title>フリモーラ | 在庫・出品管理</title>
+<title>ZaikoBang | 在庫・出品管理</title>
 <link rel="manifest" href="manifest.json"/>
-<link rel="icon" type="image/png" href="icons/icon-48.png?v=4"/>
-<link rel="apple-touch-icon" href="icons/icon-192.png?v=4"/>
+<link rel="icon" type="image/png" href="icons/icon-48.png?v=5"/>
+<link rel="apple-touch-icon" href="icons/icon-192.png?v=5"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
@@ -289,11 +289,9 @@ tailwind.config = {
 <aside id="sidebar" class="fixed left-0 top-0 h-screen w-64 bg-surface-container-low flex-col z-40 p-4 gap-1">
   <div class="mb-8 px-4 py-3">
     <div class="flex items-center gap-2.5">
-      <div class="w-9 h-9 bg-signature-gradient rounded-xl flex items-center justify-center shadow-md shadow-primary/20">
-        <span class="material-symbols-outlined text-white text-xl">package_2</span>
-      </div>
+      <img src="icons/icon-128.png?v=5" alt="" class="w-9 h-9 rounded-xl shadow-md shadow-black/10"/>
       <div>
-        <h1 class="font-headline font-black text-base text-primary tracking-tight leading-tight">フリモーラ</h1>
+        <h1 class="font-headline font-black text-base text-primary tracking-tight leading-tight">ZaikoBang</h1>
         <p class="text-[10px] text-on-surface-variant font-medium">出品自動化ツール</p>
       </div>
     </div>
@@ -361,10 +359,8 @@ tailwind.config = {
 <!-- MOBILE HEADER -->
 <header id="mobile-header" class="fixed top-0 left-0 w-full z-40 glass h-16 flex items-center justify-between px-5">
   <div class="flex items-center gap-2.5">
-    <div class="w-8 h-8 bg-signature-gradient rounded-xl flex items-center justify-center shadow-sm shadow-primary/25">
-      <span class="material-symbols-outlined text-white text-lg">package_2</span>
-    </div>
-    <h1 class="font-headline font-black text-base text-primary tracking-tight">フリモーラ</h1>
+    <img src="icons/icon-128.png?v=5" alt="" class="w-8 h-8 rounded-xl shadow-sm shadow-black/10"/>
+    <h1 class="font-headline font-black text-base text-primary tracking-tight">ZaikoBang</h1>
   </div>
   <div class="flex items-center gap-1.5">
     <button type="button" onclick="openAccountModal()" class="flex items-center gap-0.5 px-2 py-1.5 rounded-full bg-primary/10 text-primary max-w-[100px]">
@@ -1785,7 +1781,7 @@ tailwind.config = {
     <div class="flex items-start justify-between gap-3 mb-2">
       <div>
         <p class="text-[11px] font-black text-primary uppercase tracking-wider" id="onboarding-step-label">STEP 1 / 3</p>
-        <h3 class="font-headline font-black text-xl leading-tight mt-1" id="onboarding-title">ようこそフリモーラへ</h3>
+        <h3 class="font-headline font-black text-xl leading-tight mt-1" id="onboarding-title">ようこそZaikoBangへ</h3>
       </div>
       <button type="button" onclick="furimoraSkipOnboarding()" class="text-xs font-bold text-on-surface-variant hover:text-on-surface">スキップ</button>
     </div>
@@ -2043,8 +2039,8 @@ let furimoraCoachmarkStep = 0;
 let furimoraCoachmarkHighlightedEl = null;
 const FURIMORA_ONBOARDING_STEPS = [
   {
-    title: 'ようこそフリモーラへ',
-    body: 'フリモーラは、フリマ運用に必要な管理をひとつにまとめるためのアプリです。',
+    title: 'ようこそZaikoBangへ',
+    body: 'ZaikoBangは、フリマ運用に必要な管理をひとつにまとめるためのアプリです。',
   },
   {
     title: '名前の由来は「フリマ管理を網羅」',
@@ -7733,7 +7729,7 @@ async function furimoraSendWebPushToAllDevices(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       subscription: sub,
-      title: payload?.title || 'フリモーラ',
+      title: payload?.title || 'ZaikoBang',
       body: payload?.body || '通知があります',
       url: payload?.url || '/',
     }),

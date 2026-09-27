@@ -1,5 +1,5 @@
-// Service Worker for フリモーラ
-const CACHE_NAME = 'furimora-v5';
+// Service Worker for ZaikoBang
+const CACHE_NAME = 'furimora-v6';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -84,7 +84,7 @@ self.addEventListener('push', event => {
     }
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || 'フリモーラ', {
+    self.registration.showNotification(data.title || 'ZaikoBang', {
       body: data.body || '新しい通知があります',
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',

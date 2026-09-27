@@ -1,6 +1,6 @@
 {
   "appId": "com.comodoidea.furimora.advanced",
-  "productName": "フリモーラ Advanced",
+  "productName": "ZaikoBang Advanced",
   "directories": { "output": "dist/advanced", "buildResources": "build" },
   "files": [
     "main.mjs",

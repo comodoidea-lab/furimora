@@ -17,7 +17,7 @@ if (!['standard', 'advanced'].includes(variant)) {
   process.exit(2);
 }
 
-const APP_NAME = variant === 'advanced' ? 'フリモーラ Advanced.app' : 'フリモーラ.app';
+const APP_NAME = variant === 'advanced' ? 'ZaikoBang Advanced.app' : 'ZaikoBang.app';
 const appDir = path.join('dist', variant, 'mac-arm64', APP_NAME);
 const asarPath = path.join(appDir, 'Contents', 'Resources', 'app.asar');
 const plainDir = path.join(appDir, 'Contents', 'Resources', 'app');

@@ -39,7 +39,7 @@ async function clearStaleSocket() {
 export async function startControlServer(ops) {
   fs.mkdirSync(path.dirname(SOCKET_PATH), { recursive: true });
   if (!(await clearStaleSocket())) {
-    throw new Error(`既に別のフリモーラ Desktop が ${SOCKET_PATH} を使っています`);
+    throw new Error(`既に別のZaikoBang Desktop が ${SOCKET_PATH} を使っています`);
   }
 
   const server = net.createServer((sock) => {

@@ -1,6 +1,6 @@
 {
   "appId": "com.comodoidea.furimora",
-  "productName": "フリモーラ",
+  "productName": "ZaikoBang",
   "directories": { "output": "dist/standard", "buildResources": "build" },
   "files": [
     "main.mjs",

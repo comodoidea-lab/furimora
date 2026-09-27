@@ -1,7 +1,7 @@
 /**
- * フリモーラ Desktop。
+ * ZaikoBang Desktop。
  *
- * **これがデスクトップのフリモーラそのものになる。** Vivaldi のタブで開くのをやめ、
+ * **これがデスクトップのZaikoBangそのものになる。** Vivaldi のタブで開くのをやめ、
  * これを使う。そうしないと同期の書き手が 2 人のままで、競合したとき
  * furimoraApplySyncPayload(payload, replaceLocal=true) に片方の作業を消される。
  *
@@ -17,15 +17,15 @@ import { startControlServer } from './control.mjs';
  * **userData のパスを現在の値に固定する。ここを動かすと全部壊れる。**
  *
  * 既定では package.json の name（productName があればそちら）からパスが決まる。
- * つまり productName を「フリモーラ」にした瞬間に
- * `~/Library/Application Support/フリモーラ` へ移り、いま使っている
+ * つまり productName を「ZaikoBang」にした瞬間に
+ * `~/Library/Application Support/ZaikoBang` へ移り、いま使っている
  *
- *   Partitions/furimora  … フリモーラとメルカリの**両方**のログイン
+ *   Partitions/furimora  … ZaikoBangとメルカリの**両方**のログイン
  *   Partitions/mercari   … MCP 経路のメルカリのログイン
  *
  * が参照されなくなる。**ログインが 3 つとも消える。**
  * 2026-09-03 に LIVE で通した値下げ経路（カードのクリック → 捕捉 → identity proof →
- * メルカリ保存 → フリモーラ記録）は、この Partitions/furimora のセッションに依存している。
+ * メルカリ保存 → ZaikoBang記録）は、この Partitions/furimora のセッションに依存している。
  *
  * アプリ名やアイコンを変えても壊れないよう、名前とは切り離して明示的に固定する。
  * **移設したくなったら、先にディレクトリを移してからこの値を変えること。**
@@ -34,7 +34,7 @@ const USER_DATA_DIR = path.join(app.getPath('appData'), 'furimora-desktop');
 app.setPath('userData', USER_DATA_DIR);
 
 /** Dock / メニュー / About に出る名前。package.json の productName と一致させる */
-const APP_NAME = 'フリモーラ';
+const APP_NAME = 'ZaikoBang';
 app.setName(APP_NAME);
 
 /**
@@ -48,7 +48,8 @@ app.setName(APP_NAME);
  */
 function registerLoginItemOnce() {
   if (!app.isPackaged) return;
-  const marker = path.join(USER_DATA_DIR, '.login-item-registered');
+  // 2026-09-27 に ZaikoBang へ改名した。旧名（フリモーラ.app）で付けた印では新しいアプリが登録されないので、印の名前を分ける
+  const marker = path.join(USER_DATA_DIR, '.login-item-registered-zaikobang');
   if (fs.existsSync(marker)) return;
   try {
     app.setLoginItemSettings({ openAtLogin: true });
@@ -61,7 +62,7 @@ function registerLoginItemOnce() {
 
 const APP_URL = process.env.FURIMORA_URL || 'https://furimora.vercel.app';
 const PARTITION = 'persist:furimora';
-/** メルカリ用ウィンドウのセッション。**フリモーラと同じにする**（理由は createMercariWindow の説明） */
+/** メルカリ用ウィンドウのセッション。**ZaikoBangと同じにする**（理由は createMercariWindow の説明） */
 const MERCARI_PARTITION = PARTITION;
 
 /** 二重起動を許さない。書き手を 1 人に保つのがこのアプリの存在理由なので、ここは譲れない */
@@ -77,9 +78,9 @@ let mainWindow = null;
  * 外部 Chrome + Playwright を畳むための受け皿（~/.furimora/chrome-profile の置き換え）。
  * `show: false` で作るので、そもそも前面に出てくる概念が無い。
  *
- * **セッションはフリモーラと共有する（persist:furimora）。**
+ * **セッションはZaikoBangと共有する（persist:furimora）。**
  * 当初は persist:mercari で分けていたが、値下げの経路は
- * 「在庫カードのクリックで開いたページ」を使うためフリモーラと同じセッションに
+ * 「在庫カードのクリックで開いたページ」を使うためZaikoBangと同じセッションに
  * メルカリのログインが必要で、結果として**メルカリのログインが 2 つある状態**になっていた。
  * 片方が切れると値下げか下書きのどちらかだけが壊れる。1 つに寄せて維持対象を減らす。
  */
@@ -106,7 +107,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 900,
-    title: 'フリモーラ',
+    title: 'ZaikoBang',
     webPreferences: {
       partition: PARTITION,
       contextIsolation: true,
@@ -156,7 +157,7 @@ function createWindow() {
 }
 
 /**
- * フリモーラのウィンドウを確実に用意する。
+ * ZaikoBangのウィンドウを確実に用意する。
  *
  * **macOS ではウィンドウを閉じてもアプリは終了しない**（`window-all-closed` で quit しない）。
  * そのため「アプリは Dock にいるのに自動化だけ失敗する」という分かりにくい状態が起きうる。
@@ -178,7 +179,7 @@ async function ensureMainWindow() {
 }
 
 /**
- * 対象のウィンドウを返す。フリモーラは閉じられていても作り直す。
+ * 対象のウィンドウを返す。ZaikoBangは閉じられていても作り直す。
  * @param {'furimora'|'mercari'|string} target
  */
 async function resolveWindow(target = 'furimora', { create = false } = {}) {
@@ -191,7 +192,7 @@ function createMercariWindow() {
   mercariWindow = new BrowserWindow({
     width: 1280, height: 900,
     show: false,               // 既定で非表示。ログインのときだけ show_window で出す
-    title: 'メルカリ（フリモーラ）',
+    title: 'メルカリ（ZaikoBang）',
     webPreferences: {
       partition: MERCARI_PARTITION,
       contextIsolation: true,
@@ -218,7 +219,7 @@ function requireWindow(target = 'furimora', { create = false } = {}) {
     if (!mercariWindow || mercariWindow.isDestroyed()) throw new Error('メルカリのウィンドウが開いていません');
     return mercariWindow;
   }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('フリモーラのウィンドウが開いていません');
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('ZaikoBangのウィンドウが開いていません');
   return mainWindow;
 }
 
@@ -360,7 +361,7 @@ function assertFurimoraTarget(target, opName) {
   throw new Error(`${opName} が扱えるのは furimora のウィンドウだけです（target=${target}）。${hint}`);
 }
 
-/** フリモーラ自身のオリジンか。外部サイトを開く口を標準版に残さない */
+/** ZaikoBang自身のオリジンか。外部サイトを開く口を標準版に残さない */
 function assertFurimoraOrigin(url) {
   let origin;
   try { origin = new URL(url).origin; } catch { throw new Error(`URL を解釈できません: ${url}`); }
@@ -416,7 +417,7 @@ const ops = {
    */
   async evaluate({ script, userGesture = true, target = 'furimora' }) {
     if (typeof script !== 'string' || !script.trim()) throw new Error('script（文字列）が必要です');
-    // 標準版が触れるのはフリモーラ自身の画面だけ。メルカリと捕捉ウィンドウは
+    // 標準版が触れるのはZaikoBang自身の画面だけ。メルカリと捕捉ウィンドウは
     // Advanced の op（ops/advanced.mjs）が有効なときにこの実装を上書きする。
     assertFurimoraTarget(target, 'evaluate');
     const win = await resolveWindow(target);
@@ -506,7 +507,7 @@ app.on('second-instance', () => {
  * macOS のアプリメニュー。
  *
  * **既定のメニューを消してはいけない。** 編集メニューの役割（コピー・ペースト・
- * すべてを選択）が無いと、メルカリやフリモーラのログイン画面で貼り付けができなくなる。
+ * すべてを選択）が無いと、メルカリやZaikoBangのログイン画面で貼り付けができなくなる。
  * role を使えば OS 標準の挙動がそのまま入る。
  */
 function buildAppMenu() {

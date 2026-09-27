@@ -1,6 +1,6 @@
 {
-  "name": "フリモーラ",
-  "short_name": "フリモーラ",
+  "name": "ZaikoBang",
+  "short_name": "ZaikoBang",
   "description": "メルカリ出品を自動化・最適化するツール",
   "start_url": "/",
   "display": "standalone",
@@ -18,14 +18,14 @@
       "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "label": "フリモーラ",
+      "label": "ZaikoBang",
       "form_factor": "narrow"
     },
     {
       "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "label": "フリモーラ",
+      "label": "ZaikoBang",
       "form_factor": "wide"
     }
   ],
