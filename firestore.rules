@@ -2,12 +2,18 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // ZaikoBang は開発者本人だけの道具。ログインできても本人以外は何も読み書きできない
+    // （api/lib/owner-auth.js の OWNER_UIDS と同じ uid を並べる）
+    function isOwner() {
+      return request.auth != null && request.auth.uid in ['bteOJH42BGPTEXc2t2qFLoGwMiw2'];
+    }
+
     function ownsUserData(userId) {
-      return request.auth != null && request.auth.uid == userId;
+      return isOwner() && request.auth.uid == userId;
     }
 
     function signedIn() {
-      return request.auth != null;
+      return isOwner();
     }
 
     function ownsRootRecord() {

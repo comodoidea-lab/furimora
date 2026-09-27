@@ -1,11 +1,12 @@
 import webpush from 'web-push';
+import { checkOwner } from './lib/owner-auth.js';
 
 export const config = { runtime: 'nodejs' };
 
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
 function sendJson(res, status, data) {
@@ -41,6 +42,12 @@ export default async function handler(req, res) {
     return;
   }
 
+  const denied = await checkOwner(req);
+  if (denied) {
+    sendJson(res, denied.status, { error: denied.error, code: 'OWNER_ONLY' });
+    return;
+  }
+
   const pub = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
   const pri = process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '';
   const contact = process.env.WEB_PUSH_CONTACT || 'mailto:admin@example.com';
@@ -65,7 +72,7 @@ export default async function handler(req, res) {
 
   webpush.setVapidDetails(contact, pub, pri);
   const payload = JSON.stringify({
-    title: body?.title || 'フリモーラ',
+    title: body?.title || 'ZaikoBang',
     body: body?.body || 'テスト通知です',
     url: body?.url || '/',
   });

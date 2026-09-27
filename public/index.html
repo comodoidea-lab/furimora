@@ -1921,6 +1921,11 @@ tailwind.config = {
   const LEGACY = 'https://furimora-assist.vercel.app';
 
   const service = createCloneService({
+    // /api/mercari は本人のログインがないと通らないので、ログインの証明を付けて呼ぶ
+    fetchImpl: async (input, init = {}) => {
+      const headers = await window.furimoraAuthHeaders(Object.fromEntries(new Headers(init.headers || {})));
+      return fetch(input, { ...init, headers });
+    },
     useRelativeApi: true,          // 同一オリジンの /api/mercari を最優先
     apiOrigins: [PRIMARY, LEGACY], // 落ちていれば既知の同一実装オリジンへフォールバック
   });
@@ -2100,6 +2105,13 @@ function furimoraSetFirebaseAutoSync(on) {
 
 function furimoraCurrentUser() {
   return furimoraFirebaseAuth?.currentUser || null;
+}
+
+/** 本人確認つきで API を呼ぶためのヘッダ。API は開発者本人のログインしか通さない */
+async function furimoraAuthHeaders(extra = {}) {
+  const user = furimoraCurrentUser();
+  const token = user ? await user.getIdToken() : '';
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : { ...extra };
 }
 
 function furimoraUserSession(user = furimoraCurrentUser()) {
@@ -7724,9 +7736,10 @@ async function furimoraSendWebPushToAllDevices(payload) {
     .filter((x) => x && x.endpoint);
   if (!subs.length) return { ok: false, sent: 0, reason: 'no subscriptions' };
 
+  const pushHeaders = await furimoraAuthHeaders({ 'Content-Type': 'application/json' });
   const sends = await Promise.allSettled(subs.map((sub) => fetch('/api/push-send', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: pushHeaders,
     body: JSON.stringify({
       subscription: sub,
       title: payload?.title || 'ZaikoBang',

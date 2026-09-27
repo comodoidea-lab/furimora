@@ -7,6 +7,7 @@
 import { SignJWT } from 'jose';
 import { corsHeaders } from './lib/cors.js';
 import { jsonResponse } from './lib/json.js';
+import { checkOwner } from './lib/owner-auth.js';
 
 export const config = { runtime: 'edge' };
 
@@ -133,6 +134,9 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders() });
   }
+
+  const denied = await checkOwner(req);
+  if (denied) return jsonResponse({ error: denied.error, code: 'OWNER_ONLY' }, denied.status);
 
   const { searchParams } = new URL(req.url);
   const url = searchParams.get('url');
