@@ -594,6 +594,14 @@ function buildAppMenu() {
 }
 
 app.whenReady().then(async () => {
+  // 名前解決は Cloudflare の DNS（DoH）を先に使う。Mac や回線側の DNS が
+  // 「存在しない」を覚えていると、住所を移した直後などに Firebase の設定が読めずログインできなくなる
+  // （2026-09-27 に zaikobang.comona-lab.com へ移した直後に実際に起きた）。使えないときは Mac の DNS に戻る
+  try {
+    app.configureHostResolver({ secureDnsMode: 'automatic', secureDnsServers: ['https://cloudflare-dns.com/dns-query'] });
+  } catch (e) {
+    console.error('[zaikobang-desktop] DNS の設定に失敗:', String((e && e.message) || e));
+  }
   await loadAdvanced();
   buildAppMenu();
   // ログイン時の自動起動は既定で登録しない。
