@@ -1,7 +1,10 @@
 {
   "appId": "com.comodoidea.furimora",
   "productName": "ZaikoBang",
-  "directories": { "output": "dist/standard", "buildResources": "build" },
+  "directories": {
+    "output": "dist/standard",
+    "buildResources": "build"
+  },
   "files": [
     "main.mjs",
     "control.mjs",
@@ -10,7 +13,23 @@
   "mac": {
     "category": "public.app-category.business",
     "icon": "build/icon.icns",
-    "target": [{ "target": "dir", "arch": ["arm64"] }],
-    "identity": null
+    "target": [
+      {
+        "target": "dir",
+        "arch": [
+          "arm64"
+        ]
+      }
+    ],
+    "identity": null,
+    "extraResources": [
+      {
+        "from": "build/mac-icon/Assets.car",
+        "to": "Assets.car"
+      }
+    ],
+    "extendInfo": {
+      "CFBundleIconName": "AppIcon"
+    }
   }
 }
